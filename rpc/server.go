@@ -142,6 +142,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/accounts/", s.handleAccount)
 	mux.HandleFunc("/v1/mempool", s.handleMempool)
 	mux.HandleFunc("/v1/transactions", s.handleTransactions)
+	mux.HandleFunc("/v1/transactions/", s.handleTransactionStatus)
 	mux.HandleFunc("/", s.handleNotFound)
 	return s.middleware(mux)
 }
@@ -352,10 +353,6 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 
-// responseStarted is intentionally conservative. The standard ResponseWriter
-// does not expose write state, so panic recovery only writes a JSON error when
-// the recorder/wrapper reports one; otherwise it lets the server close the
-// request rather than risk a second status line.
 func responseStarted(w http.ResponseWriter) bool {
 	type statusReporter interface{ Written() bool }
 	if reporter, ok := w.(statusReporter); ok {
