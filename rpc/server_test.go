@@ -163,7 +163,8 @@ func TestTransactionRequestHardening(t *testing.T) {
 	}
 
 	server.config.MaxBodyBytes = 32
-	oversized := request(t, server, http.MethodPost, "/v1/transactions", []byte(strings.Repeat("x", 128)), "application/json")
+	oversizedBody := []byte(`{"ID":"` + strings.Repeat("x", 128) + `"}`)
+	oversized := request(t, server, http.MethodPost, "/v1/transactions", oversizedBody, "application/json")
 	if oversized.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversized body returned %d", oversized.Code)
 	}
