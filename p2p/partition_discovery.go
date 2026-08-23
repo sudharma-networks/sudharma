@@ -1,8 +1,17 @@
 package p2p
 
-import "sort"
+import (
+	"sort"
+	"sync"
+	"time"
+)
 
-const MaxPartitionRecoveryDiscoverySources = 8
+const (
+	MaxPartitionRecoveryDiscoverySources = 8
+	DefaultPartitionRecoveryInterval     = 5 * time.Minute
+)
+
+var nodePartitionRecoveryLoops sync.Map
 
 // partitionDiscoveryCandidates returns at most one connected peer from each
 // network group. Asking independent groups for peer lists makes discovery less
@@ -46,9 +55,7 @@ func (n *Node) partitionDiscoveryCandidates() []*PeerConnection {
 	return selected
 }
 
-// RequestPartitionRecoveryPeers asks diverse connected peers for independent
-// discovery snapshots. Failure of one source does not stop requests to others.
-func (n *Node) RequestPartitionRecoveryPeers() (requested int, failed int) {
+func (n *Node) requestPartitionRecoveryPeersOnce() (requested int, failed int) {
 	for _, peer := range n.partitionDiscoveryCandidates() {
 		data, err := NewGetPeersMessage()
 		if err != nil {
@@ -62,4 +69,46 @@ func (n *Node) RequestPartitionRecoveryPeers() (requested int, failed int) {
 		requested++
 	}
 	return requested, failed
+}
+
+func (n *Node) ensurePartitionRecoveryLoop() {
+	if n == nil {
+		return
+	}
+
+	n.mu.RLock()
+	running := n.listener != nil
+	n.mu.RUnlock()
+	if !running {
+		return
+	}
+
+	if _, loaded := nodePartitionRecoveryLoops.LoadOrStore(n, struct{}{}); loaded {
+		return
+	}
+
+	go func() {
+		ticker := time.NewTicker(DefaultPartitionRecoveryInterval)
+		defer ticker.Stop()
+		defer nodePartitionRecoveryLoops.Delete(n)
+
+		for range ticker.C {
+			n.mu.RLock()
+			stillRunning := n.listener != nil
+			n.mu.RUnlock()
+			if !stillRunning {
+				return
+			}
+			n.requestPartitionRecoveryPeersOnce()
+		}
+	}()
+}
+
+// RequestPartitionRecoveryPeers asks diverse connected peers for independent
+// discovery snapshots. Failure of one source does not stop requests to others.
+// Once the node is running, the first call also starts a single periodic
+// recovery loop so discovery is refreshed after later network partitions.
+func (n *Node) RequestPartitionRecoveryPeers() (requested int, failed int) {
+	n.ensurePartitionRecoveryLoop()
+	return n.requestPartitionRecoveryPeersOnce()
 }
