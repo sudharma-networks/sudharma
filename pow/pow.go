@@ -6,6 +6,7 @@ import (
 	"math/big"
 
 	"github.com/sudharma-networks/sudharma/blockchain"
+	"github.com/sudharma-networks/sudharma/consensus"
 )
 
 // HashBlock calculates the canonical Sudharma Network PoW hash.
@@ -28,23 +29,18 @@ func sha256Hash(data []byte) []byte {
 	return hash
 }
 
-// TargetFromDifficulty converts difficulty to a 256-bit target.
+// TargetFromDifficulty returns the canonical consensus PoW target.
 func TargetFromDifficulty(difficulty uint32) *big.Int {
-	if difficulty == 0 {
-		difficulty = 1
-	}
-
-	max := new(big.Int).Lsh(big.NewInt(1), 256)
-	max.Sub(max, big.NewInt(1))
-
-	return new(big.Int).Div(
-		max,
-		new(big.Int).SetUint64(uint64(difficulty)),
+	return consensus.TargetFromDifficulty(
+		difficulty,
 	)
 }
 
 // ValidHash checks whether a hash satisfies the PoW target.
 func ValidHash(hash string, difficulty uint32) bool {
+	if difficulty == 0 {
+		return false
+	}
 	target := TargetFromDifficulty(difficulty)
 
 	hashBytes, err := hex.DecodeString(hash)

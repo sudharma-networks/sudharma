@@ -51,3 +51,6 @@ repair_step*.ps1
 
 # Historical source snapshots
 *.go.txt
+
+# Local Step 56 safety backups
+*.backup-step*

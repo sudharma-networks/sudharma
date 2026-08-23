@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math/big"
 	"sync"
+
+	"github.com/sudharma-networks/sudharma/consensus"
 )
 
 type Chain struct {
@@ -127,23 +129,17 @@ func (c *Chain) AddBlock(block *Block) error {
 	return nil
 }
 
-// blockWork estimates the amount of Proof-of-Work
+// blockWork returns the exact target-derived Proof-of-Work
 // represented by a block at the given difficulty.
 //
-// For our current Sudharma Network development difficulty model,
-// work is proportional to difficulty.
-//
-// Later, when the final PoW target format is locked,
-// we can use exact target-derived chain work.
+// The calculation is consensus-critical and delegates to the
+// canonical consensus WorkFromDifficulty implementation.
+
 func blockWork(
 	difficulty uint32,
 ) *big.Int {
 
-	if difficulty == 0 {
-		return big.NewInt(0)
-	}
-
-	return new(big.Int).SetUint64(
-		uint64(difficulty),
+	return consensus.WorkFromDifficulty(
+		difficulty,
 	)
 }

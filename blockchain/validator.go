@@ -152,24 +152,7 @@ func blockTargetFromDifficulty(
 	difficulty uint32,
 ) *big.Int {
 
-	if difficulty == 0 {
-		return big.NewInt(0)
-	}
-
-	maxHash := new(big.Int).Lsh(
-		big.NewInt(1),
-		256,
-	)
-
-	maxHash.Sub(
-		maxHash,
-		big.NewInt(1),
-	)
-
-	return new(big.Int).Div(
-		maxHash,
-		new(big.Int).SetUint64(
-			uint64(difficulty),
-		),
+	return consensus.TargetFromDifficulty(
+		difficulty,
 	)
 }
