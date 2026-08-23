@@ -3,6 +3,7 @@ package p2p
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 	"time"
@@ -301,6 +302,12 @@ func (n *Node) readLoop(peer *PeerConnection) {
 	}()
 
 	for {
+		if peer == nil || peer.conn == nil || peer.reader == nil {
+			return
+		}
+		if err := setPeerReadDeadline(peer.conn); err != nil {
+			return
+		}
 		data, err := readBoundedPeerMessage(peer.reader)
 		if err != nil {
 			return
@@ -460,10 +467,27 @@ func (n *Node) readLoop(peer *PeerConnection) {
 }
 
 func (p *PeerConnection) write(data []byte) error {
+	if p == nil || p.conn == nil {
+		return fmt.Errorf("peer connection is unavailable")
+	}
 	p.writeMu.Lock()
 	defer p.writeMu.Unlock()
-	_, err := p.conn.Write(data)
-	return err
+
+	if err := setPeerWriteDeadline(p.conn); err != nil {
+		return err
+	}
+	written := 0
+	for written < len(data) {
+		n, err := p.conn.Write(data[written:])
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return io.ErrUnexpectedEOF
+		}
+		written += n
+	}
+	return nil
 }
 
 func (n *Node) SendPing(nodeID string, nonce uint64) error {
