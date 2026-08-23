@@ -18,6 +18,13 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "sudharma-rpcd: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	nodeID := flag.String("nodeid", "rpc-node", "unique Sudharma Network node ID")
 	p2pAddress := flag.String("listen", "127.0.0.1:18444", "P2P listen address")
 	rpcAddress := flag.String("rpc", rpc.DefaultListenAddress, "HTTP RPC listen address")
@@ -31,22 +38,22 @@ func main() {
 
 	chain, err := loadOrCreateChain(chainPath)
 	if err != nil {
-		fatal("blockchain startup failed", err)
+		return fmt.Errorf("blockchain startup failed: %w", err)
 	}
 	state, err := loadOrCreateState(chain, statePath)
 	if err != nil {
-		fatal("state startup failed", err)
+		return fmt.Errorf("state startup failed: %w", err)
 	}
 
 	node, err := p2p.NewNode(*nodeID, *p2pAddress, chain.Height(), chain.Tip().Hash())
 	if err != nil {
-		fatal("P2P node creation failed", err)
+		return fmt.Errorf("P2P node creation failed: %w", err)
 	}
 	if err := node.SetChain(chain); err != nil {
-		fatal("chain attachment failed", err)
+		return fmt.Errorf("chain attachment failed: %w", err)
 	}
 	if err := node.SetState(state); err != nil {
-		fatal("state attachment failed", err)
+		return fmt.Errorf("state attachment failed: %w", err)
 	}
 
 	if _, _, err := node.LoadMempoolFromFile(mempoolPath); err != nil && !os.IsNotExist(err) {
@@ -55,23 +62,28 @@ func main() {
 	}
 
 	if err := node.Start(); err != nil {
-		fatal("P2P startup failed", err)
+		return fmt.Errorf("P2P startup failed: %w", err)
 	}
-	defer node.Stop()
+	nodeStopped := false
+	defer func() {
+		if !nodeStopped {
+			_ = node.Stop()
+		}
+	}()
 
 	if *peerAddress != "" {
 		peer, err := node.Connect(*peerAddress)
 		if err != nil {
-			fatal("peer bootstrap failed", err)
+			return fmt.Errorf("peer bootstrap failed: %w", err)
 		}
 		if err := node.SyncFromPeer(peer.NodeID, 10*time.Second); err != nil {
-			fatal("chain synchronization failed", err)
+			return fmt.Errorf("chain synchronization failed: %w", err)
 		}
 		if err := node.SyncMempoolWithPeer(peer.NodeID); err != nil {
-			fatal("mempool synchronization failed", err)
+			return fmt.Errorf("mempool synchronization failed: %w", err)
 		}
 		if err := saveData(chain, state, node, chainPath, statePath, mempoolPath); err != nil {
-			fatal("post-sync persistence failed", err)
+			return fmt.Errorf("post-sync persistence failed: %w", err)
 		}
 	}
 
@@ -79,16 +91,16 @@ func main() {
 	rpcConfig.ListenAddress = *rpcAddress
 	rpcServer, err := rpc.NewServer(rpcConfig, node, chain, state)
 	if err != nil {
-		fatal("RPC server creation failed", err)
+		return fmt.Errorf("RPC server creation failed: %w", err)
 	}
 
 	rpcErrors := make(chan error, 1)
 	go func() {
-		if err := rpcServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			rpcErrors <- err
-			return
+		err := rpcServer.ListenAndServe()
+		if errors.Is(err, http.ErrServerClosed) {
+			err = nil
 		}
-		rpcErrors <- nil
+		rpcErrors <- err
 	}()
 
 	fmt.Printf("Sudharma RPC node running | P2P: %s | RPC: %s | Height: %d\n", node.ListenAddress, *rpcAddress, chain.Height())
@@ -102,22 +114,24 @@ func main() {
 		fmt.Printf("[RPCD] shutdown signal: %s\n", sig)
 	case err := <-rpcErrors:
 		if err != nil {
-			fatal("RPC server failed", err)
+			return fmt.Errorf("RPC server failed: %w", err)
 		}
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := rpcServer.Shutdown(shutdownCtx); err != nil {
-		fmt.Printf("[RPCD] RPC shutdown warning: %v\n", err)
+		return fmt.Errorf("RPC shutdown failed: %w", err)
 	}
 	if err := saveData(chain, state, node, chainPath, statePath, mempoolPath); err != nil {
-		fatal("shutdown persistence failed", err)
+		return fmt.Errorf("shutdown persistence failed: %w", err)
 	}
 	if err := node.Stop(); err != nil {
-		fmt.Printf("[RPCD] P2P shutdown warning: %v\n", err)
+		return fmt.Errorf("P2P shutdown failed: %w", err)
 	}
+	nodeStopped = true
 	fmt.Println("Sudharma RPC node stopped cleanly.")
+	return nil
 }
 
 func loadOrCreateChain(path string) (*blockchain.Chain, error) {
@@ -170,9 +184,4 @@ func saveData(chain *blockchain.Chain, state *blockchain.State, node *p2p.Node, 
 		return fmt.Errorf("save mempool: %w", err)
 	}
 	return nil
-}
-
-func fatal(message string, err error) {
-	fmt.Fprintf(os.Stderr, "%s: %v\n", message, err)
-	os.Exit(1)
 }
