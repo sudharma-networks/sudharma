@@ -47,6 +47,16 @@ func (n *Node) Chain() *blockchain.Chain {
 	return n.chain
 }
 
+// AdvertisedChainStatus returns a synchronized snapshot of the chain status
+// exposed to peers. Callers must use this instead of reading Height and TipHash
+// directly while the node is running because RefreshChainStatus may update them
+// from a peer read loop.
+func (n *Node) AdvertisedChainStatus() (uint64, string) {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.Height, n.TipHash
+}
+
 // RefreshChainStatus updates the height and tip hash
 // advertised by this P2P node.
 func (n *Node) RefreshChainStatus() {

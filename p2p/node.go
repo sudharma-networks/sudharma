@@ -3,6 +3,7 @@ package p2p
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 	"time"
@@ -49,8 +50,15 @@ type Node struct {
 	chain           *blockchain.Chain
 
 	// Only one synchronous block-range request is allowed at a time for now.
-	syncRequestMu sync.Mutex
+	syncRequestMu  sync.Mutex
 	blocksResponse chan []*blockchain.Block
+
+	// Bounds unauthenticated inbound handshake work before peer admission.
+	inboundHandshakeSlots chan struct{}
+	// Tracks accepted inbound connections until handshake admission completes so
+	// Stop can cancel unauthenticated work immediately instead of waiting for the
+	// handshake deadline.
+	inboundHandshakeConns map[net.Conn]struct{}
 }
 
 func NewNode(nodeID, listenAddress string, height uint64, tipHash string) (*Node, error) {
@@ -62,14 +70,16 @@ func NewNode(nodeID, listenAddress string, height uint64, tipHash string) (*Node
 	}
 
 	return &Node{
-		NodeID:          nodeID,
-		ListenAddress:   listenAddress,
-		Height:          height,
-		TipHash:         tipHash,
-		peers:           make(map[string]*PeerConnection),
-		discoveredPeers: make(map[string]KnownPeer),
-		mempool:         mempool.NewMempool(),
-		blocksResponse:  make(chan []*blockchain.Block, 1),
+		NodeID:                 nodeID,
+		ListenAddress:          listenAddress,
+		Height:                 height,
+		TipHash:                tipHash,
+		peers:                  make(map[string]*PeerConnection),
+		discoveredPeers:        make(map[string]KnownPeer),
+		mempool:                mempool.NewMempool(),
+		blocksResponse:         make(chan []*blockchain.Block, 1),
+		inboundHandshakeSlots:  make(chan struct{}, MaxConcurrentInboundHandshakes),
+		inboundHandshakeConns:  make(map[net.Conn]struct{}),
 	}, nil
 }
 
@@ -126,8 +136,18 @@ func (n *Node) Stop() error {
 		peers = append(peers, peer)
 	}
 	n.peers = make(map[string]*PeerConnection)
+	handshakes := make([]net.Conn, 0, len(n.inboundHandshakeConns))
+	for conn := range n.inboundHandshakeConns {
+		handshakes = append(handshakes, conn)
+	}
+	n.inboundHandshakeConns = make(map[net.Conn]struct{})
 	n.mu.Unlock()
 
+	for _, conn := range handshakes {
+		if conn != nil {
+			_ = conn.Close()
+		}
+	}
 	for _, peer := range peers {
 		if peer != nil && peer.conn != nil {
 			_ = peer.conn.Close()
@@ -147,11 +167,36 @@ func (n *Node) acceptLoop() {
 		if listener == nil {
 			return
 		}
+
 		conn, err := listener.Accept()
 		if err != nil {
-			return
+			// A listener close during Stop is terminal. Other accept failures are
+			// treated as transient so one network hiccup does not kill the node's
+			// inbound connectivity loop.
+			n.mu.RLock()
+			stillRunning := n.listener == listener
+			n.mu.RUnlock()
+			if !stillRunning {
+				return
+			}
+			time.Sleep(25 * time.Millisecond)
+			continue
 		}
-		go n.handleIncomingConnection(conn)
+
+		if !n.tryAcquireInboundHandshake() {
+			_ = conn.Close()
+			continue
+		}
+		if !n.trackInboundHandshake(listener, conn) {
+			n.releaseInboundHandshake()
+			_ = conn.Close()
+			continue
+		}
+		go func() {
+			defer n.releaseInboundHandshake()
+			defer n.untrackInboundHandshake(conn)
+			n.handleIncomingConnection(conn)
+		}()
 	}
 }
 
@@ -159,7 +204,7 @@ func (n *Node) handleIncomingConnection(conn net.Conn) {
 	reader := bufio.NewReader(conn)
 	_ = conn.SetDeadline(time.Now().Add(DefaultDialTimeout))
 
-	data, err := reader.ReadBytes('\n')
+	data, err := readBoundedPeerMessage(reader)
 	if err != nil {
 		_ = conn.Close()
 		return
@@ -227,7 +272,7 @@ func (n *Node) Connect(address string) (*PeerInfo, error) {
 		return nil, fmt.Errorf("failed to send handshake: %w", err)
 	}
 
-	data, err := reader.ReadBytes('\n')
+	data, err := readBoundedPeerMessage(reader)
 	if err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("failed to read handshake response: %w", err)
@@ -294,14 +339,20 @@ func (n *Node) punishPeer(peer *PeerConnection, amount int, reason string) bool 
 
 func (n *Node) readLoop(peer *PeerConnection) {
 	defer func() {
-		n.removePeer(peer.Info.NodeID)
+		n.removePeerConnection(peer)
 		if peer.conn != nil {
 			_ = peer.conn.Close()
 		}
 	}()
 
 	for {
-		data, err := peer.reader.ReadBytes('\n')
+		if peer == nil || peer.conn == nil || peer.reader == nil {
+			return
+		}
+		if err := setPeerReadDeadline(peer.conn); err != nil {
+			return
+		}
+		data, err := readBoundedPeerMessage(peer.reader)
 		if err != nil {
 			return
 		}
@@ -460,10 +511,27 @@ func (n *Node) readLoop(peer *PeerConnection) {
 }
 
 func (p *PeerConnection) write(data []byte) error {
+	if p == nil || p.conn == nil {
+		return fmt.Errorf("peer connection is unavailable")
+	}
 	p.writeMu.Lock()
 	defer p.writeMu.Unlock()
-	_, err := p.conn.Write(data)
-	return err
+
+	if err := setPeerWriteDeadline(p.conn); err != nil {
+		return err
+	}
+	written := 0
+	for written < len(data) {
+		n, err := p.conn.Write(data[written:])
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return io.ErrUnexpectedEOF
+		}
+		written += n
+	}
+	return nil
 }
 
 func (n *Node) SendPing(nodeID string, nonce uint64) error {
