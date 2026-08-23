@@ -1,0 +1,10 @@
+{
+  "node_id": "testnet-seed-2",
+  "p2p_address": "127.0.0.1:28445",
+  "rpc_address": "127.0.0.1:28546",
+  "peers": ["127.0.0.1:28444"],
+  "data_directory": "data-testnet-rehearsal/seed-2",
+  "log_json": true,
+  "metrics": true,
+  "persist_every": "10s"
+}
