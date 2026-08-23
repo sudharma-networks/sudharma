@@ -15,10 +15,11 @@ func TestHandleGetBlocksSecurePenalizesMalformedRequest(t *testing.T) {
 	defer clearNodePeerScorer(node)
 
 	peer := &PeerConnection{Info: PeerInfo{NodeID: "peer-a"}}
-	message := &Message{
-		Type:    MessageGetBlocks,
-		Payload: json.RawMessage(`{"start_height":1,"limit":0}`),
+	payload, err := json.Marshal(GetBlocksMessage{StartHeight: 1, Limit: 0})
+	if err != nil {
+		t.Fatal(err)
 	}
+	message := &Message{Type: MessageGetBlocks, Payload: payload}
 
 	node.handleGetBlocksSecure(peer, message)
 	if got := node.PeerScore("peer-a"); got != -PeerPenaltyMalformed {
