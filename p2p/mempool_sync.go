@@ -81,7 +81,8 @@ func (n *Node) syncMempoolToPeer(
 //
 // The method:
 //  1. sends this node's current pending transactions to the peer;
-//  2. asks the peer to send its current pending transactions back.
+//  2. asks the peer to send its current pending transactions back;
+//  3. asks diverse connected peers for independent discovery snapshots.
 func (n *Node) SyncMempoolWithPeer(
 	nodeID string,
 ) error {
@@ -154,6 +155,15 @@ func (n *Node) SyncMempoolWithPeer(
 		"[MEMPOOL] Requested pending transactions from %s after chain sync\n",
 		nodeID,
 	)
+
+	requested, failed := n.RequestPartitionRecoveryPeers()
+	if requested > 0 || failed > 0 {
+		fmt.Printf(
+			"[PEERS] Partition-recovery discovery requests | Sent: %d | Failed: %d\n",
+			requested,
+			failed,
+		)
+	}
 
 	return nil
 }
