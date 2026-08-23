@@ -1,0 +1,53 @@
+# Sudharma Network - Git Ignore
+
+# Private wallets and keys
+wallets/
+*.wallet
+*-treasury.json
+*.pem
+*.key
+
+# Environment and secrets
+.env
+.env.*
+*.secret
+secrets/
+
+# Node runtime data
+data/
+data-*/
+
+# Development backups
+*_backup_*
+*backup-before*
+*backup_before*
+*.bak
+
+# Go build artifacts
+*.exe
+*.test
+*.out
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.log
+
+# Local migration backup
+go.mod.backup-before-step55e7
+
+# Historical local migration / repair scripts
+apply_step*.ps1
+fix_step*.ps1
+repair_step*.ps1
+
+# Historical source snapshots
+*.go.txt
