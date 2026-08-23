@@ -32,14 +32,31 @@ func TestProfileRejectsPortCollision(t *testing.T) {
 	}
 }
 
-func TestPublicLaunchRequiresTwoSeeds(t *testing.T) {
+func TestPublicLaunchRequiresTwoPublicSeeds(t *testing.T) {
 	p := DefaultProfile()
-	p.Seeds = []string{"seed1.example.org:28444"}
+	p.Seeds = []string{"seed1.sudharma.net:28444"}
 	if err := p.ValidatePublicLaunch(); err == nil {
 		t.Fatal("expected public launch to require two seed nodes")
 	}
-	p.Seeds = append(p.Seeds, "seed2.example.org:28444")
+	p.Seeds = append(p.Seeds, "seed2.sudharma.net:28444")
 	if err := p.ValidatePublicLaunch(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPublicLaunchRejectsClearlyPrivateOrReservedSeeds(t *testing.T) {
+	cases := []string{
+		"127.0.0.1:28444",
+		"10.0.0.10:28444",
+		"localhost:28444",
+		"seed.local:28444",
+		"seed.example:28444",
+	}
+	for _, seed := range cases {
+		p := DefaultProfile()
+		p.Seeds = []string{seed, "seed2.sudharma.net:28444"}
+		if err := p.ValidatePublicLaunch(); err == nil {
+			t.Fatalf("expected %q to be rejected as a public seed", seed)
+		}
 	}
 }
