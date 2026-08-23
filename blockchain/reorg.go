@@ -146,6 +146,9 @@ func ReorganizeToCandidate(current *Chain, currentState *State, candidate *Chain
 	if err != nil {
 		return false, fmt.Errorf("failed calculating reorg depth: %w", err)
 	}
+	if err := ValidateFinalizedReorg(current, candidate); err != nil {
+		return false, err
+	}
 	if err := ValidateAutomaticReorgDepth(reorgDepth); err != nil {
 		return false, fmt.Errorf("%w (common height %d)", err, commonHeight)
 	}
