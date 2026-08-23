@@ -134,7 +134,15 @@ func ReorganizeToCandidate(current *Chain, currentState *State, candidate *Chain
 		return false, fmt.Errorf("candidate chain cannot be nil")
 	}
 
-	best, err := BetterChain(current, candidate)
+	// Never trust a candidate chain's cached cumulative-work value for fork
+	// choice. Rebuild it through normal consensus validation first so both
+	// validity and cumulative work are derived locally from its blocks.
+	validatedCandidate, err := ValidateAndCloneChain(candidate)
+	if err != nil {
+		return false, fmt.Errorf("candidate chain validation failed: %w", err)
+	}
+
+	best, err := BetterChain(current, validatedCandidate)
 	if err != nil {
 		return false, err
 	}
@@ -142,11 +150,11 @@ func ReorganizeToCandidate(current *Chain, currentState *State, candidate *Chain
 		return false, nil
 	}
 
-	reorgDepth, commonHeight, err := ReorgDepth(current, candidate)
+	reorgDepth, commonHeight, err := ReorgDepth(current, validatedCandidate)
 	if err != nil {
 		return false, fmt.Errorf("failed calculating reorg depth: %w", err)
 	}
-	if err := ValidateFinalizedReorg(current, candidate); err != nil {
+	if err := ValidateFinalizedReorg(current, validatedCandidate); err != nil {
 		return false, err
 	}
 	if err := ValidateAutomaticReorgDepth(reorgDepth); err != nil {
@@ -154,7 +162,7 @@ func ReorganizeToCandidate(current *Chain, currentState *State, candidate *Chain
 	}
 
 	// Build candidate state completely before changing live data.
-	candidateState, err := BuildStateFromChain(candidate)
+	candidateState, err := BuildStateFromChain(validatedCandidate)
 	if err != nil {
 		return false, fmt.Errorf("candidate state rebuild failed: %w", err)
 	}
@@ -166,7 +174,7 @@ func ReorganizeToCandidate(current *Chain, currentState *State, candidate *Chain
 	}
 	originalState := currentState.Clone()
 
-	if err := current.ReplaceWith(candidate); err != nil {
+	if err := current.ReplaceWith(validatedCandidate); err != nil {
 		return false, fmt.Errorf("failed replacing chain: %w", err)
 	}
 
