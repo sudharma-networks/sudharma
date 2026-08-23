@@ -55,6 +55,10 @@ type Node struct {
 
 	// Bounds unauthenticated inbound handshake work before peer admission.
 	inboundHandshakeSlots chan struct{}
+	// Tracks accepted inbound connections until handshake admission completes so
+	// Stop can cancel unauthenticated work immediately instead of waiting for the
+	// handshake deadline.
+	inboundHandshakeConns map[net.Conn]struct{}
 }
 
 func NewNode(nodeID, listenAddress string, height uint64, tipHash string) (*Node, error) {
@@ -66,15 +70,16 @@ func NewNode(nodeID, listenAddress string, height uint64, tipHash string) (*Node
 	}
 
 	return &Node{
-		NodeID:                nodeID,
-		ListenAddress:         listenAddress,
-		Height:                height,
-		TipHash:               tipHash,
-		peers:                 make(map[string]*PeerConnection),
-		discoveredPeers:       make(map[string]KnownPeer),
-		mempool:               mempool.NewMempool(),
-		blocksResponse:        make(chan []*blockchain.Block, 1),
-		inboundHandshakeSlots: make(chan struct{}, MaxConcurrentInboundHandshakes),
+		NodeID:                 nodeID,
+		ListenAddress:          listenAddress,
+		Height:                 height,
+		TipHash:                tipHash,
+		peers:                  make(map[string]*PeerConnection),
+		discoveredPeers:        make(map[string]KnownPeer),
+		mempool:                mempool.NewMempool(),
+		blocksResponse:         make(chan []*blockchain.Block, 1),
+		inboundHandshakeSlots:  make(chan struct{}, MaxConcurrentInboundHandshakes),
+		inboundHandshakeConns:  make(map[net.Conn]struct{}),
 	}, nil
 }
 
@@ -131,8 +136,18 @@ func (n *Node) Stop() error {
 		peers = append(peers, peer)
 	}
 	n.peers = make(map[string]*PeerConnection)
+	handshakes := make([]net.Conn, 0, len(n.inboundHandshakeConns))
+	for conn := range n.inboundHandshakeConns {
+		handshakes = append(handshakes, conn)
+	}
+	n.inboundHandshakeConns = make(map[net.Conn]struct{})
 	n.mu.Unlock()
 
+	for _, conn := range handshakes {
+		if conn != nil {
+			_ = conn.Close()
+		}
+	}
 	for _, peer := range peers {
 		if peer != nil && peer.conn != nil {
 			_ = peer.conn.Close()
@@ -172,8 +187,14 @@ func (n *Node) acceptLoop() {
 			_ = conn.Close()
 			continue
 		}
+		if !n.trackInboundHandshake(listener, conn) {
+			n.releaseInboundHandshake()
+			_ = conn.Close()
+			continue
+		}
 		go func() {
 			defer n.releaseInboundHandshake()
+			defer n.untrackInboundHandshake(conn)
 			n.handleIncomingConnection(conn)
 		}()
 	}

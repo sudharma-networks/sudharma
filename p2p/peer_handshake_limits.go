@@ -1,5 +1,7 @@
 package p2p
 
+import "net"
+
 const (
 	// MaxConcurrentInboundHandshakes bounds unauthenticated inbound work before
 	// a peer is admitted to the live peer set. It complements the established
@@ -28,4 +30,31 @@ func (n *Node) releaseInboundHandshake() {
 	case <-n.inboundHandshakeSlots:
 	default:
 	}
+}
+
+func (n *Node) trackInboundHandshake(listener net.Listener, conn net.Conn) bool {
+	if n == nil || listener == nil || conn == nil {
+		return false
+	}
+
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.listener != listener {
+		return false
+	}
+	if n.inboundHandshakeConns == nil {
+		n.inboundHandshakeConns = make(map[net.Conn]struct{})
+	}
+	n.inboundHandshakeConns[conn] = struct{}{}
+	return true
+}
+
+func (n *Node) untrackInboundHandshake(conn net.Conn) {
+	if n == nil || conn == nil {
+		return
+	}
+
+	n.mu.Lock()
+	delete(n.inboundHandshakeConns, conn)
+	n.mu.Unlock()
 }
