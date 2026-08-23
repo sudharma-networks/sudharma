@@ -49,7 +49,7 @@ type Node struct {
 	chain           *blockchain.Chain
 
 	// Only one synchronous block-range request is allowed at a time for now.
-	syncRequestMu sync.Mutex
+	syncRequestMu  sync.Mutex
 	blocksResponse chan []*blockchain.Block
 }
 
@@ -159,7 +159,7 @@ func (n *Node) handleIncomingConnection(conn net.Conn) {
 	reader := bufio.NewReader(conn)
 	_ = conn.SetDeadline(time.Now().Add(DefaultDialTimeout))
 
-	data, err := reader.ReadBytes('\n')
+	data, err := readBoundedPeerMessage(reader)
 	if err != nil {
 		_ = conn.Close()
 		return
@@ -227,7 +227,7 @@ func (n *Node) Connect(address string) (*PeerInfo, error) {
 		return nil, fmt.Errorf("failed to send handshake: %w", err)
 	}
 
-	data, err := reader.ReadBytes('\n')
+	data, err := readBoundedPeerMessage(reader)
 	if err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("failed to read handshake response: %w", err)
@@ -301,7 +301,7 @@ func (n *Node) readLoop(peer *PeerConnection) {
 	}()
 
 	for {
-		data, err := peer.reader.ReadBytes('\n')
+		data, err := readBoundedPeerMessage(peer.reader)
 		if err != nil {
 			return
 		}
