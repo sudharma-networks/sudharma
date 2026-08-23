@@ -3,15 +3,16 @@ package p2p
 import "sync"
 
 const (
-	PeerScoreInitial           = 0
-	PeerScoreMin               = -100
-	PeerScoreMax               = 100
-	PeerScoreGoodEvent         = 1
-	PeerPenaltyMalformed       = 10
-	PeerPenaltyInvalidData     = 20
-	PeerPenaltyProtocolAbuse   = 30
-	PeerDisconnectThreshold    = -50
-	PeerAvoidThreshold         = -30
+	PeerScoreInitial             = 0
+	PeerScoreMin                 = -100
+	PeerScoreMax                 = 100
+	PeerScoreGoodEvent           = 1
+	PeerPenaltyConnectionFailure = 2
+	PeerPenaltyMalformed         = 10
+	PeerPenaltyInvalidData       = 20
+	PeerPenaltyProtocolAbuse     = 30
+	PeerDisconnectThreshold      = -50
+	PeerAvoidThreshold           = -30
 )
 
 // PeerScorer tracks bounded reputation scores for remote peers.
