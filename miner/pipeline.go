@@ -5,7 +5,6 @@ import (
 
 	"github.com/sudharma-networks/sudharma/blockchain"
 	"github.com/sudharma-networks/sudharma/blockchain/mempool"
-	"github.com/sudharma-networks/sudharma/consensus"
 )
 
 func MineNextBlock(
@@ -15,159 +14,72 @@ func MineNextBlock(
 	minerAddress string,
 	maxAttempts uint64,
 ) (Result, uint64, error) {
-
 	var emptyResult Result
 
 	if chain == nil {
-		return emptyResult, 0,
-			fmt.Errorf("chain cannot be nil")
+		return emptyResult, 0, fmt.Errorf("chain cannot be nil")
 	}
-
 	if state == nil {
-		return emptyResult, 0,
-			fmt.Errorf("state cannot be nil")
+		return emptyResult, 0, fmt.Errorf("state cannot be nil")
 	}
-
 	if pool == nil {
-		return emptyResult, 0,
-			fmt.Errorf("mempool cannot be nil")
+		return emptyResult, 0, fmt.Errorf("mempool cannot be nil")
 	}
-
 	if minerAddress == "" {
-		return emptyResult, 0,
-			fmt.Errorf("miner address cannot be empty")
+		return emptyResult, 0, fmt.Errorf("miner address cannot be empty")
 	}
-
 	if maxAttempts == 0 {
-		return emptyResult, 0,
-			fmt.Errorf(
-				"max mining attempts must be greater than zero",
-			)
+		return emptyResult, 0, fmt.Errorf("max mining attempts must be greater than zero")
 	}
 
 	previous := chain.Tip()
-
 	if previous == nil {
-		return emptyResult, 0,
-			fmt.Errorf("chain tip cannot be nil")
+		return emptyResult, 0, fmt.Errorf("chain tip cannot be nil")
 	}
 
-	block, err :=
-		blockchain.NewBlockFromMempool(
-			previous,
-			pool,
-		)
-
+	block, err := blockchain.NewBlockFromMempool(previous, pool)
 	if err != nil {
-		return emptyResult, 0,
-			fmt.Errorf(
-				"failed to build candidate block: %w",
-				err,
-			)
+		return emptyResult, 0, fmt.Errorf("failed to build candidate block: %w", err)
 	}
-
 	if block.Timestamp <= previous.Timestamp {
-		block.Timestamp =
-			previous.Timestamp + 1
+		block.Timestamp = previous.Timestamp + 1
 	}
 
-	actualBlockTime :=
-		block.Timestamp -
-			previous.Timestamp
+	block.Difficulty, err = blockchain.ExpectedNextDifficulty(chain)
+	if err != nil {
+		return emptyResult, 0, fmt.Errorf("failed calculating mining difficulty: %w", err)
+	}
 
-	block.Difficulty =
-		consensus.NextDifficulty(
-			previous.Difficulty,
-			actualBlockTime,
-		)
-
-	// The miner payout destination is now committed
-	// into the block header before mining.
-	block.MinerAddress =
-		minerAddress
-
+	block.MinerAddress = minerAddress
 	block.Nonce = 0
-
 	block.UpdateMerkleRoot()
 
-	result := Mine(
-		block,
-		0,
-		maxAttempts,
-	)
-
+	result := Mine(block, 0, maxAttempts)
 	if !result.Found {
-		return result, 0,
-			fmt.Errorf(
-				"no valid nonce found after %d attempts",
-				maxAttempts,
-			)
+		return result, 0, fmt.Errorf("no valid nonce found after %d attempts", maxAttempts)
 	}
 
-	if err :=
-		blockchain.ValidateBlockBasic(
-			block,
-			previous,
-		); err != nil {
-
-		return result, 0,
-			fmt.Errorf(
-				"mined block failed validation: %w",
-				err,
-			)
+	if err := blockchain.ValidateBlockAgainstChain(chain, block); err != nil {
+		return result, 0, fmt.Errorf("mined block failed validation: %w", err)
 	}
 
-	workingState :=
-		state.Clone()
-
-	minerReward, err :=
-		blockchain.ProcessBlock(
-			workingState,
-			block,
-			block.MinerAddress,
-		)
-
+	workingState := state.Clone()
+	minerReward, err := blockchain.ProcessBlock(workingState, block, block.MinerAddress)
 	if err != nil {
-		return result, 0,
-			fmt.Errorf(
-				"failed to process mined block: %w",
-				err,
-			)
+		return result, 0, fmt.Errorf("failed to process mined block: %w", err)
 	}
 
-	if err :=
-		chain.AddBlock(
-			block,
-		); err != nil {
-
-		return result, 0,
-			fmt.Errorf(
-				"failed to add mined block to chain: %w",
-				err,
-			)
+	if err := chain.AddBlock(block); err != nil {
+		return result, 0, fmt.Errorf("failed to add mined block to chain: %w", err)
 	}
-
-	if err :=
-		state.ReplaceWith(
-			workingState,
-		); err != nil {
-
-		return result, 0,
-			fmt.Errorf(
-				"failed to commit blockchain state: %w",
-				err,
-			)
+	if err := state.ReplaceWith(workingState); err != nil {
+		return result, 0, fmt.Errorf("failed to commit blockchain state: %w", err)
 	}
 
 	for _, tx := range block.Transactions {
-
-		if tx == nil {
-			continue
+		if tx != nil {
+			pool.RemoveTransaction(tx.ID)
 		}
-
-		pool.RemoveTransaction(
-			tx.ID,
-		)
 	}
 
 	return result, minerReward, nil
