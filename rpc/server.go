@@ -1,9 +1,11 @@
 package rpc
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -25,23 +27,23 @@ const (
 )
 
 type Config struct {
-	ListenAddress  string
-	MaxBodyBytes   int64
-	MaxConcurrent  int
-	ReadTimeout    time.Duration
-	WriteTimeout   time.Duration
-	IdleTimeout    time.Duration
+	ListenAddress   string
+	MaxBodyBytes    int64
+	MaxConcurrent   int
+	ReadTimeout     time.Duration
+	WriteTimeout    time.Duration
+	IdleTimeout     time.Duration
 	ShutdownTimeout time.Duration
 }
 
 func DefaultConfig() Config {
 	return Config{
-		ListenAddress:  DefaultListenAddress,
-		MaxBodyBytes:   DefaultMaxBodyBytes,
-		MaxConcurrent:  DefaultMaxConcurrent,
-		ReadTimeout:    5 * time.Second,
-		WriteTimeout:   10 * time.Second,
-		IdleTimeout:    30 * time.Second,
+		ListenAddress:   DefaultListenAddress,
+		MaxBodyBytes:    DefaultMaxBodyBytes,
+		MaxConcurrent:   DefaultMaxConcurrent,
+		ReadTimeout:     5 * time.Second,
+		WriteTimeout:    10 * time.Second,
+		IdleTimeout:     30 * time.Second,
 		ShutdownTimeout: 5 * time.Second,
 	}
 }
@@ -74,10 +76,10 @@ type statusResponse struct {
 }
 
 type accountResponse struct {
-	Address       string `json:"address"`
-	Balance       uint64 `json:"balance"`
+	Address        string `json:"address"`
+	Balance        uint64 `json:"balance"`
 	ConfirmedNonce uint64 `json:"confirmed_nonce"`
-	NextNonce     uint64 `json:"next_nonce"`
+	NextNonce      uint64 `json:"next_nonce"`
 }
 
 type submitResponse struct {
@@ -150,10 +152,10 @@ func (s *Server) Serve(listener net.Listener) error {
 	return s.server.Serve(listener)
 }
 
-func (s *Server) Shutdown(ctx interface{ Done() <-chan struct{} }) error {
-	contextWithDeadline, cancel := contextWithTimeout(ctx, s.config.ShutdownTimeout)
+func (s *Server) Shutdown(ctx context.Context) error {
+	shutdownCtx, cancel := context.WithTimeout(ctx, s.config.ShutdownTimeout)
 	defer cancel()
-	return s.server.Shutdown(contextWithDeadline)
+	return s.server.Shutdown(shutdownCtx)
 }
 
 func (s *Server) middleware(next http.Handler) http.Handler {
