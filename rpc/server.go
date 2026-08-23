@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -141,6 +142,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/accounts/", s.handleAccount)
 	mux.HandleFunc("/v1/mempool", s.handleMempool)
 	mux.HandleFunc("/v1/transactions", s.handleTransactions)
+	mux.HandleFunc("/", s.handleNotFound)
 	return s.middleware(mux)
 }
 
@@ -163,6 +165,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Cache-Control", "no-store")
+
 		select {
 		case s.limit <- struct{}{}:
 			defer func() { <-s.limit }()
@@ -170,6 +173,14 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			writeError(w, http.StatusServiceUnavailable, "rpc server is busy")
 			return
 		}
+
+		defer func() {
+			if recover() != nil {
+				if !responseStarted(w) {
+					writeError(w, http.StatusInternalServerError, "internal server error")
+				}
+			}
+		}()
 		next.ServeHTTP(w, r)
 	})
 }
@@ -264,6 +275,15 @@ func (s *Server) handleMempool(w http.ResponseWriter, r *http.Request) {
 		limit = parsed
 	}
 	txs := s.node.Mempool().AllTransactions()
+	sort.Slice(txs, func(i, j int) bool {
+		if txs[i] == nil {
+			return false
+		}
+		if txs[j] == nil {
+			return true
+		}
+		return txs[i].ID < txs[j].ID
+	})
 	if len(txs) > limit {
 		txs = txs[:limit]
 	}
@@ -288,6 +308,11 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 	decoder.DisallowUnknownFields()
 	var tx transactions.Transaction
 	if err := decoder.Decode(&tx); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			writeError(w, http.StatusRequestEntityTooLarge, "request body exceeds maximum size")
+			return
+		}
 		writeError(w, http.StatusBadRequest, "invalid transaction JSON")
 		return
 	}
@@ -309,6 +334,10 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleNotFound(w http.ResponseWriter, r *http.Request) {
+	writeError(w, http.StatusNotFound, "endpoint not found")
+}
+
 func methodNotAllowed(w http.ResponseWriter, allowed string) {
 	w.Header().Set("Allow", allowed)
 	writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -321,4 +350,16 @@ func writeError(w http.ResponseWriter, status int, message string) {
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+// responseStarted is intentionally conservative. The standard ResponseWriter
+// does not expose write state, so panic recovery only writes a JSON error when
+// the recorder/wrapper reports one; otherwise it lets the server close the
+// request rather than risk a second status line.
+func responseStarted(w http.ResponseWriter) bool {
+	type statusReporter interface{ Written() bool }
+	if reporter, ok := w.(statusReporter); ok {
+		return reporter.Written()
+	}
+	return false
 }
