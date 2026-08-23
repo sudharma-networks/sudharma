@@ -54,10 +54,7 @@ func (c *Chain) Tip() *Block {
 	return c.blocks[len(c.blocks)-1]
 }
 
-func (c *Chain) BlockByHeight(
-	height uint64,
-) (*Block, bool) {
-
+func (c *Chain) BlockByHeight(height uint64) (*Block, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -66,7 +63,6 @@ func (c *Chain) BlockByHeight(
 	}
 
 	block := c.blocks[height]
-
 	if block.Height != height {
 		return nil, false
 	}
@@ -74,8 +70,7 @@ func (c *Chain) BlockByHeight(
 	return block, true
 }
 
-// TotalWork returns an independent copy of the
-// cumulative Proof-of-Work value.
+// TotalWork returns an independent copy of the cumulative Proof-of-Work value.
 func (c *Chain) TotalWork() *big.Int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -83,8 +78,7 @@ func (c *Chain) TotalWork() *big.Int {
 	return new(big.Int).Set(c.totalWork)
 }
 
-// AddBlock validates and appends a block,
-// then adds its work to cumulative chain work.
+// AddBlock validates and appends a block, then adds its work to cumulative chain work.
 func (c *Chain) AddBlock(block *Block) error {
 	if block == nil {
 		return fmt.Errorf("block cannot be nil")
@@ -94,52 +88,34 @@ func (c *Chain) AddBlock(block *Block) error {
 	defer c.mu.Unlock()
 
 	if len(c.blocks) == 0 {
+		return fmt.Errorf("chain has no genesis block")
+	}
+
+	previous := c.blocks[len(c.blocks)-1]
+	expectedDifficulty := consensus.NextDifficultyFromHistory(
+		previous.Difficulty,
+		recentBlockIntervalsLocked(c.blocks),
+	)
+
+	if block.Difficulty != expectedDifficulty {
 		return fmt.Errorf(
-			"chain has no genesis block",
+			"block validation failed: invalid history-based block difficulty: expected %d, got %d",
+			expectedDifficulty,
+			block.Difficulty,
 		)
 	}
 
-	previous :=
-		c.blocks[len(c.blocks)-1]
-
-	if err := ValidateBlockBasic(
-		block,
-		previous,
-	); err != nil {
-		return fmt.Errorf(
-			"block validation failed: %w",
-			err,
-		)
+	if err := validateBlockCore(block, previous); err != nil {
+		return fmt.Errorf("block validation failed: %w", err)
 	}
 
-	c.blocks = append(
-		c.blocks,
-		block,
-	)
-
-	work := blockWork(
-		block.Difficulty,
-	)
-
-	c.totalWork.Add(
-		c.totalWork,
-		work,
-	)
+	c.blocks = append(c.blocks, block)
+	c.totalWork.Add(c.totalWork, blockWork(block.Difficulty))
 
 	return nil
 }
 
-// blockWork returns the exact target-derived Proof-of-Work
-// represented by a block at the given difficulty.
-//
-// The calculation is consensus-critical and delegates to the
-// canonical consensus WorkFromDifficulty implementation.
-
-func blockWork(
-	difficulty uint32,
-) *big.Int {
-
-	return consensus.WorkFromDifficulty(
-		difficulty,
-	)
+// blockWork returns exact target-derived Proof-of-Work represented by a block.
+func blockWork(difficulty uint32) *big.Int {
+	return consensus.WorkFromDifficulty(difficulty)
 }
