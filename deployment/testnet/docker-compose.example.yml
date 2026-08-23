@@ -1,0 +1,25 @@
+services:
+  sudharma-node:
+    build:
+      context: ../..
+      dockerfile: deployment/testnet/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "28444:28444/tcp"
+      - "127.0.0.1:28545:28545/tcp"
+    volumes:
+      - sudharma-data:/var/lib/sudharma
+      - ./node.json:/etc/sudharma/node.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:28545/ready >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 4
+      start_period: 15s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  sudharma-data:
