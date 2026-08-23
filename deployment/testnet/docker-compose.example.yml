@@ -11,7 +11,7 @@ services:
       - sudharma-data:/var/lib/sudharma
       - ./node.json:/etc/sudharma/node.json:ro
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:28545/ready >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "curl --fail --silent --max-time 2 http://127.0.0.1:28545/ready >/dev/null || exit 1"]
       interval: 15s
       timeout: 3s
       retries: 4
