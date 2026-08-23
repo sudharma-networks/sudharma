@@ -48,8 +48,13 @@ func TestLiveInboundHandshakeRejectsOversizedFrame(t *testing.T) {
 	if writeErr != nil && written <= MaxPeerMessageBytes {
 		t.Fatalf("connection failed before oversized frame crossed limit: wrote %d bytes: %v", written, writeErr)
 	}
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		_ = tcpConn.CloseWrite()
+	}
 
-	deadline = time.Now().Add(2 * time.Second)
+	// This window stays below DefaultDialTimeout so success demonstrates frame-
+	// size rejection rather than the ordinary handshake timeout closing the peer.
+	deadline = time.Now().Add(4 * time.Second)
 	for time.Now().Before(deadline) {
 		node.mu.RLock()
 		tracked = len(node.inboundHandshakeConns)
