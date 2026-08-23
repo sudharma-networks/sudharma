@@ -38,8 +38,8 @@ func (n *Node) handleGetBlocksSecure(peer *PeerConnection, message *Message) {
 }
 
 // handleBlocksResponseSecure rejects malformed or unsolicited block batches.
-// Unsolicited batches are treated as protocol abuse because they can otherwise
-// be used to consume validation/memory resources outside an active sync.
+// RequestBlocks holds syncRequestMu for the full request/response window, so a
+// successful TryLock here proves there is no active request awaiting a batch.
 func (n *Node) handleBlocksResponseSecure(peer *PeerConnection, message *Message) {
 	blocks, err := DecodeBlocks(message)
 	if err != nil {
@@ -48,11 +48,18 @@ func (n *Node) handleBlocksResponseSecure(peer *PeerConnection, message *Message
 		return
 	}
 
+	if n.syncRequestMu.TryLock() {
+		n.syncRequestMu.Unlock()
+		fmt.Printf("[SYNC] Unsolicited blocks response from %s ignored\n", peer.Info.NodeID)
+		n.penalizePeerAndMaybeDisconnect(peer, PeerPenaltyProtocolAbuse, "unsolicited blocks response")
+		return
+	}
+
 	select {
 	case n.blocksResponse <- blocks:
 		n.rewardValidPeerMessage(peer)
 	default:
-		fmt.Printf("[SYNC] Unexpected blocks response from %s ignored\n", peer.Info.NodeID)
-		n.penalizePeerAndMaybeDisconnect(peer, PeerPenaltyProtocolAbuse, "unsolicited blocks response")
+		fmt.Printf("[SYNC] Duplicate blocks response from %s ignored\n", peer.Info.NodeID)
+		n.penalizePeerAndMaybeDisconnect(peer, PeerPenaltyProtocolAbuse, "duplicate blocks response")
 	}
 }
