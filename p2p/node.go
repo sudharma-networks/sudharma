@@ -443,10 +443,10 @@ func (n *Node) readLoop(peer *PeerConnection) {
 			}
 
 		case MessageGetBlocks:
-			n.handleGetBlocks(peer, message)
+			n.handleGetBlocksSecure(peer, message)
 
 		case MessageBlocks:
-			n.handleBlocksResponse(peer, message)
+			n.handleBlocksResponseSecure(peer, message)
 
 		default:
 			fmt.Printf("[PEERS] Unknown message type %q from %s\n", message.Type, peer.Info.NodeID)
