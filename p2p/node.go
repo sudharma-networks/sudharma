@@ -295,7 +295,7 @@ func (n *Node) punishPeer(peer *PeerConnection, amount int, reason string) bool 
 
 func (n *Node) readLoop(peer *PeerConnection) {
 	defer func() {
-		n.removePeer(peer.Info.NodeID)
+		n.removePeerConnection(peer)
 		if peer.conn != nil {
 			_ = peer.conn.Close()
 		}
