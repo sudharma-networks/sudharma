@@ -23,6 +23,11 @@ const (
 	// Block timing
 	TargetBlockTimeSeconds uint64 = 60
 
+	// Maximum number of currently confirmed blocks that may be
+	// replaced automatically during a chain reorganization.
+	// At the 60-second target this represents about two hours.
+	MaxAutomaticReorgDepth uint64 = 120
+
 	// Mining subsidy
 	// Internal identifier will be renamed from SUDH to SUDH
 	// in a later controlled migration step.

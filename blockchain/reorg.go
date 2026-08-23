@@ -263,6 +263,27 @@ func ReorganizeToCandidate(
 		return false, nil
 	}
 
+	reorgDepth, commonHeight, err :=
+		ReorgDepth(
+			current,
+			candidate,
+		)
+
+	if err != nil {
+		return false, fmt.Errorf(
+			"failed calculating reorg depth: %w",
+			err,
+		)
+	}
+
+	if err := ValidateAutomaticReorgDepth(reorgDepth); err != nil {
+		return false, fmt.Errorf(
+			"%w (common height %d)",
+			err,
+			commonHeight,
+		)
+	}
+
 	// Build candidate state completely before changing live data.
 	candidateState, err :=
 		BuildStateFromChain(
