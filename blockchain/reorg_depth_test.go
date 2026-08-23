@@ -9,11 +9,9 @@ func TestReorgDepthSameChainIsZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	if depth != 0 {
 		t.Fatalf("expected depth 0, got %d", depth)
 	}
-
 	if common != chain.Height() {
 		t.Fatalf("expected common height %d, got %d", chain.Height(), common)
 	}
@@ -23,7 +21,7 @@ func TestReorgDepthOneBlockReplacement(t *testing.T) {
 	current := NewChain()
 	candidate := NewChain()
 
-	shared := buildTestBlock(t, current.Tip(), 60)
+	shared := buildHistoryTestBlock(t, current, 60)
 	if err := current.AddBlock(shared); err != nil {
 		t.Fatal(err)
 	}
@@ -31,12 +29,12 @@ func TestReorgDepthOneBlockReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	currentBlock := buildTestBlock(t, current.Tip(), 60)
+	currentBlock := buildHistoryTestBlock(t, current, 60)
 	if err := current.AddBlock(currentBlock); err != nil {
 		t.Fatal(err)
 	}
 
-	candidateBlock := buildTestBlock(t, candidate.Tip(), 10)
+	candidateBlock := buildHistoryTestBlock(t, candidate, 10)
 	if err := candidate.AddBlock(candidateBlock); err != nil {
 		t.Fatal(err)
 	}
@@ -45,11 +43,9 @@ func TestReorgDepthOneBlockReplacement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	if depth != 1 {
 		t.Fatalf("expected depth 1, got %d", depth)
 	}
-
 	if common != 1 {
 		t.Fatalf("expected common height 1, got %d", common)
 	}
@@ -59,7 +55,7 @@ func TestReorgDepthMultipleBlocks(t *testing.T) {
 	current := NewChain()
 	candidate := NewChain()
 
-	shared := buildTestBlock(t, current.Tip(), 60)
+	shared := buildHistoryTestBlock(t, current, 60)
 	if err := current.AddBlock(shared); err != nil {
 		t.Fatal(err)
 	}
@@ -68,14 +64,14 @@ func TestReorgDepthMultipleBlocks(t *testing.T) {
 	}
 
 	for i := 0; i < 3; i++ {
-		block := buildTestBlock(t, current.Tip(), 60)
+		block := buildHistoryTestBlock(t, current, 60)
 		if err := current.AddBlock(block); err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	for i := 0; i < 2; i++ {
-		block := buildTestBlock(t, candidate.Tip(), 10)
+		block := buildHistoryTestBlock(t, candidate, 10)
 		if err := candidate.AddBlock(block); err != nil {
 			t.Fatal(err)
 		}
@@ -85,11 +81,9 @@ func TestReorgDepthMultipleBlocks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	if depth != 3 {
 		t.Fatalf("expected depth 3, got %d", depth)
 	}
-
 	if common != 1 {
 		t.Fatalf("expected common height 1, got %d", common)
 	}
@@ -97,7 +91,6 @@ func TestReorgDepthMultipleBlocks(t *testing.T) {
 
 func TestReorgDepthNilCandidateRejected(t *testing.T) {
 	current := NewChain()
-
 	_, _, err := ReorgDepth(current, nil)
 	if err == nil {
 		t.Fatal("expected nil candidate to be rejected")
