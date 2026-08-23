@@ -22,8 +22,7 @@ func TestFinalizedHeightTracksAutomaticReorgBoundary(t *testing.T) {
 	chain := NewChain()
 
 	for i := uint64(0); i < params.MaxAutomaticReorgDepth+5; i++ {
-		previous := chain.Tip()
-		block := mineHistoryAwareTestBlock(t, chain, previous.Timestamp+60)
+		block := buildHistoryTestBlock(t, chain, 60)
 		if err := chain.AddBlock(block); err != nil {
 			t.Fatalf("failed adding block %d: %v", block.Height, err)
 		}
@@ -57,8 +56,7 @@ func TestFinalizedHeightTracksAutomaticReorgBoundary(t *testing.T) {
 func TestConfirmationsCountsBlockAndDescendants(t *testing.T) {
 	chain := NewChain()
 
-	previous := chain.Tip()
-	block := mineHistoryAwareTestBlock(t, chain, previous.Timestamp+60)
+	block := buildHistoryTestBlock(t, chain, 60)
 	if err := chain.AddBlock(block); err != nil {
 		t.Fatal(err)
 	}
