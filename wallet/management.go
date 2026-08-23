@@ -70,9 +70,11 @@ func BackupEncrypted(sourcePath, destinationPath, password string) (string, erro
 	return sourceWallet.Address, nil
 }
 
-// ChangeEncryptedPassword verifies the current password and atomically
-// replaces the encrypted wallet with a freshly encrypted copy using the new
-// password. The wallet address and private key remain unchanged.
+// ChangeEncryptedPassword verifies the current password and replaces the
+// encrypted wallet with a freshly encrypted copy using the new password. The
+// original file is first moved aside so replacement works consistently on
+// platforms where rename cannot overwrite an existing destination. If the
+// final replacement fails, the original is restored.
 func ChangeEncryptedPassword(path, currentPassword, newPassword string) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("wallet path cannot be empty")
@@ -116,8 +118,53 @@ func ChangeEncryptedPassword(path, currentPassword, newPassword string) (string,
 		return "", fmt.Errorf("password rotation changed wallet address")
 	}
 
+	originalBackup, err := os.CreateTemp(directory, ".sudharma-wallet-original-*")
+	if err != nil {
+		return "", fmt.Errorf("failed to reserve original wallet recovery path: %w", err)
+	}
+	originalBackupPath := originalBackup.Name()
+	if err := originalBackup.Close(); err != nil {
+		_ = os.Remove(originalBackupPath)
+		return "", fmt.Errorf("failed to prepare original wallet recovery path: %w", err)
+	}
+	if err := os.Remove(originalBackupPath); err != nil {
+		return "", fmt.Errorf("failed to prepare original wallet recovery path: %w", err)
+	}
+
+	if err := os.Rename(path, originalBackupPath); err != nil {
+		return "", fmt.Errorf("failed to preserve original wallet before replacement: %w", err)
+	}
+	restoreOriginal := true
+	defer func() {
+		if restoreOriginal {
+			_ = os.Rename(originalBackupPath, path)
+		}
+	}()
+
 	if err := os.Rename(tempPath, path); err != nil {
+		if restoreErr := os.Rename(originalBackupPath, path); restoreErr != nil {
+			return "", fmt.Errorf("wallet replacement failed (%v) and original restore failed (%v); original remains at %s", err, restoreErr, originalBackupPath)
+		}
+		restoreOriginal = false
 		return "", fmt.Errorf("failed to replace wallet after password rotation: %w", err)
+	}
+
+	finalCheck, err := LoadEncrypted(path, newPassword)
+	if err != nil || finalCheck.Address != w.Address {
+		_ = os.Remove(path)
+		if restoreErr := os.Rename(originalBackupPath, path); restoreErr != nil {
+			return "", fmt.Errorf("rotated wallet verification failed and original restore failed: %v", restoreErr)
+		}
+		restoreOriginal = false
+		if err != nil {
+			return "", fmt.Errorf("rotated wallet verification failed: %w", err)
+		}
+		return "", fmt.Errorf("rotated wallet address mismatch")
+	}
+
+	restoreOriginal = false
+	if err := os.Remove(originalBackupPath); err != nil {
+		return "", fmt.Errorf("password changed but failed to remove temporary original wallet copy at %s: %w", originalBackupPath, err)
 	}
 	return w.Address, nil
 }
