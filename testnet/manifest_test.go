@@ -8,7 +8,7 @@ func TestLaunchManifestRequiresPublicReadyProfile(t *testing.T) {
 		t.Fatal("expected launch manifest to reject profile without public seeds")
 	}
 
-	profile.Seeds = []string{"seed1.example.org:28444", "seed2.example.org:28444"}
+	profile.Seeds = []string{"seed1.sudharma.net:28444", "seed2.sudharma.net:28444"}
 	manifest, err := NewLaunchManifest(profile)
 	if err != nil { t.Fatal(err) }
 	if manifest.ProtocolNetworkID != ProtocolNetworkID || manifest.GenesisHash != GenesisHash() {

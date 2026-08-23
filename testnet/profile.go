@@ -59,7 +59,7 @@ func (p Profile) Validate() error {
 
 // ValidatePublicLaunch applies the stricter checks required before publishing
 // a testnet profile to users. Local rehearsal profiles may intentionally use
-// fewer seed nodes and therefore use Validate instead.
+// fewer or private seed nodes and therefore use Validate instead.
 func (p Profile) ValidatePublicLaunch() error {
 	if err := p.Validate(); err != nil {
 		return err
@@ -70,5 +70,22 @@ func (p Profile) ValidatePublicLaunch() error {
 	if len(p.Seeds) < MinimumSeedNodes {
 		return fmt.Errorf("public testnet requires at least %d seed nodes", MinimumSeedNodes)
 	}
+	for _, seed := range p.Seeds {
+		host, _, _ := net.SplitHostPort(seed)
+		if clearlyNonPublicHost(host) {
+			return fmt.Errorf("public testnet seed %q is not a public endpoint", seed)
+		}
+	}
 	return nil
+}
+
+func clearlyNonPublicHost(host string) bool {
+	host = strings.Trim(strings.ToLower(strings.TrimSpace(host)), "[]")
+	if host == "" || host == "localhost" || strings.HasSuffix(host, ".localhost") || strings.HasSuffix(host, ".local") || strings.HasSuffix(host, ".example") || strings.HasSuffix(host, ".invalid") || strings.HasSuffix(host, ".test") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()
+	}
+	return false
 }

@@ -1,0 +1,22 @@
+[Unit]
+Description=Sudharma Public Testnet Node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sudharma
+Group=sudharma
+ExecStart=/usr/local/bin/sudharma-rpcd -config /etc/sudharma/node.json
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/sudharma
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
