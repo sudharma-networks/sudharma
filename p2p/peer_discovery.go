@@ -242,10 +242,11 @@ func (n *Node) connectedPeerAddresses() []string {
 }
 
 // AutoConnectDiscoveredPeers attempts connections to discovered peers while
-// limiting concentration from any single network group.
+// limiting concentration from any single network group and avoiding peers
+// whose local reputation has fallen below the retry threshold.
 //
 // Failed peers remain in the discovered set so a later discovery or reconnect
-// cycle can try them again.
+// cycle can try them again after their score recovers or policy changes.
 func (n *Node) AutoConnectDiscoveredPeers() (
 	connected int,
 	failed int,
@@ -279,6 +280,15 @@ func (n *Node) AutoConnectDiscoveredPeers() (
 			continue
 		}
 
+		if n.shouldAvoidPeer(candidate.NodeID) {
+			fmt.Printf(
+				"[PEERS] Skipping discovered peer %s: reputation score %d is below retry threshold\n",
+				candidate.NodeID,
+				n.PeerScore(candidate.NodeID),
+			)
+			continue
+		}
+
 		if !CanAddPeerFromNetworkGroup(selectedAddresses, candidate.Address) {
 			fmt.Printf(
 				"[PEERS] Skipping discovered peer %s at %s: network diversity limit reached\n",
@@ -301,6 +311,7 @@ func (n *Node) AutoConnectDiscoveredPeers() (
 
 		if err != nil {
 			failed++
+			n.penalizePeer(candidate.NodeID, PeerPenaltyConnectionFailure)
 
 			fmt.Printf(
 				"[PEERS] Auto-connect failed for %s: %v\n",
@@ -313,6 +324,7 @@ func (n *Node) AutoConnectDiscoveredPeers() (
 
 		connected++
 		selectedAddresses = append(selectedAddresses, candidate.Address)
+		n.rewardPeer(peer.NodeID, PeerScoreGoodEvent)
 
 		fmt.Printf(
 			"[PEERS] Auto-connected to %s at %s\n",
