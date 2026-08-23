@@ -227,17 +227,32 @@ func (n *Node) filterDiscoveredPeers(
 	return result
 }
 
-// AutoConnectDiscoveredPeers attempts connections to every currently
-// discovered peer that is not already connected.
+func (n *Node) connectedPeerAddresses() []string {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+
+	addresses := make([]string, 0, len(n.peers))
+	for _, peer := range n.peers {
+		if peer == nil || peer.Info.ListenAddress == "" {
+			continue
+		}
+		addresses = append(addresses, peer.Info.ListenAddress)
+	}
+	return addresses
+}
+
+// AutoConnectDiscoveredPeers attempts connections to discovered peers while
+// limiting concentration from any single network group.
 //
-// Failed peers remain in the discovered set so a later discovery or
-// reconnect cycle can try them again.
+// Failed peers remain in the discovered set so a later discovery or reconnect
+// cycle can try them again.
 func (n *Node) AutoConnectDiscoveredPeers() (
 	connected int,
 	failed int,
 ) {
 
 	discovered := n.DiscoveredPeersSnapshot()
+	selectedAddresses := n.connectedPeerAddresses()
 
 	for _, candidate := range discovered {
 
@@ -261,6 +276,15 @@ func (n *Node) AutoConnectDiscoveredPeers() (
 			candidate.NodeID == localNodeID ||
 			candidate.Address == localAddress {
 
+			continue
+		}
+
+		if !CanAddPeerFromNetworkGroup(selectedAddresses, candidate.Address) {
+			fmt.Printf(
+				"[PEERS] Skipping discovered peer %s at %s: network diversity limit reached\n",
+				candidate.NodeID,
+				candidate.Address,
+			)
 			continue
 		}
 
@@ -288,6 +312,7 @@ func (n *Node) AutoConnectDiscoveredPeers() (
 		}
 
 		connected++
+		selectedAddresses = append(selectedAddresses, candidate.Address)
 
 		fmt.Printf(
 			"[PEERS] Auto-connected to %s at %s\n",
