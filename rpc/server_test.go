@@ -29,8 +29,7 @@ func newTestServer(t *testing.T) (*Server, *p2p.Node, *blockchain.Chain, *blockc
 	if err := node.SetState(state); err != nil {
 		t.Fatal(err)
 	}
-	config := DefaultConfig()
-	server, err := NewServer(config, node, chain, state)
+	server, err := NewServer(DefaultConfig(), node, chain, state)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,12 +164,12 @@ func TestTransactionRequestHardening(t *testing.T) {
 
 	server.config.MaxBodyBytes = 32
 	oversized := request(t, server, http.MethodPost, "/v1/transactions", []byte(strings.Repeat("x", 128)), "application/json")
-	if oversized.Code != http.StatusBadRequest {
+	if oversized.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversized body returned %d", oversized.Code)
 	}
 }
 
-func TestMethodAndMempoolLimitValidation(t *testing.T) {
+func TestMethodNotFoundAndMempoolLimitValidation(t *testing.T) {
 	server, _, _, _ := newTestServer(t)
 	method := request(t, server, http.MethodPost, "/v1/status", nil, "")
 	if method.Code != http.StatusMethodNotAllowed || method.Header().Get("Allow") != http.MethodGet {
@@ -179,5 +178,23 @@ func TestMethodAndMempoolLimitValidation(t *testing.T) {
 	badLimit := request(t, server, http.MethodGet, "/v1/mempool?limit=501", nil, "")
 	if badLimit.Code != http.StatusBadRequest {
 		t.Fatalf("bad mempool limit returned %d", badLimit.Code)
+	}
+	notFound := request(t, server, http.MethodGet, "/v1/does-not-exist", nil, "")
+	if notFound.Code != http.StatusNotFound || !strings.Contains(notFound.Body.String(), "endpoint not found") {
+		t.Fatalf("unexpected not-found response: %d %s", notFound.Code, notFound.Body.String())
+	}
+}
+
+func TestConcurrentRequestLimitRejectsOverload(t *testing.T) {
+	server, _, _, _ := newTestServer(t)
+	for i := 0; i < cap(server.limit); i++ {
+		server.limit <- struct{}{}
+	}
+	response := request(t, server, http.MethodGet, "/health", nil, "")
+	for i := 0; i < cap(server.limit); i++ {
+		<-server.limit
+	}
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("overload returned %d", response.Code)
 	}
 }
