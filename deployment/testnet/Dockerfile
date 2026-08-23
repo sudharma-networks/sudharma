@@ -7,7 +7,10 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sudharma-rpcd ./cm
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sudharma-testnet-manifest ./cmd/sudharma-testnet-manifest
 
 FROM debian:bookworm-slim
-RUN useradd --system --uid 10001 --create-home sudharma
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --uid 10001 --create-home sudharma
 WORKDIR /app
 COPY --from=build /out/sudharma-rpcd /usr/local/bin/sudharma-rpcd
 COPY --from=build /out/sudharma-testnet-manifest /usr/local/bin/sudharma-testnet-manifest
