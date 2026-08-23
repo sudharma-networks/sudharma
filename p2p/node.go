@@ -52,6 +52,9 @@ type Node struct {
 	// Only one synchronous block-range request is allowed at a time for now.
 	syncRequestMu  sync.Mutex
 	blocksResponse chan []*blockchain.Block
+
+	// Bounds unauthenticated inbound handshake work before peer admission.
+	inboundHandshakeSlots chan struct{}
 }
 
 func NewNode(nodeID, listenAddress string, height uint64, tipHash string) (*Node, error) {
@@ -63,14 +66,15 @@ func NewNode(nodeID, listenAddress string, height uint64, tipHash string) (*Node
 	}
 
 	return &Node{
-		NodeID:          nodeID,
-		ListenAddress:   listenAddress,
-		Height:          height,
-		TipHash:         tipHash,
-		peers:           make(map[string]*PeerConnection),
-		discoveredPeers: make(map[string]KnownPeer),
-		mempool:         mempool.NewMempool(),
-		blocksResponse:  make(chan []*blockchain.Block, 1),
+		NodeID:                nodeID,
+		ListenAddress:         listenAddress,
+		Height:                height,
+		TipHash:               tipHash,
+		peers:                 make(map[string]*PeerConnection),
+		discoveredPeers:       make(map[string]KnownPeer),
+		mempool:               mempool.NewMempool(),
+		blocksResponse:        make(chan []*blockchain.Block, 1),
+		inboundHandshakeSlots: make(chan struct{}, MaxConcurrentInboundHandshakes),
 	}, nil
 }
 
@@ -148,11 +152,30 @@ func (n *Node) acceptLoop() {
 		if listener == nil {
 			return
 		}
+
 		conn, err := listener.Accept()
 		if err != nil {
-			return
+			// A listener close during Stop is terminal. Other accept failures are
+			// treated as transient so one network hiccup does not kill the node's
+			// inbound connectivity loop.
+			n.mu.RLock()
+			stillRunning := n.listener == listener
+			n.mu.RUnlock()
+			if !stillRunning {
+				return
+			}
+			time.Sleep(25 * time.Millisecond)
+			continue
 		}
-		go n.handleIncomingConnection(conn)
+
+		if !n.tryAcquireInboundHandshake() {
+			_ = conn.Close()
+			continue
+		}
+		go func() {
+			defer n.releaseInboundHandshake()
+			n.handleIncomingConnection(conn)
+		}()
 	}
 }
 
