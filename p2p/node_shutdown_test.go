@@ -1,23 +1,6 @@
 package p2p
 
-import (
-	"testing"
-	"time"
-)
-
-func waitForPeerCount(t *testing.T, node *Node, want int) {
-	t.Helper()
-
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if node.PeerCount() == want {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	t.Fatalf("expected peer count %d, got %d", want, node.PeerCount())
-}
+import "testing"
 
 func TestStopClosesEstablishedPeers(t *testing.T) {
 	nodeA, err := NewNode("shutdown-a", "127.0.0.1:0", 0, "tip-a")
