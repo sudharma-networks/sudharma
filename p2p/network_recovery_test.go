@@ -22,7 +22,7 @@ func TestRecoverNetworkOnceReportsNoConnectedPeers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	de clearPartitionRecoveryState(node)
+	defer clearPartitionRecoveryState(node)
 
 	result, err := node.RecoverNetworkOnce(time.Millisecond)
 	if err == nil {
