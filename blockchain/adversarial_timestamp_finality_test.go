@@ -58,7 +58,8 @@ func TestAdversarialFinalizedForkRejectedEvenWithForgedCachedWork(t *testing.T) 
 		t.Fatalf("test setup invalid: finalized height %d", finalizedHeight)
 	}
 
-	// Fork from genesis so the candidate necessarily replaces finalized history.
+	// Fork from genesis so the candidate necessarily conflicts with finalized
+	// history if it were ever considered for adoption.
 	candidate := NewChain()
 	for i := uint64(0); i < 3; i++ {
 		block := buildHistoryTestBlock(t, candidate, 10)
@@ -67,17 +68,19 @@ func TestAdversarialFinalizedForkRejectedEvenWithForgedCachedWork(t *testing.T) 
 		}
 	}
 
-	// Simulate an attacker corrupting/forging cached work metadata.
+	// Simulate an attacker corrupting/forging cached work metadata. The reorg
+	// path must rebuild and revalidate candidate work locally before fork choice,
+	// so this forged cache must not make the candidate win.
 	candidate.mu.Lock()
 	candidate.totalWork = new(big.Int).Lsh(big.NewInt(1), 255)
 	candidate.mu.Unlock()
 
 	state := NewState()
 	adopted, err := ReorganizeToCandidate(current, state, candidate)
-	if err == nil {
-		t.Fatal("expected finalized-history attack to be rejected")
+	if err != nil {
+		t.Fatalf("forged cached work should be neutralized before selection, got error: %v", err)
 	}
 	if adopted {
-		t.Fatal("finalized-history attack was adopted")
+		t.Fatal("finalized-history candidate with forged cached work was adopted")
 	}
 }
