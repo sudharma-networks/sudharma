@@ -166,7 +166,9 @@ func SaveKnownPeersToFile(
 // LoadKnownPeersFromFile loads and validates the persisted
 // peer database.
 //
-// A missing file is treated as an empty peer database.
+// A missing file is treated as an empty peer database. Valid peers are returned
+// in a diversified recovery order so reconnect attempts cover independent
+// network groups before consuming additional candidates from the same group.
 func LoadKnownPeersFromFile(
 	path string,
 	localNodeID string,
@@ -268,13 +270,5 @@ func LoadKnownPeersFromFile(
 		)
 	}
 
-	sort.Slice(
-		normalized,
-		func(i, j int) bool {
-			return normalized[i].NodeID <
-				normalized[j].NodeID
-		},
-	)
-
-	return normalized, nil
+	return DiversifiedPeerOrder(normalized), nil
 }
