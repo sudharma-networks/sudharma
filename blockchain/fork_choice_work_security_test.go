@@ -8,16 +8,15 @@ func TestShorterHigherWorkChainWins(t *testing.T) {
 
 	// Build a longer weak chain using slow blocks.
 	for i := 0; i < 6; i++ {
-		block := buildTestBlock(t, current.Tip(), 180)
+		block := buildHistoryTestBlock(t, current, 180)
 		if err := current.AddBlock(block); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	// Build a shorter but stronger chain using fast blocks,
-	// causing valid difficulty increases on each block.
+	// Build a shorter but stronger chain using fast blocks.
 	for i := 0; i < 4; i++ {
-		block := buildTestBlock(t, candidate.Tip(), 10)
+		block := buildHistoryTestBlock(t, candidate, 10)
 		if err := candidate.AddBlock(block); err != nil {
 			t.Fatal(err)
 		}
@@ -39,7 +38,6 @@ func TestShorterHigherWorkChainWins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	if best != candidate {
 		t.Fatal("shorter chain with greater cumulative work was not selected")
 	}
