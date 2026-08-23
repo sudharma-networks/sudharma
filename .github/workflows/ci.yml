@@ -31,5 +31,26 @@ jobs:
       - name: Run local two-node testnet rehearsal
         run: bash ./scripts/testnet-rehearsal.sh
 
+      - name: Build public testnet container
+        run: docker build -f deployment/testnet/Dockerfile -t sudharma-testnet-ci .
+
+      - name: Smoke test public testnet container
+        run: |
+          set -euo pipefail
+          docker run -d --name sudharma-testnet-ci-node \
+            -p 127.0.0.1:28555:28545 \
+            -v "$PWD/deployment/testnet/seed1.node.example.json:/etc/sudharma/node.json:ro" \
+            sudharma-testnet-ci
+          trap 'docker rm -f sudharma-testnet-ci-node >/dev/null 2>&1 || true' EXIT
+          for i in $(seq 1 40); do
+            if curl --fail --silent --max-time 1 http://127.0.0.1:28555/ready >/dev/null; then
+              curl --fail --silent http://127.0.0.1:28555/v1/status
+              exit 0
+            fi
+            sleep 0.5
+          done
+          docker logs sudharma-testnet-ci-node
+          exit 1
+
       - name: Run race detector
         run: go test -race ./... -count=1
