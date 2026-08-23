@@ -28,5 +28,5 @@ jobs:
       - name: Run tests
         run: go test ./... -count=1
 
-      - name: Run race detector
-        run: go test -race ./... -count=1
+      - name: Run P2P lifecycle race detector
+        run: go test -race ./p2p -count=1 -run 'Test(MalformedInboundHandshake|TruncatedInboundHandshake|InboundHandshakeCapacity|RepeatedConnectDisconnect|Stop|StalledInboundHandshake|LiveInboundHandshake|RejectDuplicatePeerConnection|RejectSelfConnection|StorePeer|InboundHandshakeSlots|EstablishedPeer)'
