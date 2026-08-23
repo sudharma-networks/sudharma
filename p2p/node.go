@@ -25,8 +25,9 @@ type PeerInfo struct {
 type PeerConnection struct {
 	Info PeerInfo
 
-	conn   net.Conn
-	reader *bufio.Reader
+	conn          net.Conn
+	reader        *bufio.Reader
+	remoteAddress string
 
 	writeMu sync.Mutex
 }
@@ -72,8 +73,6 @@ func NewNode(nodeID, listenAddress string, height uint64, tipHash string) (*Node
 	}, nil
 }
 
-// SetState attaches the current Sudharma Network blockchain state used for
-// validating transactions before mempool admission.
 func (n *Node) SetState(state *blockchain.State) error {
 	if state == nil {
 		return fmt.Errorf("blockchain state cannot be nil")
@@ -84,14 +83,12 @@ func (n *Node) SetState(state *blockchain.State) error {
 	return nil
 }
 
-// State returns the currently attached blockchain state.
 func (n *Node) State() *blockchain.State {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 	return n.state
 }
 
-// localTotalWork returns the cumulative Proof-of-Work of the attached chain.
 func (n *Node) localTotalWork() string {
 	chain := n.Chain()
 	if chain == nil {
@@ -197,8 +194,9 @@ func (n *Node) handleIncomingConnection(conn net.Conn) {
 			TipHash:       handshake.TipHash,
 			TotalWork:     handshake.TotalWork,
 		},
-		conn:   conn,
-		reader: reader,
+		conn:          conn,
+		reader:        reader,
+		remoteAddress: conn.RemoteAddr().String(),
 	}
 	if !n.storePeer(peer) {
 		_ = conn.Close()
@@ -254,12 +252,13 @@ func (n *Node) Connect(address string) (*PeerInfo, error) {
 			TipHash:       handshake.TipHash,
 			TotalWork:     handshake.TotalWork,
 		},
-		conn:   conn,
-		reader: reader,
+		conn:          conn,
+		reader:        reader,
+		remoteAddress: conn.RemoteAddr().String(),
 	}
 	if !n.storePeer(peer) {
 		_ = conn.Close()
-		return nil, fmt.Errorf("peer already connected or invalid")
+		return nil, fmt.Errorf("peer already connected or rejected by connection policy")
 	}
 	go n.readLoop(peer)
 	info := peer.Info
@@ -274,6 +273,9 @@ func (n *Node) storePeer(peer *PeerConnection) bool {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if _, exists := n.peers[peer.Info.NodeID]; exists {
+		return false
+	}
+	if !n.canStorePeerLocked(peer) {
 		return false
 	}
 	n.peers[peer.Info.NodeID] = peer
@@ -328,8 +330,8 @@ func (n *Node) readLoop(peer *PeerConnection) {
 			_ = peer.write(pong)
 
 		case MessagePong:
-			// Reserved for future latency tracking. Do not reward bare pongs so
-			// reputation cannot be cheaply farmed by spamming keepalive traffic.
+			// Reserved for future latency tracking. Bare pongs are not rewarded,
+			// preventing reputation farming through cheap keepalive spam.
 
 		case MessageTransaction:
 			tx, err := DecodeTransaction(message)
