@@ -70,16 +70,16 @@ func NewNode(nodeID, listenAddress string, height uint64, tipHash string) (*Node
 	}
 
 	return &Node{
-		NodeID:                 nodeID,
-		ListenAddress:          listenAddress,
-		Height:                 height,
-		TipHash:                tipHash,
-		peers:                  make(map[string]*PeerConnection),
-		discoveredPeers:        make(map[string]KnownPeer),
-		mempool:                mempool.NewMempool(),
-		blocksResponse:         make(chan []*blockchain.Block, 1),
-		inboundHandshakeSlots:  make(chan struct{}, MaxConcurrentInboundHandshakes),
-		inboundHandshakeConns:  make(map[net.Conn]struct{}),
+		NodeID:                nodeID,
+		ListenAddress:         listenAddress,
+		Height:                height,
+		TipHash:               tipHash,
+		peers:                 make(map[string]*PeerConnection),
+		discoveredPeers:       make(map[string]KnownPeer),
+		mempool:               mempool.NewMempool(),
+		blocksResponse:        make(chan []*blockchain.Block, 1),
+		inboundHandshakeSlots: make(chan struct{}, MaxConcurrentInboundHandshakes),
+		inboundHandshakeConns: make(map[net.Conn]struct{}),
 	}, nil
 }
 
@@ -316,14 +316,21 @@ func (n *Node) storePeer(peer *PeerConnection) bool {
 	}
 
 	n.mu.Lock()
-	defer n.mu.Unlock()
 	if _, exists := n.peers[peer.Info.NodeID]; exists {
+		n.mu.Unlock()
 		return false
 	}
 	if !n.canStorePeerLocked(peer) {
+		n.mu.Unlock()
 		return false
 	}
 	n.peers[peer.Info.NodeID] = peer
+	n.mu.Unlock()
+
+	// Keep established peers active at the application-protocol level. The
+	// read loop intentionally has an idle deadline, so without a heartbeat two
+	// healthy but quiet nodes would eventually disconnect.
+	go n.keepPeerAlive(peer)
 	return true
 }
 

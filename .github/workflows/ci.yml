@@ -5,13 +5,12 @@ on:
     branches:
       - main
       - 'security/**'
-      - feature/step65-peer-keepalive
   pull_request:
     branches:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   test:
@@ -19,18 +18,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
-
-      - name: Apply Step 65 peer keepalive patch
-        if: github.event_name == 'push' && github.ref == 'refs/heads/feature/step65-peer-keepalive'
-        run: python3 ./scripts/step65-autopatch.py
 
       - name: Run tests
         run: go test ./... -count=1
