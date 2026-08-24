@@ -7,9 +7,13 @@ import (
 )
 
 const (
-	// Established peers may legitimately be application-idle for long periods on
-	// a quiet testnet. TCP keepalive, rather than an application read-idle
-	// deadline, detects dead sockets without disconnecting healthy idle seeds.
+	// Established peers must exchange protocol traffic before this deadline. The
+	// keepalive loop sends ping frames well before it expires, so quiet healthy
+	// peers stay connected while protocol-stalled peers are still bounded.
+	PeerReadIdleTimeout = 2 * time.Minute
+
+	// TCP keepalive is a second transport-level safety net for half-open/dead
+	// sockets beneath the application ping/pong protocol.
 	PeerTCPKeepAliveIdle     = 30 * time.Second
 	PeerTCPKeepAliveInterval = 15 * time.Second
 	PeerTCPKeepAliveCount    = 4
@@ -18,11 +22,8 @@ const (
 	PeerWriteTimeout = 15 * time.Second
 )
 
-// setPeerReadDeadline prepares an established connection for long-lived idle
-// operation. Handshake work is already bounded separately. For real TCP
-// sockets, enable OS TCP keepalive so dead peers are eventually detected while
-// healthy quiet peers remain connected. Non-TCP transports used by tests simply
-// have any prior read deadline cleared.
+// setPeerReadDeadline refreshes the established-peer protocol idle deadline and
+// enables bounded OS TCP keepalive where the connection is a real TCP socket.
 func setPeerReadDeadline(conn net.Conn) error {
 	if conn == nil {
 		return fmt.Errorf("peer connection cannot be nil")
@@ -40,7 +41,7 @@ func setPeerReadDeadline(conn net.Conn) error {
 			return fmt.Errorf("configure TCP keepalive: %w", err)
 		}
 	}
-	return conn.SetReadDeadline(time.Time{})
+	return conn.SetReadDeadline(time.Now().Add(PeerReadIdleTimeout))
 }
 
 // setPeerWriteDeadline bounds one write so a non-reading peer cannot block a
