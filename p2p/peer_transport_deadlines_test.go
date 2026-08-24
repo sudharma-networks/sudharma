@@ -18,6 +18,45 @@ func TestSetPeerWriteDeadlineRejectsNilConnection(t *testing.T) {
 	}
 }
 
+func TestSetPeerReadDeadlineClearsIdleDeadline(t *testing.T) {
+	left, right := net.Pipe()
+	defer left.Close()
+	defer right.Close()
+
+	if err := left.SetReadDeadline(time.Now().Add(-time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := setPeerReadDeadline(left); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := right.Write([]byte{'k'})
+		done <- err
+	}()
+
+	buffer := make([]byte, 1)
+	if _, err := left.Read(buffer); err != nil {
+		t.Fatalf("established peer read failed after idle deadline clear: %v", err)
+	}
+	if buffer[0] != 'k' {
+		t.Fatalf("unexpected byte %q", buffer[0])
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+}
+
+func TestPeerTCPKeepAlivePolicyIsBounded(t *testing.T) {
+	if PeerTCPKeepAliveIdle <= 0 || PeerTCPKeepAliveInterval <= 0 || PeerTCPKeepAliveCount <= 0 {
+		t.Fatal("TCP keepalive policy must use positive bounds")
+	}
+	if PeerTCPKeepAliveIdle > 5*time.Minute {
+		t.Fatalf("TCP keepalive idle is too long: %s", PeerTCPKeepAliveIdle)
+	}
+}
+
 func TestPeerReadDeadlineExpiresStalledRead(t *testing.T) {
 	left, right := net.Pipe()
 	defer left.Close()
