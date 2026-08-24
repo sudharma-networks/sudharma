@@ -44,6 +44,7 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
+    implementation("org.web3j:crypto:4.12.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     testImplementation("junit:junit:4.13.2")
