@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -374,7 +373,7 @@ private fun HomeScreen(
     ScreenFrame("Sudharma Wallet") {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             TestnetBadge()
-            TextButton(onClick = refresh) { Text("Refresh") }
+            TextButton(onClick = { refresh() }) { Text("Refresh") }
         }
         Text("Portfolio", style = MaterialTheme.typography.titleMedium)
         Text("$balance SUDH", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
@@ -529,7 +528,7 @@ private fun ActivityScreen(repository: SudharmaWalletRepository, onBack: () -> U
     LaunchedEffect(Unit) { refresh() }
     ScreenFrame("Activity", onBack) {
         TestnetBadge()
-        OutlinedButton(onClick = ::refresh) { Text("Refresh") }
+        OutlinedButton(onClick = { refresh() }) { Text("Refresh") }
         if (message.isNotEmpty()) Text(message)
         statuses.forEach { tx ->
             Card(Modifier.fillMaxWidth()) {
