@@ -4,8 +4,21 @@
 wallets/
 *.wallet
 *-treasury.json
+*-treasury.wallet
+*-development-wallet.json
+*-dev-wallet.json
 *.pem
 *.key
+*.keystore
+*.p12
+*.pfx
+*.jks
+
+# Recovery material
+*.mnemonic
+*.seed
+*.seedphrase
+*.recovery
 
 # Environment and secrets
 .env
