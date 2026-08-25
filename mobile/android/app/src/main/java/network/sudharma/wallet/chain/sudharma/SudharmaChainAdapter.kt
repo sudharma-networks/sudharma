@@ -59,6 +59,7 @@ class SudharmaChainAdapter(
         val tx = decode(transfer.payload)
         require(tx.id == transfer.transactionId && tx.verify()) { "invalid signed transfer" }
         val result = rpc.submit(tx)
+        require(result.transactionId == tx.id) { "RPC returned a different transaction ID" }
         if (!result.accepted) return TransactionStatus(tx.id, TransactionState.FAILED)
         return TransactionStatus(tx.id, TransactionState.PENDING)
     }
