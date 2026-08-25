@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import androidx.core.content.ContextCompat
 import android.content.pm.PackageManager
+import android.provider.Settings
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.delay
@@ -73,9 +74,18 @@ import java.math.BigDecimal
 fun WalletApp(repository: SudharmaWalletRepository, activity: FragmentActivity) {
     var screen by remember { mutableStateOf(WalletScreen.SPLASH) }
     var generatedPhrase by remember { mutableStateOf("") }
+    val splashPresentation = remember {
+        SplashPresentationPolicy.forAnimatorScale(
+            Settings.Global.getFloat(
+                activity.contentResolver,
+                Settings.Global.ANIMATOR_DURATION_SCALE,
+                1f,
+            ),
+        )
+    }
 
     LaunchedEffect(Unit) {
-        delay(1_700)
+        delay(splashPresentation.delayMillis)
         screen = WalletFlow.transition(
             screen,
             WalletFlowEvent.SplashFinished(
@@ -84,19 +94,14 @@ fun WalletApp(repository: SudharmaWalletRepository, activity: FragmentActivity) 
         )
     }
 
-    val sensitive = screen in setOf(
-        WalletScreen.RECOVERY,
-        WalletScreen.CONFIRM_RECOVERY,
-        WalletScreen.IMPORT,
-        WalletScreen.BACKUP,
-    )
+    val sensitive = WalletPresentationPolicy.isSensitive(screen)
     DisposableEffect(sensitive) {
         activity.setSensitiveScreen(sensitive)
         onDispose { if (sensitive) activity.setSensitiveScreen(false) }
     }
 
     when (screen) {
-        WalletScreen.SPLASH -> SplashScreen()
+        WalletScreen.SPLASH -> SplashScreen(splashPresentation)
         WalletScreen.WELCOME -> WelcomeScreen(
             onCreate = {
                 generatedPhrase = repository.createNewWallet()
@@ -202,9 +207,11 @@ private fun TestnetBadge() {
 }
 
 @Composable
-private fun SplashScreen() {
-    val scale = remember { Animatable(0.68f) }
-    LaunchedEffect(Unit) { scale.animateTo(1f, animationSpec = tween(900)) }
+private fun SplashScreen(presentation: SplashPresentation) {
+    val scale = remember { Animatable(if (presentation.animate) 0.68f else 1f) }
+    LaunchedEffect(presentation.animate) {
+        if (presentation.animate) scale.animateTo(1f, animationSpec = tween(900))
+    }
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.Center,
