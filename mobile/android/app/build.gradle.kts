@@ -43,6 +43,10 @@ android {
             "META-INF/NOTICE.txt",
         )
     }
+
+    sourceSets {
+        getByName("test").resources.srcDir("../../../testdata")
+    }
 }
 
 dependencies {
