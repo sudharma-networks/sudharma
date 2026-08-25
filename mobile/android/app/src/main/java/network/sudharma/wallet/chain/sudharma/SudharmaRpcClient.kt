@@ -12,6 +12,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okio.Buffer
+import okio.BufferedSource
 import java.io.IOException
 import java.util.Base64
 import java.util.concurrent.TimeUnit
@@ -101,7 +103,7 @@ class SudharmaRpcClient(
                 if (body.contentLength() > MAX_RESPONSE_BYTES) {
                     throw RpcException(response.code, "RPC response too large")
                 }
-                val bytes = body.source().readByteArray(MAX_RESPONSE_BYTES + 1)
+                val bytes = readBounded(body.source())
                 if (bytes.size.toLong() > MAX_RESPONSE_BYTES) {
                     throw RpcException(response.code, "RPC response too large")
                 }
@@ -126,6 +128,18 @@ class SudharmaRpcClient(
         } catch (error: IOException) {
             throw RpcException(0, "RPC request failed", error)
         }
+    }
+
+    private fun readBounded(source: BufferedSource): ByteArray {
+        val buffer = Buffer()
+        var total = 0L
+        while (total <= MAX_RESPONSE_BYTES) {
+            val remaining = MAX_RESPONSE_BYTES + 1 - total
+            val read = source.read(buffer, minOf(8_192L, remaining))
+            if (read == -1L) break
+            total += read
+        }
+        return buffer.readByteArray()
     }
 
     class RpcException(
