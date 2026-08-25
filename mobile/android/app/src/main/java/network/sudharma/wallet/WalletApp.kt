@@ -1,10 +1,12 @@
 package network.sudharma.wallet
 
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -52,6 +54,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
+import androidx.core.content.ContextCompat
+import android.content.pm.PackageManager
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.delay
@@ -451,6 +455,19 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
             if (parsed != null) recipient = parsed else error = "QR is not a valid Sudharma Testnet address."
         }
     }
+    val cameraPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            scanner.launch(
+                ScanOptions().setPrompt("Scan Sudharma address")
+                    .setBeepEnabled(false)
+                    .setOrientationLocked(false),
+            )
+        } else {
+            error = "Camera permission is required to scan a QR code. You can still paste an address."
+        }
+    }
 
     fun performSend() {
         sending = true; error = ""
@@ -474,7 +491,19 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
         if (!confirm) {
             OutlinedTextField(recipient, { recipient = it.trim() }, label = { Text("Recipient address") }, modifier = Modifier.fillMaxWidth())
             OutlinedButton(onClick = {
-                scanner.launch(ScanOptions().setPrompt("Scan Sudharma address").setBeepEnabled(false).setOrientationLocked(false))
+                when (
+                    ScannerPermissionState.next(
+                        ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) ==
+                            PackageManager.PERMISSION_GRANTED,
+                    )
+                ) {
+                    ScannerAction.OPEN_SCANNER -> scanner.launch(
+                        ScanOptions().setPrompt("Scan Sudharma address")
+                            .setBeepEnabled(false)
+                            .setOrientationLocked(false),
+                    )
+                    ScannerAction.REQUEST_PERMISSION -> cameraPermission.launch(Manifest.permission.CAMERA)
+                }
             }, modifier = Modifier.fillMaxWidth()) { Text("Scan QR") }
             OutlinedTextField(
                 amount,
