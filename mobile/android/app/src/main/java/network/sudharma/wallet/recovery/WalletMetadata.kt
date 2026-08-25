@@ -1,6 +1,6 @@
 package network.sudharma.wallet.recovery
 
-data class WalletMetadata private constructor(
+class WalletMetadata private constructor(
     val derivationProfile: String,
     val derivationVersion: Int,
     val accountIndex: Int,
