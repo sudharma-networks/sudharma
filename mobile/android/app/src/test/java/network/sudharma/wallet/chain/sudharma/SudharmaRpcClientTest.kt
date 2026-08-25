@@ -1,14 +1,17 @@
 package network.sudharma.wallet.chain.sudharma
 
 import kotlinx.coroutines.runBlocking
+import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.math.BigInteger
+import java.util.concurrent.TimeUnit
 
 class SudharmaRpcClientTest {
     private lateinit var server: MockWebServer
@@ -47,5 +50,70 @@ class SudharmaRpcClientTest {
         assertTrue(body.contains("\"PublicKey\""))
         assertTrue(body.contains("\"Signature\""))
         assertTrue(!body.contains("private"))
+    }
+
+    @Test
+    fun serverErrorPreservesStatusAndSafeMessage() {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(503)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""{"error":"testnet RPC unavailable"}"""),
+        )
+
+        val error = assertThrows(SudharmaRpcClient.RpcException::class.java) {
+            runBlocking { SudharmaRpcClient(server.url("/").toString()).status() }
+        }
+        assertEquals(503, error.statusCode)
+        assertEquals("testnet RPC unavailable", error.message)
+    }
+
+    @Test
+    fun malformedSuccessResponseBecomesRpcException() {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "application/json")
+                .setBody("{not-json"),
+        )
+
+        assertThrows(SudharmaRpcClient.RpcException::class.java) {
+            runBlocking { SudharmaRpcClient(server.url("/").toString()).status() }
+        }
+    }
+
+    @Test
+    fun injectedReadTimeoutBoundsHungRpcCall() {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setBodyDelay(250, TimeUnit.MILLISECONDS)
+                .setBody("{}"),
+        )
+        val boundedHttp = OkHttpClient.Builder()
+            .connectTimeout(50, TimeUnit.MILLISECONDS)
+            .readTimeout(50, TimeUnit.MILLISECONDS)
+            .writeTimeout(50, TimeUnit.MILLISECONDS)
+            .build()
+
+        assertThrows(SudharmaRpcClient.RpcException::class.java) {
+            runBlocking {
+                SudharmaRpcClient(server.url("/").toString(), boundedHttp).status()
+            }
+        }
+    }
+
+    @Test
+    fun oversizedChunkedResponseIsRejected() {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setChunkedBody("x".repeat(4 * 1024 * 1024 + 1), 8192),
+        )
+
+        val error = assertThrows(SudharmaRpcClient.RpcException::class.java) {
+            runBlocking { SudharmaRpcClient(server.url("/").toString()).status() }
+        }
+        assertTrue(error.message!!.contains("too large"))
     }
 }
