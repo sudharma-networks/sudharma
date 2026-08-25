@@ -65,11 +65,6 @@ import network.sudharma.wallet.security.BiometricGate
 import network.sudharma.wallet.security.setSensitiveScreen
 import java.math.BigDecimal
 
-private enum class WalletScreen {
-    SPLASH, WELCOME, RECOVERY, CONFIRM_RECOVERY, IMPORT, SET_PIN, BIOMETRIC_SETUP,
-    UNLOCK, HOME, RECEIVE, SEND, ACTIVITY, SETTINGS, BACKUP,
-}
-
 @Composable
 fun WalletApp(repository: SudharmaWalletRepository, activity: FragmentActivity) {
     var screen by remember { mutableStateOf(WalletScreen.SPLASH) }
@@ -77,11 +72,12 @@ fun WalletApp(repository: SudharmaWalletRepository, activity: FragmentActivity) 
 
     LaunchedEffect(Unit) {
         delay(1_700)
-        screen = if (repository.walletStore.hasWallet() && repository.security.hasPin()) {
-            WalletScreen.UNLOCK
-        } else {
-            WalletScreen.WELCOME
-        }
+        screen = WalletFlow.transition(
+            screen,
+            WalletFlowEvent.SplashFinished(
+                walletReady = repository.walletStore.hasWallet() && repository.security.hasPin(),
+            ),
+        )
     }
 
     val sensitive = screen in setOf(
@@ -100,43 +96,54 @@ fun WalletApp(repository: SudharmaWalletRepository, activity: FragmentActivity) 
         WalletScreen.WELCOME -> WelcomeScreen(
             onCreate = {
                 generatedPhrase = repository.createNewWallet()
-                screen = WalletScreen.RECOVERY
+                screen = WalletFlow.transition(screen, WalletFlowEvent.CreateSelected)
             },
-            onImport = { screen = WalletScreen.IMPORT },
+            onImport = { screen = WalletFlow.transition(screen, WalletFlowEvent.ImportSelected) },
         )
         WalletScreen.RECOVERY -> RecoveryScreen(
             phrase = generatedPhrase,
-            onBack = { generatedPhrase = ""; screen = WalletScreen.WELCOME },
-            onContinue = { screen = WalletScreen.CONFIRM_RECOVERY },
+            onBack = {
+                generatedPhrase = ""
+                screen = WalletFlow.transition(screen, WalletFlowEvent.BackToWelcome)
+            },
+            onContinue = {
+                screen = WalletFlow.transition(screen, WalletFlowEvent.RecoveryAcknowledged)
+            },
         )
         WalletScreen.CONFIRM_RECOVERY -> ConfirmRecoveryScreen(
             phrase = generatedPhrase,
-            onBack = { screen = WalletScreen.RECOVERY },
+            onBack = { screen = WalletFlow.transition(screen, WalletFlowEvent.BackToRecovery) },
             onConfirmed = {
                 repository.importWallet(generatedPhrase)
                 repository.preferences.backupAcknowledged = true
-                screen = WalletScreen.SET_PIN
+                screen = WalletFlow.transition(screen, WalletFlowEvent.BackupVerified)
             },
         )
         WalletScreen.IMPORT -> ImportScreen(
-            onBack = { screen = WalletScreen.WELCOME },
+            onBack = { screen = WalletFlow.transition(screen, WalletFlowEvent.BackToWelcome) },
             onImport = { phrase ->
                 repository.importWallet(phrase)
                 repository.preferences.backupAcknowledged = true
-                screen = WalletScreen.SET_PIN
+                screen = WalletFlow.transition(screen, WalletFlowEvent.ImportCompleted)
             },
         )
         WalletScreen.SET_PIN -> SetPinScreen(
-            onSet = { pin -> repository.setPin(pin); screen = WalletScreen.BIOMETRIC_SETUP },
+            onSet = { pin ->
+                repository.setPin(pin)
+                screen = WalletFlow.transition(screen, WalletFlowEvent.PinCreated)
+            },
         )
         WalletScreen.BIOMETRIC_SETUP -> BiometricSetupScreen(
             activity = activity,
-            onDone = { enabled -> repository.security.biometricEnabled = enabled; screen = WalletScreen.HOME },
+            onDone = { enabled ->
+                repository.security.biometricEnabled = enabled
+                screen = WalletFlow.transition(screen, WalletFlowEvent.BiometricsFinished)
+            },
         )
         WalletScreen.UNLOCK -> UnlockScreen(
             repository = repository,
             activity = activity,
-            onUnlocked = { screen = WalletScreen.HOME },
+            onUnlocked = { screen = WalletFlow.transition(screen, WalletFlowEvent.Unlocked) },
         )
         WalletScreen.HOME -> HomeScreen(
             repository = repository,
