@@ -41,9 +41,9 @@
 ### Task 3: Sudharma protocol compatibility core
 **Files:** Create `chain/sudharma/SudharmaCrypto.kt`, `SudharmaTransaction.kt`, tests and golden vectors; add Go vector verification where needed.
 **Interfaces:** Address derivation, fee/tx ID, fixed-width P-256 signatures.
-- [ ] Add deterministic test-only golden vectors and failing Kotlin tests.
-- [ ] Implement P-256/address/transaction/signature compatibility.
-- [ ] Verify Go and Kotlin vectors GREEN.
+- [x] Add deterministic test-only golden vectors and failing Kotlin tests.
+- [x] Implement P-256/address/transaction/signature compatibility.
+- [x] Verify Go and Kotlin vectors GREEN.
 
 ### Task 4: Recovery and deterministic mobile derivation v1
 **Files:** Recovery/derivation Kotlin classes and tests.
