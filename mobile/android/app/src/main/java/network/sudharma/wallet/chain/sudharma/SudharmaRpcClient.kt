@@ -12,16 +12,15 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import java.io.IOException
 import java.util.Base64
 import java.util.concurrent.TimeUnit
 
-class SudharmaRpcClient(baseUrl: String) {
+class SudharmaRpcClient(
+    baseUrl: String,
+    private val http: OkHttpClient = defaultHttpClient(),
+) {
     private val root: HttpUrl = requireNotNull(baseUrl.toHttpUrlOrNull()) { "invalid RPC URL" }
-    private val http = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
-        .writeTimeout(10, TimeUnit.SECONDS)
-        .build()
     private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
 
     data class Status(
@@ -96,23 +95,54 @@ class SudharmaRpcClient(baseUrl: String) {
     }
 
     private suspend fun <T> execute(request: Request, type: Class<T>): T = withContext(Dispatchers.IO) {
-        http.newCall(request).execute().use { response ->
-            val body = response.body ?: throw RpcException(response.code, "empty RPC response")
-            if (body.contentLength() > MAX_RESPONSE_BYTES) throw RpcException(response.code, "RPC response too large")
-            val text = body.string()
-            if (text.toByteArray().size > MAX_RESPONSE_BYTES) throw RpcException(response.code, "RPC response too large")
-            if (!response.isSuccessful) {
-                val message = runCatching { moshi.adapter(ErrorDto::class.java).fromJson(text)?.error }.getOrNull()
-                    ?: "HTTP ${response.code}"
-                throw RpcException(response.code, message)
+        try {
+            http.newCall(request).execute().use { response ->
+                val body = response.body ?: throw RpcException(response.code, "empty RPC response")
+                if (body.contentLength() > MAX_RESPONSE_BYTES) {
+                    throw RpcException(response.code, "RPC response too large")
+                }
+                val bytes = body.source().readByteArray(MAX_RESPONSE_BYTES + 1)
+                if (bytes.size.toLong() > MAX_RESPONSE_BYTES) {
+                    throw RpcException(response.code, "RPC response too large")
+                }
+                val text = bytes.toString(Charsets.UTF_8)
+                if (!response.isSuccessful) {
+                    val message = runCatching {
+                        moshi.adapter(ErrorDto::class.java).fromJson(text)?.error
+                    }.getOrNull() ?: "HTTP ${response.code}"
+                    throw RpcException(response.code, message)
+                }
+                try {
+                    moshi.adapter(type).fromJson(text)
+                        ?: throw RpcException(response.code, "invalid RPC response")
+                } catch (error: RpcException) {
+                    throw error
+                } catch (error: Exception) {
+                    throw RpcException(response.code, "invalid RPC response", error)
+                }
             }
-            moshi.adapter(type).fromJson(text) ?: throw RpcException(response.code, "invalid RPC response")
+        } catch (error: RpcException) {
+            throw error
+        } catch (error: IOException) {
+            throw RpcException(0, "RPC request failed", error)
         }
     }
 
-    class RpcException(val statusCode: Int, override val message: String) : Exception(message)
+    class RpcException(
+        val statusCode: Int,
+        override val message: String,
+        cause: Throwable? = null,
+    ) : Exception(message, cause)
 
-    companion object { private const val MAX_RESPONSE_BYTES = 4 * 1024 * 1024L }
+    companion object {
+        private const val MAX_RESPONSE_BYTES = 4 * 1024 * 1024L
+
+        private fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .writeTimeout(10, TimeUnit.SECONDS)
+            .build()
+    }
 
     @JsonClass(generateAdapter = false)
     data class StatusDto(
