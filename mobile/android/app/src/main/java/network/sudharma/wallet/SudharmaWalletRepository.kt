@@ -31,7 +31,12 @@ class SudharmaWalletRepository(context: Context) {
 
     fun account(): LocalAccount {
         val phrase = walletStore.loadRecoveryPhrase()
-        val derived = SudharmaMobileDerivationV1.derive(RecoveryPhrase.seed(phrase), 0)
+        val metadata = walletStore.loadMetadata()
+        val derived = SudharmaMobileDerivationV1.derive(
+            RecoveryPhrase.seed(phrase),
+            metadata.accountIndex,
+        )
+        require(derived.profile == metadata.profileId) { "wallet derivation profile mismatch" }
         return LocalAccount(derived.address, derived.privateScalar)
     }
 
