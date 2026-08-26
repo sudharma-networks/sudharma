@@ -22,6 +22,15 @@ jobs:
       - name: Run tracked secret safety test
         run: bash ./scripts/check-tracked-secrets_test.sh
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Run public wallet proxy Node tests
+        working-directory: deployment/testnet/public-rpc/lambda
+        run: npm test
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
