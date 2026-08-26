@@ -17,6 +17,7 @@ test('allows the public wallet and faucet route shapes', () => {
     ['GET', `/v1/accounts/${ADDRESS}`, 'account'],
     ['POST', '/v1/transactions', 'submitTransaction'],
     ['GET', '/v1/transactions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'transactionStatus'],
+    ['GET', '/v1/faucet/info', 'faucetInfo'],
     ['POST', '/v1/faucet/request', 'faucetInitial'],
     ['POST', '/v1/faucet/challenge', 'faucetChallenge'],
   ];
@@ -40,6 +41,7 @@ test('rejects forbidden, malformed and wrong-method routes', () => {
     ['GET', '/v1/transactions/not-a-transaction-id'],
     ['GET', '/v1/transactions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'],
     ['GET', '/v1/transactions/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'],
+    ['POST', '/v1/faucet/info'],
     ['GET', '/v1/faucet/request'],
     ['GET', '/v1/faucet/challenge'],
   ];
