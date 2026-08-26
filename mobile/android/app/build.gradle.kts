@@ -1,7 +1,16 @@
+import org.gradle.api.tasks.Copy
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+}
+
+val generatedBrandingResDir = layout.buildDirectory.dir("generated/sudharmaBranding/res")
+val generateSudharmaBrandingResources by tasks.registering(Copy::class) {
+    from(rootProject.projectDir.resolve("../../assets/sudharma-logo.png"))
+    into(generatedBrandingResDir.map { it.dir("drawable") })
+    rename { "sudharma_logo.png" }
 }
 
 android {
@@ -45,8 +54,13 @@ android {
     }
 
     sourceSets {
+        getByName("main").res.srcDir(generatedBrandingResDir)
         getByName("test").resources.srcDir("../../../testdata")
     }
+}
+
+tasks.named("preBuild").configure {
+    dependsOn(generateSudharmaBrandingResources)
 }
 
 dependencies {
