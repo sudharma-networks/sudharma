@@ -31,7 +31,7 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Test Lambda proxy
+      - name: Test Lambda proxy and faucet
         working-directory: deployment/testnet/public-rpc/lambda
         run: npm test
 
@@ -41,7 +41,7 @@ jobs:
           mkdir -p build/public-rpc
           cd deployment/testnet/public-rpc/lambda
           zip -q -9 "$GITHUB_WORKSPACE/build/public-rpc/sudharma-testnet-wallet-proxy.zip" \
-            index.mjs router.mjs upstream.mjs package.json
+            index.mjs router.mjs upstream.mjs faucet.mjs faucet-runtime.mjs package.json
 
       - name: Upload Lambda artifact
         uses: actions/upload-artifact@v4
@@ -67,7 +67,7 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Test Lambda proxy again before deployment
+      - name: Test Lambda proxy and faucet again before deployment
         working-directory: deployment/testnet/public-rpc/lambda
         run: npm test
 
@@ -77,7 +77,7 @@ jobs:
           mkdir -p build/public-rpc
           cd deployment/testnet/public-rpc/lambda
           zip -q -9 "$GITHUB_WORKSPACE/build/public-rpc/sudharma-testnet-wallet-proxy.zip" \
-            index.mjs router.mjs upstream.mjs package.json
+            index.mjs router.mjs upstream.mjs faucet.mjs faucet-runtime.mjs package.json
 
       - name: Configure AWS credentials from GitHub OIDC
         uses: aws-actions/configure-aws-credentials@v4
