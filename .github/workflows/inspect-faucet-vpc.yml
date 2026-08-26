@@ -1,0 +1,75 @@
+name: Inspect Faucet VPC
+
+on:
+  push:
+    branches:
+      - feature/public-testnet-wallet-v2
+    paths:
+      - '.github/workflows/inspect-faucet-vpc.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Configure AWS credentials from GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+
+      - name: Read Lambda VPC configuration
+        id: lambda_vpc
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws lambda get-function-configuration \
+            --function-name Sudharma-Testnet-Wallet-Proxy \
+            --query '{VpcId:VpcConfig.VpcId,SubnetIds:VpcConfig.SubnetIds,SecurityGroupIds:VpcConfig.SecurityGroupIds,Timeout:Timeout,Role:Role}' \
+            --output json
+          VPC_ID="$(aws lambda get-function-configuration \
+            --function-name Sudharma-Testnet-Wallet-Proxy \
+            --query 'VpcConfig.VpcId' --output text)"
+          echo "vpc_id=${VPC_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Inspect VPC endpoints if permitted
+        continue-on-error: true
+        shell: bash
+        env:
+          VPC_ID: ${{ steps.lambda_vpc.outputs.vpc_id }}
+        run: |
+          set -euo pipefail
+          aws ec2 describe-vpc-endpoints \
+            --filters "Name=vpc-id,Values=${VPC_ID}" \
+            --query 'VpcEndpoints[].{Service:ServiceName,Type:VpcEndpointType,State:State,PrivateDns:PrivateDnsEnabled,SubnetIds:SubnetIds,RouteTableIds:RouteTableIds,SecurityGroupIds:Groups[].GroupId}' \
+            --output json
+
+      - name: Inspect Lambda security groups if permitted
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          SG_IDS="$(aws lambda get-function-configuration \
+            --function-name Sudharma-Testnet-Wallet-Proxy \
+            --query 'VpcConfig.SecurityGroupIds' --output text)"
+          aws ec2 describe-security-groups \
+            --group-ids $SG_IDS \
+            --query 'SecurityGroups[].{GroupId:GroupId,GroupName:GroupName,VpcId:VpcId,Egress:IpPermissionsEgress}' \
+            --output json
+
+      - name: Inspect recent Lambda timeout/errors if permitted
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws logs tail /aws/lambda/Sudharma-Testnet-Wallet-Proxy \
+            --since 15m \
+            --format short \
+            | grep -E 'Task timed out|AccessDenied|SecretsManager|DynamoDB|ERROR|INIT_REPORT|REPORT' \
+            | tail -n 80
