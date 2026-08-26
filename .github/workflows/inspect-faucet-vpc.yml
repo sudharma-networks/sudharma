@@ -2,7 +2,7 @@ name: Inspect Faucet VPC
 
 # Diagnostic workflow for the staged testnet faucet. Keep this workflow safe:
 # never read or print the faucet secret value.
-# Re-run marker: verify runtime role attachment after manual IAM fix.
+# Re-run marker: inspect live initial-grant HTTP 500 after Android request.
 on:
   push:
     branches:
@@ -36,12 +36,8 @@ jobs:
             --function-name Sudharma-Testnet-Wallet-Proxy \
             --query '{VpcId:VpcConfig.VpcId,SubnetIds:VpcConfig.SubnetIds,SecurityGroupIds:VpcConfig.SecurityGroupIds,Timeout:Timeout,Role:Role}' \
             --output json
-          VPC_ID="$(aws lambda get-function-configuration \
-            --function-name Sudharma-Testnet-Wallet-Proxy \
-            --query 'VpcConfig.VpcId' --output text)"
-          SUBNET_IDS="$(aws lambda get-function-configuration \
-            --function-name Sudharma-Testnet-Wallet-Proxy \
-            --query 'VpcConfig.SubnetIds' --output text)"
+          VPC_ID="$(aws lambda get-function-configuration --function-name Sudharma-Testnet-Wallet-Proxy --query 'VpcConfig.VpcId' --output text)"
+          SUBNET_IDS="$(aws lambda get-function-configuration --function-name Sudharma-Testnet-Wallet-Proxy --query 'VpcConfig.SubnetIds' --output text)"
           echo "vpc_id=${VPC_ID}" >> "$GITHUB_OUTPUT"
           echo "subnet_ids=${SUBNET_IDS}" >> "$GITHUB_OUTPUT"
 
@@ -51,9 +47,7 @@ jobs:
         run: |
           set -euo pipefail
           ROLE='Sudharma-Wallet-Proxy-Lambda-Execution'
-          echo '=== inline policy names ==='
           aws iam list-role-policies --role-name "$ROLE" --output json
-          echo '=== attached managed policies ==='
           aws iam list-attached-role-policies --role-name "$ROLE" --output json
           for policy in $(aws iam list-role-policies --role-name "$ROLE" --query 'PolicyNames[]' --output text); do
             echo "=== inline policy: ${policy} ==="
@@ -66,44 +60,7 @@ jobs:
           SUBNET_IDS: ${{ steps.lambda_vpc.outputs.subnet_ids }}
         run: |
           set -euo pipefail
-          aws ec2 describe-subnets \
-            --subnet-ids $SUBNET_IDS \
-            --query 'Subnets[].{SubnetId:SubnetId,AvailabilityZone:AvailabilityZone,AvailabilityZoneId:AvailabilityZoneId,CidrBlock:CidrBlock,MapPublicIpOnLaunch:MapPublicIpOnLaunch}' \
-            --output json
-
-      - name: Inspect route tables used by Lambda subnets
-        shell: bash
-        env:
-          VPC_ID: ${{ steps.lambda_vpc.outputs.vpc_id }}
-          SUBNET_IDS: ${{ steps.lambda_vpc.outputs.subnet_ids }}
-        run: |
-          set -euo pipefail
-          for subnet in $SUBNET_IDS; do
-            echo "=== subnet ${subnet} explicit route table ==="
-            explicit="$(aws ec2 describe-route-tables \
-              --filters "Name=association.subnet-id,Values=${subnet}" \
-              --query 'RouteTables[].{RouteTableId:RouteTableId,Routes:Routes,Associations:Associations}' \
-              --output json)"
-            printf '%s\n' "$explicit"
-            if [ "$explicit" = '[]' ]; then
-              echo "=== subnet ${subnet} uses VPC main route table ==="
-              aws ec2 describe-route-tables \
-                --filters "Name=vpc-id,Values=${VPC_ID}" "Name=association.main,Values=true" \
-                --query 'RouteTables[].{RouteTableId:RouteTableId,Routes:Routes,Associations:Associations}' \
-                --output json
-            fi
-          done
-
-      - name: Inspect NAT gateways
-        shell: bash
-        env:
-          VPC_ID: ${{ steps.lambda_vpc.outputs.vpc_id }}
-        run: |
-          set -euo pipefail
-          aws ec2 describe-nat-gateways \
-            --filter "Name=vpc-id,Values=${VPC_ID}" \
-            --query 'NatGateways[].{NatGatewayId:NatGatewayId,State:State,SubnetId:SubnetId,ConnectivityType:ConnectivityType}' \
-            --output json
+          aws ec2 describe-subnets --subnet-ids $SUBNET_IDS --query 'Subnets[].{SubnetId:SubnetId,AvailabilityZone:AvailabilityZone,CidrBlock:CidrBlock}' --output json
 
       - name: Inspect VPC endpoints
         shell: bash
@@ -111,29 +68,22 @@ jobs:
           VPC_ID: ${{ steps.lambda_vpc.outputs.vpc_id }}
         run: |
           set -euo pipefail
-          aws ec2 describe-vpc-endpoints \
-            --filters "Name=vpc-id,Values=${VPC_ID}" \
-            --query 'VpcEndpoints[].{VpcEndpointId:VpcEndpointId,Service:ServiceName,Type:VpcEndpointType,State:State,PrivateDns:PrivateDnsEnabled,SubnetIds:SubnetIds,RouteTableIds:RouteTableIds,SecurityGroupIds:Groups[].GroupId}' \
-            --output json
+          aws ec2 describe-vpc-endpoints --filters "Name=vpc-id,Values=${VPC_ID}" --query 'VpcEndpoints[].{VpcEndpointId:VpcEndpointId,Service:ServiceName,Type:VpcEndpointType,State:State,PrivateDns:PrivateDnsEnabled,SubnetIds:SubnetIds,RouteTableIds:RouteTableIds,SecurityGroupIds:Groups[].GroupId}' --output json
 
       - name: Inspect Lambda security group
         shell: bash
         run: |
           set -euo pipefail
-          SG_IDS="$(aws lambda get-function-configuration \
-            --function-name Sudharma-Testnet-Wallet-Proxy \
-            --query 'VpcConfig.SecurityGroupIds' --output text)"
-          aws ec2 describe-security-groups \
-            --group-ids $SG_IDS \
-            --query 'SecurityGroups[].{GroupId:GroupId,GroupName:GroupName,VpcId:VpcId,Ingress:IpPermissions,Egress:IpPermissionsEgress}' \
-            --output json
+          SG_IDS="$(aws lambda get-function-configuration --function-name Sudharma-Testnet-Wallet-Proxy --query 'VpcConfig.SecurityGroupIds' --output text)"
+          aws ec2 describe-security-groups --group-ids $SG_IDS --query 'SecurityGroups[].{GroupId:GroupId,Ingress:IpPermissions,Egress:IpPermissionsEgress}' --output json
 
-      - name: Inspect recent Lambda timeout/errors
+      - name: Inspect live faucet failure logs
         shell: bash
         run: |
           set -euo pipefail
+          echo '=== recent Lambda errors / faucet context (secret values are never requested) ==='
           aws logs tail /aws/lambda/Sudharma-Testnet-Wallet-Proxy \
-            --since 30m \
+            --since 2h \
             --format short \
-            | grep -E -A 25 -B 2 'Task timed out|AccessDenied|SecretsManager|DynamoDB|ERROR|INIT_REPORT|REPORT' \
-            | tail -n 160 || true
+            | grep -E -A 35 -B 5 'faucet|initial|grant|payout|broadcast|transaction|tx|Task timed out|AccessDenied|ValidationException|ConditionalCheckFailed|ResourceNotFound|ERROR|Error|INIT_REPORT|REPORT' \
+            | tail -n 300 || true
