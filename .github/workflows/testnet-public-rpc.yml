@@ -1,4 +1,4 @@
-# OIDC trust verified for the Sudharma repository. Deployment remains branch-gated below.
+# OIDC trust verified for the Sudharma repository.
 name: Testnet Public RPC
 
 on:
@@ -95,21 +95,19 @@ jobs:
             --query '{Role:Role,Runtime:Runtime,State:State,LastUpdateStatus:LastUpdateStatus}' \
             --output json
 
-      - name: Check faucet table without changing AWS
+      - name: Check faucet table
         run: |
-          if aws dynamodb describe-table --table-name Sudharma-Testnet-Faucet --query 'Table.{Name:TableName,Status:TableStatus,KeySchema:KeySchema}' --output json; then
-            echo 'FAUCET_TABLE_EXISTS=true'
-          else
-            echo 'FAUCET_TABLE_EXISTS=false'
-          fi
+          aws dynamodb describe-table \
+            --table-name Sudharma-Testnet-Faucet \
+            --query 'Table.{Name:TableName,Status:TableStatus,KeySchema:KeySchema}' \
+            --output json
 
       - name: Check faucet secret metadata without reading secret value
         run: |
-          if aws secretsmanager describe-secret --secret-id sudharma/testnet/faucet-wallet --query '{Name:Name,ARN:ARN}' --output json; then
-            echo 'FAUCET_SECRET_EXISTS=true'
-          else
-            echo 'FAUCET_SECRET_EXISTS=false'
-          fi
+          aws secretsmanager describe-secret \
+            --secret-id sudharma/testnet/faucet-wallet \
+            --query '{Name:Name,ARN:ARN}' \
+            --output json
 
   provision-faucet:
     if: github.ref == 'refs/heads/feature/public-testnet-wallet-v2'
@@ -175,7 +173,7 @@ jobs:
               signer = createSigner(scalar);
               break;
             } catch {
-              // Extremely unlikely: draw another valid P-256 private scalar.
+              // Draw another valid P-256 private scalar.
             }
           }
 
@@ -207,12 +205,14 @@ jobs:
             --output json
 
   deploy:
-    if: github.ref == 'refs/heads/feature/android-wallet-v0.1'
-    needs: build
+    if: github.ref == 'refs/heads/feature/public-testnet-wallet-v2'
+    needs: [build, provision-faucet]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
+    env:
+      RPC_BASE_URL: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -253,7 +253,7 @@ jobs:
             --no-cli-pager >/dev/null
           aws lambda wait function-updated --function-name Sudharma-Testnet-Wallet-Proxy
 
-      - name: Update non-secret Lambda configuration
+      - name: Stage faucet configuration disabled
         run: |
           set -euo pipefail
           aws lambda update-function-configuration \
@@ -262,9 +262,46 @@ jobs:
             --handler index.handler \
             --timeout 10 \
             --memory-size 128 \
-            --environment 'Variables={SEED_1_URL=http://172.31.10.171:29100,SEED_2_URL=http://172.31.32.195:29100,UPSTREAM_TIMEOUT_MS=3500}' \
+            --environment 'Variables={SEED_1_URL=http://172.31.10.171:29100,SEED_2_URL=http://172.31.32.195:29100,UPSTREAM_TIMEOUT_MS=3500,FAUCET_ENABLED=false,FAUCET_TABLE_NAME=Sudharma-Testnet-Faucet,FAUCET_SECRET_ID=sudharma/testnet/faucet-wallet}' \
             --no-cli-pager >/dev/null
           aws lambda wait function-updated --function-name Sudharma-Testnet-Wallet-Proxy
+
+      - name: Verify normal public RPC before faucet activation
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS "${RPC_BASE_URL}/v1/status" | jq '{network,coin,symbol,height,peers}'
+
+      - name: Activate faucet and smoke-test public info
+        shell: bash
+        run: |
+          set -euo pipefail
+          enable_faucet() {
+            aws lambda update-function-configuration \
+              --function-name Sudharma-Testnet-Wallet-Proxy \
+              --environment 'Variables={SEED_1_URL=http://172.31.10.171:29100,SEED_2_URL=http://172.31.32.195:29100,UPSTREAM_TIMEOUT_MS=3500,FAUCET_ENABLED=true,FAUCET_TABLE_NAME=Sudharma-Testnet-Faucet,FAUCET_SECRET_ID=sudharma/testnet/faucet-wallet}' \
+              --no-cli-pager >/dev/null
+            aws lambda wait function-updated --function-name Sudharma-Testnet-Wallet-Proxy
+          }
+          disable_faucet() {
+            aws lambda update-function-configuration \
+              --function-name Sudharma-Testnet-Wallet-Proxy \
+              --environment 'Variables={SEED_1_URL=http://172.31.10.171:29100,SEED_2_URL=http://172.31.32.195:29100,UPSTREAM_TIMEOUT_MS=3500,FAUCET_ENABLED=false,FAUCET_TABLE_NAME=Sudharma-Testnet-Faucet,FAUCET_SECRET_ID=sudharma/testnet/faucet-wallet}' \
+              --no-cli-pager >/dev/null
+            aws lambda wait function-updated --function-name Sudharma-Testnet-Wallet-Proxy
+          }
+
+          enable_faucet
+          response="$(curl -sS -w '\n%{http_code}' "${RPC_BASE_URL}/v1/faucet/info")"
+          status="$(printf '%s\n' "$response" | tail -n1)"
+          body="$(printf '%s\n' "$response" | sed '$d')"
+          if [ "$status" != '200' ]; then
+            echo "Faucet smoke test returned HTTP ${status}; disabling faucet again."
+            printf '%s\n' "$body"
+            disable_faucet
+            exit 1
+          fi
+          printf '%s\n' "$body" | jq '{enabled,challenge_address,initial_grant_sudh,challenge_send_sudh,challenge_reward_sudh,max_rounds,cooldown_hours,testnet_only}'
 
       - name: Verify deployed Lambda configuration
         run: |
