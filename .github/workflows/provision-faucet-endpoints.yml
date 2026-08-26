@@ -69,7 +69,16 @@ jobs:
               --query 'VpcEndpoint.VpcEndpointId' --output text)"
           fi
           echo "vpce_id=${VPCE_ID}" >> "$GITHUB_OUTPUT"
-          aws ec2 wait vpc-endpoint-available --vpc-endpoint-ids "$VPCE_ID"
+          for attempt in $(seq 1 40); do
+            state="$(aws ec2 describe-vpc-endpoints --vpc-endpoint-ids "$VPCE_ID" --query 'VpcEndpoints[0].State' --output text)"
+            echo "Secrets Manager endpoint ${VPCE_ID} state: ${state}"
+            [ "$state" = 'available' ] && break
+            if [ "$state" = 'failed' ] || [ "$state" = 'rejected' ] || [ "$state" = 'deleted' ]; then
+              exit 1
+            fi
+            sleep 5
+          done
+          [ "$(aws ec2 describe-vpc-endpoints --vpc-endpoint-ids "$VPCE_ID" --query 'VpcEndpoints[0].State' --output text)" = 'available' ]
 
       - name: Create or reuse DynamoDB interface endpoint
         id: dynamodb_endpoint
@@ -91,7 +100,16 @@ jobs:
               --query 'VpcEndpoint.VpcEndpointId' --output text)"
           fi
           echo "vpce_id=${VPCE_ID}" >> "$GITHUB_OUTPUT"
-          aws ec2 wait vpc-endpoint-available --vpc-endpoint-ids "$VPCE_ID"
+          for attempt in $(seq 1 40); do
+            state="$(aws ec2 describe-vpc-endpoints --vpc-endpoint-ids "$VPCE_ID" --query 'VpcEndpoints[0].State' --output text)"
+            echo "DynamoDB endpoint ${VPCE_ID} state: ${state}"
+            [ "$state" = 'available' ] && break
+            if [ "$state" = 'failed' ] || [ "$state" = 'rejected' ] || [ "$state" = 'deleted' ]; then
+              exit 1
+            fi
+            sleep 5
+          done
+          [ "$(aws ec2 describe-vpc-endpoints --vpc-endpoint-ids "$VPCE_ID" --query 'VpcEndpoints[0].State' --output text)" = 'available' ]
 
       - name: Verify endpoint state and restricted Lambda egress
         shell: bash
