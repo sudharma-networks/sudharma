@@ -160,7 +160,9 @@ export function createFaucetService({ store, rpc, signer, now = Date.now }) {
           status: 'submitted',
         };
       } catch (error) {
-        if (typeof store.failInitial === 'function') await store.failInitial(address, String(error?.message || error));
+        if (!error?.uncertain && typeof store.failInitial === 'function') {
+          await store.failInitial(address, String(error?.message || error));
+        }
         throw error;
       }
     },
@@ -217,7 +219,7 @@ export function createFaucetService({ store, rpc, signer, now = Date.now }) {
           status: 'submitted',
         };
       } catch (error) {
-        if (typeof store.failChallenge === 'function') {
+        if (!error?.uncertain && typeof store.failChallenge === 'function') {
           await store.failChallenge(address, transactionId, String(error?.message || error));
         }
         throw error;
