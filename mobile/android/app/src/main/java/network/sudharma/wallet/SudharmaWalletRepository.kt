@@ -42,6 +42,14 @@ class SudharmaWalletRepository(context: Context) {
 
     suspend fun balance(): AssetBalance = adapter().balance(account().address)
 
+    suspend fun faucetInfo(): TestnetFaucetClient.Info = faucetClient().info()
+
+    suspend fun requestInitialTestTokens(): TestnetFaucetClient.InitialGrant =
+        faucetClient().requestInitial(account().address)
+
+    suspend fun claimChallengeReward(transactionId: String): TestnetFaucetClient.ChallengeReward =
+        faucetClient().claimChallenge(account().address, transactionId)
+
     suspend fun send(to: String, amountText: String): TransactionStatus {
         val account = account()
         val adapter = adapter()
@@ -57,6 +65,8 @@ class SudharmaWalletRepository(context: Context) {
         preferences.addTransactionId(status.id)
         return status
     }
+
+    suspend fun transactionStatus(transactionId: String): TransactionStatus = adapter().status(transactionId)
 
     suspend fun transactionStatuses(): List<TransactionStatus> {
         val adapter = adapter()
@@ -80,6 +90,12 @@ class SudharmaWalletRepository(context: Context) {
         val url = preferences.rpcUrl
         require(url.isNotBlank()) { "Sudharma Testnet RPC is not configured" }
         return SudharmaChainAdapter(SudharmaRpcClient(url))
+    }
+
+    private fun faucetClient(): TestnetFaucetClient {
+        val url = preferences.rpcUrl
+        require(url.isNotBlank()) { "Sudharma Testnet RPC is not configured" }
+        return TestnetFaucetClient(url)
     }
 
     companion object {
