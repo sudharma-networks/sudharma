@@ -2,7 +2,7 @@ name: Inspect Faucet VPC
 
 # Diagnostic workflow for the staged testnet faucet. Keep this workflow safe:
 # never read or print the faucet secret value.
-# Clean diagnostic trigger 2026-08-26 after cancelling the newer queued attempt.
+# Diagnostic run 12 fresh trigger 2026-08-26.
 on:
   push:
     branches:
@@ -48,6 +48,6 @@ jobs:
         run: |
           set -euo pipefail
           echo '=== Latest Lambda faucet request diagnostics; secret values are never requested ==='
-          aws logs tail /aws/lambda/Sudharma-Testnet-Wallet-Proxy --since 3h --format short \
+          aws logs tail /aws/lambda/Sudharma-Testnet-Wallet-Proxy --since 4h --format short \
             | grep -E -A 50 -B 10 'faucet|initial|grant|payout|broadcast|transaction|tx|temporarily unavailable|Task timed out|AccessDenied|ValidationException|ConditionalCheckFailed|ResourceNotFound|ECONN|ETIMEDOUT|ERROR|Error|REPORT' \
             | tail -n 500 || true
