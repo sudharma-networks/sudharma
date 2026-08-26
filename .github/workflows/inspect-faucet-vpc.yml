@@ -2,7 +2,7 @@ name: Inspect Faucet VPC
 
 # Diagnostic workflow for the staged testnet faucet. Keep this workflow safe:
 # never read or print the faucet secret value.
-# Re-run marker: verify faucet runtime IAM policy.
+# Re-run marker: verify runtime role attachment after manual IAM fix.
 on:
   push:
     branches:
