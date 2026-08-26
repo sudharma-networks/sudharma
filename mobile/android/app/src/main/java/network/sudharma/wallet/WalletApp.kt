@@ -377,6 +377,7 @@ private fun HomeScreen(
     val account = remember { runCatching { repository.account() }.getOrNull() }
     var balance by remember { mutableStateOf("—") }
     var status by remember { mutableStateOf(if (repository.preferences.rpcUrl.isBlank()) "RPC not configured" else "Connecting…") }
+    var faucetMessage by remember { mutableStateOf("") }
 
     fun refresh() {
         if (repository.preferences.rpcUrl.isBlank()) { status = "RPC not configured"; return }
@@ -404,6 +405,22 @@ private fun HomeScreen(
             OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.weight(1f)) { Text("Swap") }
         }
         Text("Swap — Coming later", style = MaterialTheme.typography.labelSmall)
+
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Sudharma Testnet Faucet", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("New testers can request one initial ${TestnetChallengeConfig.INITIAL_GRANT_SUDH} SUDH test grant. Test SUDH has no monetary value.")
+                Button(
+                    enabled = TestnetChallengeConfig.faucetEnabled,
+                    onClick = { faucetMessage = "Submitting test-token request…" },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Request ${TestnetChallengeConfig.INITIAL_GRANT_SUDH} Test SUDH") }
+                if (!TestnetChallengeConfig.faucetEnabled) {
+                    Text("Faucet activation is in progress. The button will activate after the protected faucet backend is deployed.", style = MaterialTheme.typography.bodySmall)
+                }
+                if (faucetMessage.isNotEmpty()) Text(faucetMessage, style = MaterialTheme.typography.bodySmall)
+            }
+        }
 
         Text("Assets", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Card(Modifier.fillMaxWidth()) {
@@ -450,6 +467,7 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
     val scope = rememberCoroutineScope()
     var recipient by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
+    var challengeMode by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf(false) }
     var pin by remember { mutableStateOf("") }
     var error by remember { mutableStateOf("") }
@@ -492,33 +510,62 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
             Text("Transaction accepted", style = MaterialTheme.typography.titleLarge)
             Text(it.id, style = MaterialTheme.typography.bodySmall)
             Text("Status: ${it.state}")
+            if (challengeMode) Text("Challenge payment submitted. A reward is issued only after the backend verifies confirmation and eligibility.")
             Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Done") }
             return@ScreenFrame
         }
         if (!confirm) {
-            OutlinedTextField(recipient, { recipient = it.trim() }, label = { Text("Recipient address") }, modifier = Modifier.fillMaxWidth())
-            OutlinedButton(onClick = {
-                when (
-                    ScannerPermissionState.next(
-                        ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) ==
-                            PackageManager.PERMISSION_GRANTED,
-                    )
-                ) {
-                    ScannerAction.OPEN_SCANNER -> scanner.launch(
-                        ScanOptions().setPrompt("Scan Sudharma address")
-                            .setBeepEnabled(false)
-                            .setOrientationLocked(false),
-                    )
-                    ScannerAction.REQUEST_PERMISSION -> cameraPermission.launch(Manifest.permission.CAMERA)
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Testnet Challenge", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("Send ${TestnetChallengeConfig.CHALLENGE_SEND_SUDH} test SUDH to the official challenge address. After verification, eligible testers receive ${TestnetChallengeConfig.CHALLENGE_REWARD_SUDH} test SUDH back. Up to ${TestnetChallengeConfig.MAX_ROUNDS} rounds with a ${TestnetChallengeConfig.COOLDOWN_HOURS}-hour wait between successful rounds.")
+                    Button(
+                        enabled = TestnetChallengeConfig.challengeDepositAddress != null,
+                        onClick = {
+                            challengeMode = true
+                            recipient = TestnetChallengeConfig.challengeDepositAddress.orEmpty()
+                            amount = TestnetChallengeConfig.CHALLENGE_SEND_SUDH
+                            error = ""
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Use 25 → 50 Testnet Challenge") }
+                    if (TestnetChallengeConfig.challengeDepositAddress == null) {
+                        Text("Official challenge address is being provisioned. Challenge sending remains locked until that wallet is funded and published.", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text("TESTNET ONLY — NO MONETARY VALUE", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                 }
-            }, modifier = Modifier.fillMaxWidth()) { Text("Scan QR") }
-            OutlinedTextField(
-                amount,
-                { amount = it },
-                label = { Text("Amount (SUDH)") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                modifier = Modifier.fillMaxWidth(),
-            )
+            }
+
+            if (challengeMode) {
+                Text("Challenge mode", fontWeight = FontWeight.Bold)
+                OutlinedTextField(recipient, {}, readOnly = true, label = { Text("Official challenge address") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(amount, {}, readOnly = true, label = { Text("Challenge amount (SUDH)") }, modifier = Modifier.fillMaxWidth())
+                TextButton(onClick = { challengeMode = false; recipient = ""; amount = "" }) { Text("Switch to normal Send") }
+            } else {
+                OutlinedTextField(recipient, { recipient = it.trim() }, label = { Text("Recipient address") }, modifier = Modifier.fillMaxWidth())
+                OutlinedButton(onClick = {
+                    when (
+                        ScannerPermissionState.next(
+                            ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) ==
+                                PackageManager.PERMISSION_GRANTED,
+                        )
+                    ) {
+                        ScannerAction.OPEN_SCANNER -> scanner.launch(
+                            ScanOptions().setPrompt("Scan Sudharma address")
+                                .setBeepEnabled(false)
+                                .setOrientationLocked(false),
+                        )
+                        ScannerAction.REQUEST_PERMISSION -> cameraPermission.launch(Manifest.permission.CAMERA)
+                    }
+                }, modifier = Modifier.fillMaxWidth()) { Text("Scan QR") }
+                OutlinedTextField(
+                    amount,
+                    { amount = it },
+                    label = { Text("Amount (SUDH)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error)
             Button(onClick = {
                 error = ""
@@ -532,6 +579,7 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
             val fee = runCatching { SudharmaTransaction.calculateFee(atomic) }.getOrDefault(0)
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (challengeMode) Text("Testnet Challenge", fontWeight = FontWeight.Bold)
                     Text("Recipient: ${recipient.take(10)}…${recipient.takeLast(8)}")
                     Text("Amount: $amount SUDH")
                     Text("Fee: ${formatAtomic(fee)} SUDH")
