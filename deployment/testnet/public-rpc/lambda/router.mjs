@@ -47,6 +47,14 @@ export function matchRoute(methodInput, pathInput) {
     if (method !== 'POST') reject('method not allowed', 405);
     return { kind: 'submitTransaction', method, path };
   }
+  if (path === '/v1/faucet/request') {
+    if (method !== 'POST') reject('method not allowed', 405);
+    return { kind: 'faucetInitial', method, path };
+  }
+  if (path === '/v1/faucet/challenge') {
+    if (method !== 'POST') reject('method not allowed', 405);
+    return { kind: 'faucetChallenge', method, path };
+  }
 
   const accountPrefix = '/v1/accounts/';
   if (path.startsWith(accountPrefix)) {
@@ -89,8 +97,12 @@ export function normalizeEvent(event) {
 
   const route = matchRoute(method, path);
   const body = bodyBuffer(event);
-  if (route.kind !== 'submitTransaction' && body.length !== 0) {
+  const bodyAllowed = route.kind === 'submitTransaction' || route.kind === 'faucetInitial' || route.kind === 'faucetChallenge';
+  if (!bodyAllowed && body.length !== 0) {
     throw new RequestError(400, 'request body not allowed');
+  }
+  if ((route.kind === 'faucetInitial' || route.kind === 'faucetChallenge') && body.length === 0) {
+    throw new RequestError(400, 'request body is required');
   }
 
   const headers = {};
