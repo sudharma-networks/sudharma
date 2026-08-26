@@ -22,6 +22,7 @@ jobs:
       LAMBDA_SG_ID: sg-057c9893359ab2300
       SUBNET_1: subnet-0c04f19843bf6a401
       SUBNET_2: subnet-0f213d036a08fd543
+      ROUTE_TABLE_ID: rtb-01b677867c34cc275
     steps:
       - name: Configure AWS credentials from GitHub OIDC
         uses: aws-actions/configure-aws-credentials@v4
@@ -80,7 +81,7 @@ jobs:
           done
           [ "$(aws ec2 describe-vpc-endpoints --vpc-endpoint-ids "$VPCE_ID" --query 'VpcEndpoints[0].State' --output text)" = 'available' ]
 
-      - name: Create or reuse DynamoDB interface endpoint
+      - name: Create or reuse DynamoDB gateway endpoint
         id: dynamodb_endpoint
         shell: bash
         run: |
@@ -92,11 +93,9 @@ jobs:
           if [ "$VPCE_ID" = 'None' ] || [ -z "$VPCE_ID" ]; then
             VPCE_ID="$(aws ec2 create-vpc-endpoint \
               --vpc-id "$VPC_ID" \
-              --vpc-endpoint-type Interface \
+              --vpc-endpoint-type Gateway \
               --service-name "$SERVICE" \
-              --subnet-ids "$SUBNET_1" "$SUBNET_2" \
-              --security-group-ids "$LAMBDA_SG_ID" \
-              --private-dns-enabled \
+              --route-table-ids "$ROUTE_TABLE_ID" \
               --query 'VpcEndpoint.VpcEndpointId' --output text)"
           fi
           echo "vpce_id=${VPCE_ID}" >> "$GITHUB_OUTPUT"
@@ -117,7 +116,7 @@ jobs:
           set -euo pipefail
           aws ec2 describe-vpc-endpoints \
             --vpc-endpoint-ids '${{ steps.secrets_endpoint.outputs.vpce_id }}' '${{ steps.dynamodb_endpoint.outputs.vpce_id }}' \
-            --query 'VpcEndpoints[].{Id:VpcEndpointId,Service:ServiceName,State:State,PrivateDns:PrivateDnsEnabled,Subnets:SubnetIds,SecurityGroups:Groups[].GroupId}' \
+            --query 'VpcEndpoints[].{Id:VpcEndpointId,Service:ServiceName,Type:VpcEndpointType,State:State,PrivateDns:PrivateDnsEnabled,Subnets:SubnetIds,RouteTables:RouteTableIds,SecurityGroups:Groups[].GroupId}' \
             --output json
           aws ec2 describe-security-groups \
             --group-ids "$LAMBDA_SG_ID" \
