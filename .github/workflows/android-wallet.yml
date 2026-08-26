@@ -4,11 +4,14 @@ on:
   push:
     branches:
       - feature/android-wallet-v0.1
+      - feature/public-testnet-wallet-faucet
     paths:
       - 'mobile/android/**'
       - '.github/workflows/android-wallet.yml'
       - 'docs/superpowers/specs/2026-08-25-android-wallet-v0.1.md'
       - 'docs/superpowers/plans/2026-08-25-android-wallet-v0.1.md'
+      - 'docs/superpowers/specs/2026-08-26-public-testnet-wallet-faucet-design.md'
+      - 'docs/superpowers/plans/2026-08-26-public-testnet-wallet-faucet.md'
   pull_request:
     branches:
       - main
