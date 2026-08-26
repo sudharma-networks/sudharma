@@ -7,7 +7,8 @@ class WalletPreferences(context: Context) {
     private val prefs = context.getSharedPreferences("sudharma_wallet_app_v1", Context.MODE_PRIVATE)
 
     var rpcUrl: String
-        get() = prefs.getString("testnet_rpc_url", "") ?: ""
+        get() = prefs.getString("testnet_rpc_url", TestnetChallengeConfig.DEFAULT_RPC_URL)
+            ?: TestnetChallengeConfig.DEFAULT_RPC_URL
         set(value) {
             val trimmed = value.trim().trimEnd('/')
             if (trimmed.isNotEmpty()) validateRpcUrl(trimmed)
