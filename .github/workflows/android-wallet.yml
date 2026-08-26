@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   android:
@@ -70,3 +70,43 @@ jobs:
             dist/Sudharma-Wallet-0.1.0-testnet.apk.sha256
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish public testnet release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/feature/public-testnet-wallet-v2'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG='android-wallet-v0.1.0-testnet'
+          TITLE='Sudharma Android Wallet v0.1.0 Testnet'
+          NOTES=$(cat <<'EOF'
+          Sudharma Android Wallet for the Sudharma Public Testnet.
+
+          This is testnet software for testing only. Test SUDH has no promised monetary value.
+
+          Highlights:
+          - Automatic Sudharma Public Testnet connection
+          - Balance, receive and send functionality
+          - Sudharma branding
+          - Testnet faucet/challenge integration under staged public-testnet verification
+
+          Security:
+          - No faucet private key is embedded in the APK.
+          - Do not use this development wallet for assets of real-world value.
+          EOF
+          )
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              dist/Sudharma-Wallet-0.1.0-testnet.apk \
+              dist/Sudharma-Wallet-0.1.0-testnet.apk.sha256 \
+              --clobber
+          else
+            gh release create "$TAG" \
+              dist/Sudharma-Wallet-0.1.0-testnet.apk \
+              dist/Sudharma-Wallet-0.1.0-testnet.apk.sha256 \
+              --target "$GITHUB_SHA" \
+              --title "$TITLE" \
+              --notes "$NOTES" \
+              --prerelease
+          fi
