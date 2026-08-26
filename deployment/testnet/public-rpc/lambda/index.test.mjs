@@ -47,6 +47,25 @@ test('proxies allowed response and emits no-store', async () => {
   assert.match(result.body, /"status":"ready"/);
 });
 
+test('dispatches faucet request locally instead of proxying it to a seed', async () => {
+  let upstreamCalls = 0;
+  const faucetCalls = [];
+  const handler = createHandler({
+    seeds,
+    fetchImpl: async () => { upstreamCalls++; throw new Error('must not proxy faucet route'); },
+    faucetHandler: async (request) => {
+      faucetCalls.push(request.kind);
+      return { statusCode: 202, payload: { amount_sudh: 100, status: 'submitted' } };
+    },
+    logger: { info() {}, warn() {}, error() {} },
+  });
+  const result = await handler(event('POST', '/v1/faucet/request', JSON.stringify({ address: 'a'.repeat(40) })));
+  assert.equal(result.statusCode, 202);
+  assert.match(result.body, /"amount_sudh":100/);
+  assert.deepEqual(faucetCalls, ['faucetInitial']);
+  assert.equal(upstreamCalls, 0);
+});
+
 test('returns 503 uncertain response when both seeds are unavailable', async () => {
   const handler = createHandler({
     seeds,
