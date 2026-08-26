@@ -1,4 +1,5 @@
 # OIDC trust verified for the Sudharma repository.
+# Staged faucet activation rerun after Lambda runtime IAM verification.
 name: Testnet Public RPC
 
 on:
