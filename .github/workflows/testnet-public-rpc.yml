@@ -31,6 +31,10 @@ jobs:
         with:
           node-version: '24'
 
+      - name: Install Lambda dependencies
+        working-directory: deployment/testnet/public-rpc/lambda
+        run: npm install --ignore-scripts --no-audit --no-fund
+
       - name: Test Lambda proxy and faucet
         working-directory: deployment/testnet/public-rpc/lambda
         run: npm test
@@ -40,8 +44,8 @@ jobs:
           set -euo pipefail
           mkdir -p build/public-rpc
           cd deployment/testnet/public-rpc/lambda
-          zip -q -9 "$GITHUB_WORKSPACE/build/public-rpc/sudharma-testnet-wallet-proxy.zip" \
-            index.mjs router.mjs upstream.mjs faucet.mjs faucet-runtime.mjs package.json
+          zip -q -9 -r "$GITHUB_WORKSPACE/build/public-rpc/sudharma-testnet-wallet-proxy.zip" \
+            index.mjs router.mjs upstream.mjs faucet.mjs faucet-runtime.mjs package.json node_modules
 
       - name: Upload Lambda artifact
         uses: actions/upload-artifact@v4
@@ -67,6 +71,10 @@ jobs:
         with:
           node-version: '24'
 
+      - name: Install Lambda dependencies
+        working-directory: deployment/testnet/public-rpc/lambda
+        run: npm install --ignore-scripts --no-audit --no-fund
+
       - name: Test Lambda proxy and faucet again before deployment
         working-directory: deployment/testnet/public-rpc/lambda
         run: npm test
@@ -76,8 +84,8 @@ jobs:
           set -euo pipefail
           mkdir -p build/public-rpc
           cd deployment/testnet/public-rpc/lambda
-          zip -q -9 "$GITHUB_WORKSPACE/build/public-rpc/sudharma-testnet-wallet-proxy.zip" \
-            index.mjs router.mjs upstream.mjs faucet.mjs faucet-runtime.mjs package.json
+          zip -q -9 -r "$GITHUB_WORKSPACE/build/public-rpc/sudharma-testnet-wallet-proxy.zip" \
+            index.mjs router.mjs upstream.mjs faucet.mjs faucet-runtime.mjs package.json node_modules
 
       - name: Configure AWS credentials from GitHub OIDC
         uses: aws-actions/configure-aws-credentials@v4
