@@ -117,5 +117,5 @@ jobs:
           aws logs tail /aws/lambda/Sudharma-Testnet-Wallet-Proxy \
             --since 30m \
             --format short \
-            | grep -E 'Task timed out|AccessDenied|SecretsManager|DynamoDB|ERROR|INIT_REPORT|REPORT' \
-            | tail -n 80 || true
+            | grep -E -A 25 -B 2 'Task timed out|AccessDenied|SecretsManager|DynamoDB|ERROR|INIT_REPORT|REPORT' \
+            | tail -n 160 || true
