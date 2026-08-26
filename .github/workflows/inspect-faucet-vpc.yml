@@ -42,6 +42,21 @@ jobs:
           echo "vpc_id=${VPC_ID}" >> "$GITHUB_OUTPUT"
           echo "subnet_ids=${SUBNET_IDS}" >> "$GITHUB_OUTPUT"
 
+      - name: Inspect Lambda execution role policies
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROLE='Sudharma-Wallet-Proxy-Lambda-Execution'
+          echo '=== inline policy names ==='
+          aws iam list-role-policies --role-name "$ROLE" --output json
+          echo '=== attached managed policies ==='
+          aws iam list-attached-role-policies --role-name "$ROLE" --output json
+          for policy in $(aws iam list-role-policies --role-name "$ROLE" --query 'PolicyNames[]' --output text); do
+            echo "=== inline policy: ${policy} ==="
+            aws iam get-role-policy --role-name "$ROLE" --policy-name "$policy" --query 'PolicyDocument' --output json
+          done
+
       - name: Inspect Lambda subnets and availability zones
         shell: bash
         env:
