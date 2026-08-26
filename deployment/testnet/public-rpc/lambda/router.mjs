@@ -47,6 +47,10 @@ export function matchRoute(methodInput, pathInput) {
     if (method !== 'POST') reject('method not allowed', 405);
     return { kind: 'submitTransaction', method, path };
   }
+  if (path === '/v1/faucet/info') {
+    if (method !== 'GET') reject('method not allowed', 405);
+    return { kind: 'faucetInfo', method, path };
+  }
   if (path === '/v1/faucet/request') {
     if (method !== 'POST') reject('method not allowed', 405);
     return { kind: 'faucetInitial', method, path };
