@@ -378,6 +378,8 @@ private fun HomeScreen(
     var balance by remember { mutableStateOf("—") }
     var status by remember { mutableStateOf(if (repository.preferences.rpcUrl.isBlank()) "RPC not configured" else "Connecting…") }
     var faucetMessage by remember { mutableStateOf("") }
+    var faucetInfo by remember { mutableStateOf<TestnetFaucetClient.Info?>(null) }
+    var faucetLoading by remember { mutableStateOf(false) }
 
     fun refresh() {
         if (repository.preferences.rpcUrl.isBlank()) { status = "RPC not configured"; return }
@@ -387,7 +389,20 @@ private fun HomeScreen(
                 .onFailure { status = it.message ?: "Offline" }
         }
     }
-    LaunchedEffect(repository.preferences.rpcUrl) { refresh() }
+
+    fun refreshFaucet() {
+        if (repository.preferences.rpcUrl.isBlank()) return
+        scope.launch {
+            runCatching { repository.faucetInfo() }
+                .onSuccess { faucetInfo = it }
+                .onFailure { faucetInfo = null }
+        }
+    }
+
+    LaunchedEffect(repository.preferences.rpcUrl) {
+        refresh()
+        refreshFaucet()
+    }
 
     ScreenFrame("Sudharma Wallet") {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -409,14 +424,26 @@ private fun HomeScreen(
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Sudharma Testnet Faucet", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text("New testers can request one initial ${TestnetChallengeConfig.INITIAL_GRANT_SUDH} SUDH test grant. Test SUDH has no monetary value.")
+                Text("New testers can request one initial ${faucetInfo?.initialGrantSudh ?: 100} SUDH test grant. Test SUDH has no monetary value.")
                 Button(
-                    enabled = TestnetChallengeConfig.faucetEnabled,
-                    onClick = { faucetMessage = "Submitting test-token request…" },
+                    enabled = faucetInfo?.enabled == true && account != null && !faucetLoading,
+                    onClick = {
+                        faucetLoading = true
+                        faucetMessage = "Submitting test-token request…"
+                        scope.launch {
+                            runCatching { repository.requestInitialTestTokens() }
+                                .onSuccess {
+                                    faucetMessage = "${it.amountSudh} Test SUDH submitted. Transaction: ${it.transactionId.take(12)}…"
+                                    refresh()
+                                }
+                                .onFailure { faucetMessage = it.message ?: "Unable to request test tokens" }
+                            faucetLoading = false
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("Request ${TestnetChallengeConfig.INITIAL_GRANT_SUDH} Test SUDH") }
-                if (!TestnetChallengeConfig.faucetEnabled) {
-                    Text("Faucet activation is in progress. The button will activate after the protected faucet backend is deployed.", style = MaterialTheme.typography.bodySmall)
+                ) { Text(if (faucetLoading) "Requesting…" else "Request ${faucetInfo?.initialGrantSudh ?: 100} Test SUDH") }
+                if (faucetInfo?.enabled != true) {
+                    Text("Faucet is currently unavailable. The wallet will enable this automatically when the protected testnet faucet is online.", style = MaterialTheme.typography.bodySmall)
                 }
                 if (faucetMessage.isNotEmpty()) Text(faucetMessage, style = MaterialTheme.typography.bodySmall)
             }
@@ -473,6 +500,15 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
     var error by remember { mutableStateOf("") }
     var result by remember { mutableStateOf<TransactionStatus?>(null) }
     var sending by remember { mutableStateOf(false) }
+    var challengeInfo by remember { mutableStateOf<TestnetFaucetClient.Info?>(null) }
+    var challengeMessage by remember { mutableStateOf("") }
+    var claiming by remember { mutableStateOf(false) }
+
+    LaunchedEffect(repository.preferences.rpcUrl) {
+        runCatching { repository.faucetInfo() }
+            .onSuccess { challengeInfo = it }
+            .onFailure { challengeInfo = null }
+    }
 
     val scanner = rememberLauncherForActivityResult(ScanContract()) { scan ->
         scan.contents?.let { contents ->
@@ -510,7 +546,30 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
             Text("Transaction accepted", style = MaterialTheme.typography.titleLarge)
             Text(it.id, style = MaterialTheme.typography.bodySmall)
             Text("Status: ${it.state}")
-            if (challengeMode) Text("Challenge payment submitted. A reward is issued only after the backend verifies confirmation and eligibility.")
+            if (challengeMode) {
+                Text("Challenge payment submitted. The 50 Test SUDH reward can be claimed after this transaction is confirmed.")
+                Button(
+                    enabled = !claiming,
+                    onClick = {
+                        claiming = true
+                        challengeMessage = "Checking transaction confirmation…"
+                        scope.launch {
+                            runCatching {
+                                val latest = repository.transactionStatus(it.id)
+                                require(latest.state == TransactionState.CONFIRMED) { "Transaction is not confirmed yet. Try again after the next testnet block." }
+                                repository.claimChallengeReward(it.id)
+                            }.onSuccess { reward ->
+                                challengeMessage = "Round ${reward.round} complete — ${reward.rewardSudh} Test SUDH reward submitted."
+                            }.onFailure { failure ->
+                                challengeMessage = failure.message ?: "Unable to claim challenge reward"
+                            }
+                            claiming = false
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(if (claiming) "Checking…" else "Check Confirmation & Claim ${challengeInfo?.challengeRewardSudh ?: 50} Test SUDH") }
+                if (challengeMessage.isNotEmpty()) Text(challengeMessage, style = MaterialTheme.typography.bodySmall)
+            }
             Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Done") }
             return@ScreenFrame
         }
@@ -518,19 +577,19 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Testnet Challenge", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("Send ${TestnetChallengeConfig.CHALLENGE_SEND_SUDH} test SUDH to the official challenge address. After verification, eligible testers receive ${TestnetChallengeConfig.CHALLENGE_REWARD_SUDH} test SUDH back. Up to ${TestnetChallengeConfig.MAX_ROUNDS} rounds with a ${TestnetChallengeConfig.COOLDOWN_HOURS}-hour wait between successful rounds.")
+                    Text("Send ${challengeInfo?.challengeSendSudh ?: 25} test SUDH to the official challenge address. After confirmation, eligible testers receive ${challengeInfo?.challengeRewardSudh ?: 50} test SUDH back. Up to ${challengeInfo?.maxRounds ?: 5} rounds with a ${challengeInfo?.cooldownHours ?: 24}-hour wait between successful rounds.")
                     Button(
-                        enabled = TestnetChallengeConfig.challengeDepositAddress != null,
+                        enabled = challengeInfo?.enabled == true && challengeInfo?.challengeAddress?.matches(Regex("^[0-9a-f]{40}$")) == true,
                         onClick = {
                             challengeMode = true
-                            recipient = TestnetChallengeConfig.challengeDepositAddress.orEmpty()
-                            amount = TestnetChallengeConfig.CHALLENGE_SEND_SUDH
+                            recipient = challengeInfo?.challengeAddress.orEmpty()
+                            amount = (challengeInfo?.challengeSendSudh ?: 25).toString()
                             error = ""
                         },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Use 25 → 50 Testnet Challenge") }
-                    if (TestnetChallengeConfig.challengeDepositAddress == null) {
-                        Text("Official challenge address is being provisioned. Challenge sending remains locked until that wallet is funded and published.", style = MaterialTheme.typography.bodySmall)
+                    if (challengeInfo?.enabled != true) {
+                        Text("Official challenge service is currently unavailable. It will enable automatically when the protected faucet is online.", style = MaterialTheme.typography.bodySmall)
                     }
                     Text("TESTNET ONLY — NO MONETARY VALUE", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                 }
