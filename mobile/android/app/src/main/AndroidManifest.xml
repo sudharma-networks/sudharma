@@ -6,6 +6,8 @@
 
     <application
         android:allowBackup="false"
+        android:icon="@drawable/sudharma_logo"
+        android:roundIcon="@drawable/sudharma_logo"
         android:label="Sudharma Wallet"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
