@@ -7,12 +7,14 @@ import {
   validTransactionId,
 } from './router.mjs';
 
+const ADDRESS = '0123456789abcdef0123456789abcdef01234567';
+
 test('allows exactly the six public wallet route shapes', () => {
   const cases = [
     ['GET', '/health', 'health'],
     ['GET', '/ready', 'ready'],
     ['GET', '/v1/status', 'status'],
-    ['GET', '/v1/accounts/alice', 'account'],
+    ['GET', `/v1/accounts/${ADDRESS}`, 'account'],
     ['POST', '/v1/transactions', 'submitTransaction'],
     ['GET', '/v1/transactions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'transactionStatus'],
   ];
@@ -28,6 +30,9 @@ test('rejects forbidden, malformed and wrong-method routes', () => {
     ['GET', '/v1/mempool'],
     ['POST', '/health'],
     ['GET', '/v1/accounts/'],
+    ['GET', '/v1/accounts/alice'],
+    ['GET', '/v1/accounts/0123456789abcdef0123456789abcdef0123456'],
+    ['GET', '/v1/accounts/0123456789ABCDEF0123456789ABCDEF01234567'],
     ['GET', '/v1/accounts/a/b'],
     ['GET', '/v1/accounts/%2e%2e%2fmetrics'],
     ['GET', '/v1/transactions/not-a-transaction-id'],
