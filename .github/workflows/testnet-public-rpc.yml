@@ -1,0 +1,114 @@
+name: Testnet Public RPC
+
+on:
+  push:
+    branches:
+      - 'security/**'
+      - feature/android-wallet-v0.1
+    paths:
+      - 'deployment/testnet/public-rpc/lambda/**'
+      - 'deployment/testnet/public-rpc/**.json'
+      - '.github/workflows/testnet-public-rpc.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run tracked secret safety test
+        run: bash ./scripts/check-tracked-secrets_test.sh
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Test Lambda proxy
+        working-directory: deployment/testnet/public-rpc/lambda
+        run: npm test
+
+      - name: Package Lambda
+        run: |
+          set -euo pipefail
+          mkdir -p build/public-rpc
+          cd deployment/testnet/public-rpc/lambda
+          zip -q -9 "$GITHUB_WORKSPACE/build/public-rpc/sudharma-testnet-wallet-proxy.zip" \
+            index.mjs router.mjs upstream.mjs package.json
+
+      - name: Upload Lambda artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sudharma-testnet-wallet-proxy
+          path: build/public-rpc/sudharma-testnet-wallet-proxy.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  deploy:
+    if: github.ref == 'refs/heads/feature/android-wallet-v0.1'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Test Lambda proxy again before deployment
+        working-directory: deployment/testnet/public-rpc/lambda
+        run: npm test
+
+      - name: Package Lambda
+        run: |
+          set -euo pipefail
+          mkdir -p build/public-rpc
+          cd deployment/testnet/public-rpc/lambda
+          zip -q -9 "$GITHUB_WORKSPACE/build/public-rpc/sudharma-testnet-wallet-proxy.zip" \
+            index.mjs router.mjs upstream.mjs package.json
+
+      - name: Configure AWS credentials from GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+
+      - name: Update Lambda code
+        run: |
+          set -euo pipefail
+          aws lambda update-function-code \
+            --function-name Sudharma-Testnet-Wallet-Proxy \
+            --zip-file fileb://build/public-rpc/sudharma-testnet-wallet-proxy.zip \
+            --no-cli-pager >/dev/null
+          aws lambda wait function-updated --function-name Sudharma-Testnet-Wallet-Proxy
+
+      - name: Update non-secret Lambda configuration
+        run: |
+          set -euo pipefail
+          aws lambda update-function-configuration \
+            --function-name Sudharma-Testnet-Wallet-Proxy \
+            --runtime nodejs24.x \
+            --handler index.handler \
+            --timeout 10 \
+            --memory-size 128 \
+            --environment 'Variables={SEED_1_URL=http://172.31.10.171:29100,SEED_2_URL=http://172.31.32.195:29100,UPSTREAM_TIMEOUT_MS=3500}' \
+            --no-cli-pager >/dev/null
+          aws lambda wait function-updated --function-name Sudharma-Testnet-Wallet-Proxy
+
+      - name: Verify deployed Lambda configuration
+        run: |
+          set -euo pipefail
+          aws lambda get-function-configuration \
+            --function-name Sudharma-Testnet-Wallet-Proxy \
+            --query '{Runtime:Runtime,Handler:Handler,Timeout:Timeout,MemorySize:MemorySize,State:State,LastUpdateStatus:LastUpdateStatus}' \
+            --output json
