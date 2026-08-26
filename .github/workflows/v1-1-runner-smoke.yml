@@ -1,0 +1,23 @@
+name: V1.1 Runner Smoke Test
+
+on:
+  push:
+    branches:
+      - v1.1-fresh
+    paths:
+      - '.github/workflows/v1-1-runner-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Confirm GitHub-hosted runner starts
+        run: |
+          echo "Sudharma v1.1 runner is alive"
+          echo "Runner OS: $RUNNER_OS"
+          echo "Commit: $GITHUB_SHA"
