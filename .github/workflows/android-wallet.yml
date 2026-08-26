@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/android-wallet-v0.1
+      - feature/android-wallet-branding-v0.1-finalwork
     paths:
       - 'mobile/android/**'
       - '.github/workflows/android-wallet.yml'
