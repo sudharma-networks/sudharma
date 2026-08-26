@@ -40,7 +40,7 @@ function safeLog(logger, level, record) {
 }
 
 function isFaucetRoute(kind) {
-  return kind === 'faucetInitial' || kind === 'faucetChallenge';
+  return kind === 'faucetInfo' || kind === 'faucetInitial' || kind === 'faucetChallenge';
 }
 
 export function createHandler(options = {}) {
@@ -104,7 +104,11 @@ export function createHandler(options = {}) {
           latency_ms: Date.now() - started,
           request_id: context?.awsRequestId || null,
         });
-        return jsonResponse(statusCode, { error: statusCode >= 500 ? 'testnet faucet is temporarily unavailable' : String(error?.message || 'faucet request rejected') });
+        return jsonResponse(statusCode, {
+          error: statusCode >= 500
+            ? 'testnet faucet is temporarily unavailable'
+            : String(error?.message || 'faucet request rejected'),
+        });
       }
     }
 
@@ -147,8 +151,26 @@ const configuredSeeds = [
   process.env.SEED_2_URL || DEFAULT_SEEDS[1],
 ];
 const configuredTimeoutMs = Number.parseInt(process.env.UPSTREAM_TIMEOUT_MS || '3500', 10);
+const runtimeTimeoutMs = Number.isFinite(configuredTimeoutMs) ? configuredTimeoutMs : 3500;
+
+let productionFaucetHandler = null;
+if (process.env.FAUCET_ENABLED === 'true') {
+  let runtimeHandlerPromise;
+  productionFaucetHandler = async (request) => {
+    if (!runtimeHandlerPromise) {
+      runtimeHandlerPromise = import('./faucet-runtime.mjs')
+        .then((module) => module.createRuntimeFaucetHandler({
+          seeds: configuredSeeds,
+          timeoutMs: runtimeTimeoutMs,
+        }));
+    }
+    const runtimeHandler = await runtimeHandlerPromise;
+    return runtimeHandler(request);
+  };
+}
 
 export const handler = createHandler({
   seeds: configuredSeeds,
-  timeoutMs: Number.isFinite(configuredTimeoutMs) ? configuredTimeoutMs : 3500,
+  timeoutMs: runtimeTimeoutMs,
+  faucetHandler: productionFaucetHandler,
 });
