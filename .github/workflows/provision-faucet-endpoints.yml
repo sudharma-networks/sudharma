@@ -1,0 +1,138 @@
+name: Provision Faucet VPC Endpoints
+
+on:
+  push:
+    branches:
+      - feature/public-testnet-wallet-v2
+    paths:
+      - '.github/workflows/provision-faucet-endpoints.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      VPC_ID: vpc-0cd862d72cf8165fa
+      LAMBDA_SG_ID: sg-057c9893359ab2300
+      SUBNET_1: subnet-0c04f19843bf6a401
+      SUBNET_2: subnet-0f213d036a08fd543
+      ENDPOINT_SG_NAME: sudharma-faucet-aws-endpoints
+    steps:
+      - name: Configure AWS credentials from GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+
+      - name: Create or reuse endpoint security group
+        id: endpoint_sg
+        shell: bash
+        run: |
+          set -euo pipefail
+          SG_ID="$(aws ec2 describe-security-groups \
+            --filters "Name=vpc-id,Values=${VPC_ID}" "Name=group-name,Values=${ENDPOINT_SG_NAME}" \
+            --query 'SecurityGroups[0].GroupId' --output text)"
+          if [ "$SG_ID" = 'None' ] || [ -z "$SG_ID" ]; then
+            SG_ID="$(aws ec2 create-security-group \
+              --group-name "$ENDPOINT_SG_NAME" \
+              --description 'Private endpoints used by Sudharma testnet faucet Lambda' \
+              --vpc-id "$VPC_ID" \
+              --query GroupId --output text)"
+            aws ec2 create-tags --resources "$SG_ID" --tags \
+              Key=Project,Value=Sudharma Key=Environment,Value=Testnet Key=Purpose,Value=FaucetEndpoints
+          fi
+          echo "endpoint_sg_id=${SG_ID}" >> "$GITHUB_OUTPUT"
+          echo "Endpoint security group: ${SG_ID}"
+
+      - name: Allow HTTPS only between Lambda and endpoint security group
+        shell: bash
+        env:
+          ENDPOINT_SG_ID: ${{ steps.endpoint_sg.outputs.endpoint_sg_id }}
+        run: |
+          set -euo pipefail
+          inbound="$(aws ec2 describe-security-groups --group-ids "$ENDPOINT_SG_ID" --output json)"
+          if ! printf '%s' "$inbound" | jq -e --arg source "$LAMBDA_SG_ID" \
+            '.SecurityGroups[0].IpPermissions[]? | select(.IpProtocol=="tcp" and .FromPort==443 and .ToPort==443) | .UserIdGroupPairs[]? | select(.GroupId==$source)' >/dev/null; then
+            aws ec2 authorize-security-group-ingress \
+              --group-id "$ENDPOINT_SG_ID" \
+              --ip-permissions "IpProtocol=tcp,FromPort=443,ToPort=443,UserIdGroupPairs=[{GroupId=${LAMBDA_SG_ID},Description='HTTPS from Sudharma wallet proxy Lambda'}]"
+          fi
+
+          lambda_sg="$(aws ec2 describe-security-groups --group-ids "$LAMBDA_SG_ID" --output json)"
+          if ! printf '%s' "$lambda_sg" | jq -e --arg dest "$ENDPOINT_SG_ID" \
+            '.SecurityGroups[0].IpPermissionsEgress[]? | select(.IpProtocol=="tcp" and .FromPort==443 and .ToPort==443) | .UserIdGroupPairs[]? | select(.GroupId==$dest)' >/dev/null; then
+            aws ec2 authorize-security-group-egress \
+              --group-id "$LAMBDA_SG_ID" \
+              --ip-permissions "IpProtocol=tcp,FromPort=443,ToPort=443,UserIdGroupPairs=[{GroupId=${ENDPOINT_SG_ID},Description='HTTPS to private AWS service endpoints'}]"
+          fi
+
+      - name: Create or reuse Secrets Manager interface endpoint
+        id: secrets_endpoint
+        shell: bash
+        env:
+          ENDPOINT_SG_ID: ${{ steps.endpoint_sg.outputs.endpoint_sg_id }}
+        run: |
+          set -euo pipefail
+          SERVICE='com.amazonaws.ap-south-1.secretsmanager'
+          VPCE_ID="$(aws ec2 describe-vpc-endpoints \
+            --filters "Name=vpc-id,Values=${VPC_ID}" "Name=service-name,Values=${SERVICE}" \
+            --query 'VpcEndpoints[?State!=`deleted`][0].VpcEndpointId' --output text)"
+          if [ "$VPCE_ID" = 'None' ] || [ -z "$VPCE_ID" ]; then
+            VPCE_ID="$(aws ec2 create-vpc-endpoint \
+              --vpc-id "$VPC_ID" \
+              --vpc-endpoint-type Interface \
+              --service-name "$SERVICE" \
+              --subnet-ids "$SUBNET_1" "$SUBNET_2" \
+              --security-group-ids "$ENDPOINT_SG_ID" \
+              --private-dns-enabled \
+              --tag-specifications 'ResourceType=vpc-endpoint,Tags=[{Key=Project,Value=Sudharma},{Key=Environment,Value=Testnet},{Key=Purpose,Value=FaucetSecretsManager}]' \
+              --query 'VpcEndpoint.VpcEndpointId' --output text)"
+          fi
+          echo "vpce_id=${VPCE_ID}" >> "$GITHUB_OUTPUT"
+          aws ec2 wait vpc-endpoint-available --vpc-endpoint-ids "$VPCE_ID"
+
+      - name: Create or reuse DynamoDB interface endpoint
+        id: dynamodb_endpoint
+        shell: bash
+        env:
+          ENDPOINT_SG_ID: ${{ steps.endpoint_sg.outputs.endpoint_sg_id }}
+        run: |
+          set -euo pipefail
+          SERVICE='com.amazonaws.ap-south-1.dynamodb'
+          VPCE_ID="$(aws ec2 describe-vpc-endpoints \
+            --filters "Name=vpc-id,Values=${VPC_ID}" "Name=service-name,Values=${SERVICE}" \
+            --query 'VpcEndpoints[?State!=`deleted`][0].VpcEndpointId' --output text)"
+          if [ "$VPCE_ID" = 'None' ] || [ -z "$VPCE_ID" ]; then
+            VPCE_ID="$(aws ec2 create-vpc-endpoint \
+              --vpc-id "$VPC_ID" \
+              --vpc-endpoint-type Interface \
+              --service-name "$SERVICE" \
+              --subnet-ids "$SUBNET_1" "$SUBNET_2" \
+              --security-group-ids "$ENDPOINT_SG_ID" \
+              --private-dns-enabled \
+              --tag-specifications 'ResourceType=vpc-endpoint,Tags=[{Key=Project,Value=Sudharma},{Key=Environment,Value=Testnet},{Key=Purpose,Value=FaucetDynamoDB}]' \
+              --query 'VpcEndpoint.VpcEndpointId' --output text)"
+          fi
+          echo "vpce_id=${VPCE_ID}" >> "$GITHUB_OUTPUT"
+          aws ec2 wait vpc-endpoint-available --vpc-endpoint-ids "$VPCE_ID"
+
+      - name: Verify endpoint state and restricted Lambda egress
+        shell: bash
+        env:
+          ENDPOINT_SG_ID: ${{ steps.endpoint_sg.outputs.endpoint_sg_id }}
+        run: |
+          set -euo pipefail
+          aws ec2 describe-vpc-endpoints \
+            --vpc-endpoint-ids '${{ steps.secrets_endpoint.outputs.vpce_id }}' '${{ steps.dynamodb_endpoint.outputs.vpce_id }}' \
+            --query 'VpcEndpoints[].{Id:VpcEndpointId,Service:ServiceName,State:State,PrivateDns:PrivateDnsEnabled,Subnets:SubnetIds,SecurityGroups:Groups[].GroupId}' \
+            --output json
+          aws ec2 describe-security-groups \
+            --group-ids "$LAMBDA_SG_ID" "$ENDPOINT_SG_ID" \
+            --query 'SecurityGroups[].{GroupId:GroupId,Ingress:IpPermissions,Egress:IpPermissionsEgress}' \
+            --output json
