@@ -1,4 +1,4 @@
-# OIDC trust verified for feature/android-wallet-v0.1
+# OIDC trust verified for the Sudharma repository. Deployment remains branch-gated below.
 name: Testnet Public RPC
 
 on:
@@ -6,6 +6,7 @@ on:
     branches:
       - 'security/**'
       - feature/android-wallet-v0.1
+      - feature/public-testnet-wallet-v2
     paths:
       - 'deployment/testnet/public-rpc/lambda/**'
       - 'deployment/testnet/public-rpc/**.json'
