@@ -2,7 +2,7 @@ name: Inspect Faucet VPC
 
 # Diagnostic workflow for the staged testnet faucet. Keep this workflow safe:
 # never read or print the faucet secret value.
-# Re-run marker: inspect live initial-grant HTTP 500 after Android request.
+# Re-run marker: inspect live initial-grant failure after successful activation smoke test.
 on:
   push:
     branches:
@@ -26,64 +26,28 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
           aws-region: ap-south-1
-
-      - name: Read Lambda VPC configuration
-        id: lambda_vpc
+      - name: Read Lambda configuration
         shell: bash
         run: |
           set -euo pipefail
-          aws lambda get-function-configuration \
-            --function-name Sudharma-Testnet-Wallet-Proxy \
-            --query '{VpcId:VpcConfig.VpcId,SubnetIds:VpcConfig.SubnetIds,SecurityGroupIds:VpcConfig.SecurityGroupIds,Timeout:Timeout,Role:Role}' \
-            --output json
-          VPC_ID="$(aws lambda get-function-configuration --function-name Sudharma-Testnet-Wallet-Proxy --query 'VpcConfig.VpcId' --output text)"
-          SUBNET_IDS="$(aws lambda get-function-configuration --function-name Sudharma-Testnet-Wallet-Proxy --query 'VpcConfig.SubnetIds' --output text)"
-          echo "vpc_id=${VPC_ID}" >> "$GITHUB_OUTPUT"
-          echo "subnet_ids=${SUBNET_IDS}" >> "$GITHUB_OUTPUT"
-
-      - name: Inspect Lambda execution role policies
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -euo pipefail
-          ROLE='Sudharma-Wallet-Proxy-Lambda-Execution'
-          aws iam list-role-policies --role-name "$ROLE" --output json
-          aws iam list-attached-role-policies --role-name "$ROLE" --output json
-          for policy in $(aws iam list-role-policies --role-name "$ROLE" --query 'PolicyNames[]' --output text); do
-            echo "=== inline policy: ${policy} ==="
-            aws iam get-role-policy --role-name "$ROLE" --policy-name "$policy" --query 'PolicyDocument' --output json
-          done
-
-      - name: Inspect Lambda subnets and availability zones
-        shell: bash
-        env:
-          SUBNET_IDS: ${{ steps.lambda_vpc.outputs.subnet_ids }}
-        run: |
-          set -euo pipefail
-          aws ec2 describe-subnets --subnet-ids $SUBNET_IDS --query 'Subnets[].{SubnetId:SubnetId,AvailabilityZone:AvailabilityZone,CidrBlock:CidrBlock}' --output json
-
+          aws lambda get-function-configuration --function-name Sudharma-Testnet-Wallet-Proxy --query '{State:State,LastUpdateStatus:LastUpdateStatus,Timeout:Timeout,VpcId:VpcConfig.VpcId,SubnetIds:VpcConfig.SubnetIds,SecurityGroupIds:VpcConfig.SecurityGroupIds,Environment:Environment.Variables}' --output json
       - name: Inspect VPC endpoints
         shell: bash
-        env:
-          VPC_ID: ${{ steps.lambda_vpc.outputs.vpc_id }}
         run: |
           set -euo pipefail
+          VPC_ID="$(aws lambda get-function-configuration --function-name Sudharma-Testnet-Wallet-Proxy --query 'VpcConfig.VpcId' --output text)"
           aws ec2 describe-vpc-endpoints --filters "Name=vpc-id,Values=${VPC_ID}" --query 'VpcEndpoints[].{VpcEndpointId:VpcEndpointId,Service:ServiceName,Type:VpcEndpointType,State:State,PrivateDns:PrivateDnsEnabled,SubnetIds:SubnetIds,RouteTableIds:RouteTableIds,SecurityGroupIds:Groups[].GroupId}' --output json
-
       - name: Inspect Lambda security group
         shell: bash
         run: |
           set -euo pipefail
           SG_IDS="$(aws lambda get-function-configuration --function-name Sudharma-Testnet-Wallet-Proxy --query 'VpcConfig.SecurityGroupIds' --output text)"
           aws ec2 describe-security-groups --group-ids $SG_IDS --query 'SecurityGroups[].{GroupId:GroupId,Ingress:IpPermissions,Egress:IpPermissionsEgress}' --output json
-
-      - name: Inspect live faucet failure logs
+      - name: Inspect latest faucet request failure logs
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== recent Lambda errors / faucet context (secret values are never requested) ==='
-          aws logs tail /aws/lambda/Sudharma-Testnet-Wallet-Proxy \
-            --since 2h \
-            --format short \
-            | grep -E -A 35 -B 5 'faucet|initial|grant|payout|broadcast|transaction|tx|Task timed out|AccessDenied|ValidationException|ConditionalCheckFailed|ResourceNotFound|ERROR|Error|INIT_REPORT|REPORT' \
-            | tail -n 300 || true
+          echo '=== Latest Lambda faucet request diagnostics; secret values are never requested ==='
+          aws logs tail /aws/lambda/Sudharma-Testnet-Wallet-Proxy --since 30m --format short \
+            | grep -E -A 50 -B 10 'faucet|initial|grant|payout|broadcast|transaction|tx|temporarily unavailable|Task timed out|AccessDenied|ValidationException|ConditionalCheckFailed|ResourceNotFound|ECONN|ETIMEDOUT|ERROR|Error|REPORT' \
+            | tail -n 500 || true
