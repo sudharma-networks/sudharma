@@ -7,7 +7,7 @@ class WalletPreferences(context: Context) {
     private val prefs = context.getSharedPreferences("sudharma_wallet_app_v1", Context.MODE_PRIVATE)
 
     var rpcUrl: String
-        get() = prefs.getString("testnet_rpc_url", "") ?: ""
+        get() = prefs.getString("testnet_rpc_url", DEFAULT_RPC_URL) ?: DEFAULT_RPC_URL
         set(value) {
             val trimmed = value.trim().trimEnd('/')
             if (trimmed.isNotEmpty()) validateRpcUrl(trimmed)
@@ -33,6 +33,8 @@ class WalletPreferences(context: Context) {
     fun clear() = prefs.edit().clear().apply()
 
     companion object {
+        const val DEFAULT_RPC_URL = "https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com"
+
         fun validateRpcUrl(value: String) {
             val url = value.toHttpUrlOrNull() ?: throw IllegalArgumentException("Invalid RPC URL")
             require(url.scheme == "https" || (BuildConfig.DEBUG && url.scheme == "http")) {
