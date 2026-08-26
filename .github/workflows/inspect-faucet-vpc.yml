@@ -36,10 +36,58 @@ jobs:
           VPC_ID="$(aws lambda get-function-configuration \
             --function-name Sudharma-Testnet-Wallet-Proxy \
             --query 'VpcConfig.VpcId' --output text)"
+          SUBNET_IDS="$(aws lambda get-function-configuration \
+            --function-name Sudharma-Testnet-Wallet-Proxy \
+            --query 'VpcConfig.SubnetIds' --output text)"
           echo "vpc_id=${VPC_ID}" >> "$GITHUB_OUTPUT"
+          echo "subnet_ids=${SUBNET_IDS}" >> "$GITHUB_OUTPUT"
 
-      - name: Inspect VPC endpoints if permitted
-        continue-on-error: true
+      - name: Inspect Lambda subnets and availability zones
+        shell: bash
+        env:
+          SUBNET_IDS: ${{ steps.lambda_vpc.outputs.subnet_ids }}
+        run: |
+          set -euo pipefail
+          aws ec2 describe-subnets \
+            --subnet-ids $SUBNET_IDS \
+            --query 'Subnets[].{SubnetId:SubnetId,AvailabilityZone:AvailabilityZone,AvailabilityZoneId:AvailabilityZoneId,CidrBlock:CidrBlock,MapPublicIpOnLaunch:MapPublicIpOnLaunch}' \
+            --output json
+
+      - name: Inspect route tables used by Lambda subnets
+        shell: bash
+        env:
+          VPC_ID: ${{ steps.lambda_vpc.outputs.vpc_id }}
+          SUBNET_IDS: ${{ steps.lambda_vpc.outputs.subnet_ids }}
+        run: |
+          set -euo pipefail
+          for subnet in $SUBNET_IDS; do
+            echo "=== subnet ${subnet} explicit route table ==="
+            explicit="$(aws ec2 describe-route-tables \
+              --filters "Name=association.subnet-id,Values=${subnet}" \
+              --query 'RouteTables[].{RouteTableId:RouteTableId,Routes:Routes,Associations:Associations}' \
+              --output json)"
+            printf '%s\n' "$explicit"
+            if [ "$explicit" = '[]' ]; then
+              echo "=== subnet ${subnet} uses VPC main route table ==="
+              aws ec2 describe-route-tables \
+                --filters "Name=vpc-id,Values=${VPC_ID}" "Name=association.main,Values=true" \
+                --query 'RouteTables[].{RouteTableId:RouteTableId,Routes:Routes,Associations:Associations}' \
+                --output json
+            fi
+          done
+
+      - name: Inspect NAT gateways
+        shell: bash
+        env:
+          VPC_ID: ${{ steps.lambda_vpc.outputs.vpc_id }}
+        run: |
+          set -euo pipefail
+          aws ec2 describe-nat-gateways \
+            --filter "Name=vpc-id,Values=${VPC_ID}" \
+            --query 'NatGateways[].{NatGatewayId:NatGatewayId,State:State,SubnetId:SubnetId,ConnectivityType:ConnectivityType}' \
+            --output json
+
+      - name: Inspect VPC endpoints
         shell: bash
         env:
           VPC_ID: ${{ steps.lambda_vpc.outputs.vpc_id }}
@@ -47,11 +95,10 @@ jobs:
           set -euo pipefail
           aws ec2 describe-vpc-endpoints \
             --filters "Name=vpc-id,Values=${VPC_ID}" \
-            --query 'VpcEndpoints[].{Service:ServiceName,Type:VpcEndpointType,State:State,PrivateDns:PrivateDnsEnabled,SubnetIds:SubnetIds,RouteTableIds:RouteTableIds,SecurityGroupIds:Groups[].GroupId}' \
+            --query 'VpcEndpoints[].{VpcEndpointId:VpcEndpointId,Service:ServiceName,Type:VpcEndpointType,State:State,PrivateDns:PrivateDnsEnabled,SubnetIds:SubnetIds,RouteTableIds:RouteTableIds,SecurityGroupIds:Groups[].GroupId}' \
             --output json
 
-      - name: Inspect Lambda security groups if permitted
-        continue-on-error: true
+      - name: Inspect Lambda security group
         shell: bash
         run: |
           set -euo pipefail
@@ -60,16 +107,15 @@ jobs:
             --query 'VpcConfig.SecurityGroupIds' --output text)"
           aws ec2 describe-security-groups \
             --group-ids $SG_IDS \
-            --query 'SecurityGroups[].{GroupId:GroupId,GroupName:GroupName,VpcId:VpcId,Egress:IpPermissionsEgress}' \
+            --query 'SecurityGroups[].{GroupId:GroupId,GroupName:GroupName,VpcId:VpcId,Ingress:IpPermissions,Egress:IpPermissionsEgress}' \
             --output json
 
-      - name: Inspect recent Lambda timeout/errors if permitted
-        continue-on-error: true
+      - name: Inspect recent Lambda timeout/errors
         shell: bash
         run: |
           set -euo pipefail
           aws logs tail /aws/lambda/Sudharma-Testnet-Wallet-Proxy \
-            --since 15m \
+            --since 30m \
             --format short \
             | grep -E 'Task timed out|AccessDenied|SecretsManager|DynamoDB|ERROR|INIT_REPORT|REPORT' \
-            | tail -n 80
+            | tail -n 80 || true
