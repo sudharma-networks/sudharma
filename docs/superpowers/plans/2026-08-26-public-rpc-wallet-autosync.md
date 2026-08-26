@@ -1,523 +1,228 @@
-# Public RPC Wallet Autosync Implementation Plan
+# Sudharma Public RPC Wallet Autosync Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a least-privilege AWS-hosted public Testnet wallet API with two-seed private failover, compile its stable HTTPS endpoint into the Android Testnet wallet, integrate the official Sudharma logo, and close the remaining Android release blockers without enabling Mainnet or exposing raw RPC.
+**Goal:** Deliver a Testnet Android wallet build that automatically connects through a stable AWS HTTPS endpoint, uses the official Sudharma logo, and resolves the known Android release blockers without exposing raw node RPC or wallet secrets.
 
-**Architecture:** API Gateway HTTP API invokes one VPC-attached Go Lambda. The Lambda exposes only an explicit allowlist of wallet endpoints and forwards to a dedicated private Nginx listener on each seed at TCP `29100`; Nginx proxies only approved wallet paths to each node's localhost RPC at `127.0.0.1:28545`. Read requests fail over between synchronized seeds; transaction submission may retry only the exact same signed payload and deterministic transaction ID. Android receives the stable `execute-api` HTTPS base URL at build time, migrates blank legacy configuration automatically, and shows connection state rather than a user-facing RPC form.
+**Architecture:** The public path is API Gateway HTTP API -> VPC Lambda (Node.js 24.x) -> two seed-private Nginx listeners on 29100 -> localhost node RPC on 28545. Android compiles the stable HTTPS endpoint, migrates blank configurations automatically, keeps all signing on-device, and surfaces truthful connection state. Backend and Android changes are developed test-first on isolated branches, with PR #20 remaining draft/open until release gates pass.
 
-**Tech Stack:** Go, AWS Lambda (`provided.al2023`), API Gateway HTTP API, CloudFormation/SAM-style template, GitHub Actions OIDC, Nginx, Kotlin, Jetpack Compose, OkHttp/Moshi, AndroidX lifecycle/saved-state, Android instrumentation tests.
+**Tech Stack:** Go tests for deployment policy, Node.js 24.x Lambda, AWS API Gateway HTTP API, AWS Lambda/VPC/security groups/CloudWatch, Android/Kotlin/Jetpack Compose, Gradle, GitHub Actions.
 
-**Spec:** `docs/superpowers/specs/2026-08-26-public-rpc-wallet-autosync-design.md` (approved locally in commit `3cbff9a`; verify/cherry-pick that exact local commit before implementation rather than recreating it blindly).
+**Spec:** `docs/superpowers/specs/2026-08-26-public-rpc-wallet-autosync-design.md`
 
 ## Global Constraints
 
-- Never read, modify, delete, replace, reset, or overwrite `C:\\sudh`.
-- Never request, expose, or persist wallet secrets, recovery phrases, private keys, passwords, AWS access keys, secret keys, MFA codes, signing keystores, or treasury material.
-- AWS deployments use GitHub OIDC role `arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet`; no permanent AWS credentials and no `AdministratorAccess`.
-- Lambda runtime role is `arn:aws:iam::981626123397:role/Sudharma-Wallet-Proxy-Lambda-Execution`.
-- VPC is `vpc-0cd862d72cf8165fa`.
+- Never read, modify, delete, replace, reset, or overwrite `C:\sudh`.
+- Never request or expose recovery phrases, private keys, passwords, AWS access keys, secret keys, root credentials, MFA codes, signing keystores, or wallet secrets.
+- Use AWS GitHub OIDC and short-lived roles only; never add permanent AWS credentials or `AdministratorAccess`.
+- Mainnet remains disabled.
+- Raw node RPC stays bound to `127.0.0.1:28545`.
+- Public API permits only the six approved wallet routes from the spec.
+- A transaction retry may resend only the exact same signed transaction body; never construct or sign a replacement transaction automatically.
+- PR #20 remains draft/open and unmerged until all release blockers and independent review gates are complete.
+- Preserve unrelated user changes and do not rewrite unrelated branch history.
+- AWS account: `981626123397`.
+- GitHub OIDC role: `arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet`.
+- Lambda execution role: `arn:aws:iam::981626123397:role/Sudharma-Wallet-Proxy-Lambda-Execution`.
+- VPC: `vpc-0cd862d72cf8165fa`.
 - Seed-1: instance `i-06e7ddb174e4941de`, private IP `172.31.10.171`, subnet `subnet-0c04f19843bf6a401`, SG `sg-09f1c1cf738869177`, AZ `ap-south-1b`.
 - Seed-2: instance `i-07422df89342dd5f9`, private IP `172.31.32.195`, subnet `subnet-0f213d036a08fd543`, SG `sg-07f0487f1de24caed`, AZ `ap-south-1a`.
-- Dedicated Lambda SG is `sg-057c9893359ab2300`.
-- Existing TCP `29090` is reserved for monitoring/metrics; do not use it as the wallet proxy path.
-- Raw RPC remains bound to `127.0.0.1:28545` and must never be opened publicly.
-- Use dedicated private wallet-proxy TCP port `29100`; seed SG inbound source must be only `sg-057c9893359ab2300`.
-- Public API allowlist is exactly: `GET /health`, `GET /ready`, `GET /v1/status`, `GET /v1/accounts/{address}`, `POST /v1/transactions`, `GET /v1/transactions/{transactionID}`.
-- Do not expose `/metrics`, raw RPC, administrative endpoints, block enumeration, or mempool enumeration.
-- Mainnet remains unavailable.
-- PR #20 stays open and draft until every release gate and independent review passes.
+- Dedicated Lambda SG: `sg-057c9893359ab2300`.
+- Existing TCP `29090` remains reserved for monitoring; wallet proxy traffic uses only TCP `29100`.
 
 ---
 
-### Task 1: Correct and lock the private seed ingress path
+### Task 1: Finalize Seed-Private Nginx Policy
 
 **Files:**
-- Create: `deployment/testnet/public-rpc/nginx-wallet-proxy.conf`
-- Create: `deployment/testnet/public-rpc/nginx-wallet-proxy_test.go`
-- Modify: `deployment/testnet/README.md`
+- Modify: `deployment/testnet/public-rpc/nginx-wallet-proxy.conf`
+- Modify: `deployment/testnet/public-rpc/nginx_wallet_proxy_test.go`
 
 **Interfaces:**
-- Consumes: node localhost RPC at `127.0.0.1:28545`.
-- Produces: private HTTP listener on `0.0.0.0:29100` that accepts only the six approved routes and returns `404` for every other path.
+- Consumes: node RPC on `127.0.0.1:28545`.
+- Produces: private wallet-safe HTTP listener semantics for port 29100.
 
-- [ ] **Step 1: Write the failing configuration test**
+- [ ] **Step 1: Extend the failing policy test** to assert exact methods, no catch-all upstream proxy, body limit on transaction POST, bounded connect/read/send timeouts, and no metrics/blocks/mempool exposure.
+- [ ] **Step 2: Run `go test ./deployment/testnet/public-rpc -count=1`** and confirm RED for the new assertions.
+- [ ] **Step 3: Make the minimal Nginx template changes** while retaining a default 404 and localhost upstream.
+- [ ] **Step 4: Run focused and full Go CI** and confirm GREEN.
+- [ ] **Step 5: Compare the repository template against the two already-deployed seed-specific configs** and record any harmless live differences such as private-IP binding and duplicate no-store headers.
 
-Create a Go test that loads `nginx-wallet-proxy.conf` and asserts it contains `listen 29100`, `proxy_pass http://127.0.0.1:28545`, exact route locations for the six approved API shapes, `client_max_body_size 1m`, bounded proxy timeouts, `Cache-Control "no-store"`, and no `/metrics`, `/blocks`, or `/mempool` location.
-
-- [ ] **Step 2: Run the test and verify failure**
-
-Run: `go test ./deployment/testnet/public-rpc -run TestNginxWalletProxyPolicy -count=1`
-
-Expected: FAIL because `nginx-wallet-proxy.conf` does not yet exist.
-
-- [ ] **Step 3: Add the minimal Nginx private proxy config**
-
-Implement a server listening on `29100` with `server_name _;`, `client_max_body_size 1m`, `proxy_connect_timeout 2s`, `proxy_read_timeout 8s`, `proxy_send_timeout 8s`, `add_header Cache-Control "no-store" always;`, explicit exact/prefix locations for the approved wallet routes, and a final `location / { return 404; }`. Do not configure TLS on this private VPC hop; API Gateway provides public TLS.
-
-- [ ] **Step 4: Run the test and Nginx syntax check**
-
-Run: `go test ./deployment/testnet/public-rpc -run TestNginxWalletProxyPolicy -count=1`
-
-On each seed after owner-approved deployment, run: `sudo nginx -t`.
-
-Expected: PASS and `syntax is ok`.
-
-- [ ] **Step 5: Correct AWS security groups**
-
-Remove the temporary Lambda-SG-to-seed `29090` permissions that were added during discovery. Add Lambda SG egress TCP `29100` only to `172.31.10.171/32` and `172.31.32.195/32`. On Seed-1 and Seed-2 SGs, add inbound TCP `29100` with source SG `sg-057c9893359ab2300`, then remove the temporary Lambda-source inbound `29090` rules. Preserve all pre-existing monitoring `29090`, SSH, and P2P rules.
-
-- [ ] **Step 6: Verify private reachability and public non-reachability**
-
-From an authorized VPC test context, verify `http://172.31.10.171:29100/ready` and `http://172.31.32.195:29100/ready` return ready. Verify the seeds' public IPs do not expose `29100` or `28545`.
-
-- [ ] **Step 7: Commit**
-
-```bash
-git add deployment/testnet/public-rpc deployment/testnet/README.md
-git commit -m "feat(testnet): add private wallet RPC proxy"
-```
-
-### Task 2: Build the Lambda route allowlist and bounded proxy core
+### Task 2: Implement Lambda Route Allowlist and Event Normalization
 
 **Files:**
-- Create: `cmd/sudharma-wallet-proxy/main.go`
-- Create: `publicrpc/handler.go`
-- Create: `publicrpc/handler_test.go`
-- Create: `publicrpc/routes.go`
-- Create: `publicrpc/routes_test.go`
+- Create: `deployment/testnet/public-rpc/lambda/package.json`
+- Create: `deployment/testnet/public-rpc/lambda/router.mjs`
+- Create: `deployment/testnet/public-rpc/lambda/router.test.mjs`
+- Create: `deployment/testnet/public-rpc/lambda/index.mjs`
 
 **Interfaces:**
-- Consumes: API Gateway HTTP API v2 events and seed base URLs `http://172.31.10.171:29100`, `http://172.31.32.195:29100`.
-- Produces: API Gateway v2 responses with `Cache-Control: no-store`; maximum request body 1 MiB; maximum upstream response 4 MiB.
+- Consumes: API Gateway HTTP API v2 event with `requestContext.http.method`, `rawPath`, headers, body, and `isBase64Encoded`.
+- Produces: normalized `{ method, path, body, headers }` request or a local 4xx response before any upstream network call.
 
-- [ ] **Step 1: Write failing allowlist tests**
+- [ ] **Step 1: Write failing Node tests** covering exactly the six allowed route shapes and rejecting `/metrics`, `/v1/blocks/*`, `/v1/mempool`, malformed account/transaction IDs, unsupported methods, encoded path traversal, and oversized bodies.
+- [ ] **Step 2: Run `node --test deployment/testnet/public-rpc/lambda/*.test.mjs`** and confirm RED.
+- [ ] **Step 3: Implement minimal pure routing/normalization functions** with no AWS SDK dependency and no transaction-body logging.
+- [ ] **Step 4: Run Node tests and secret guard** and confirm GREEN.
+- [ ] **Step 5: Commit the route boundary independently.**
 
-Cover all six approved method/path combinations and rejection of `/metrics`, `/v1/blocks`, `/v1/mempool`, unknown methods, malformed account addresses, and malformed 64-hex transaction IDs.
-
-- [ ] **Step 2: Run tests to verify failure**
-
-Run: `go test ./publicrpc -run 'TestRoute|TestValidation' -count=1`
-
-Expected: FAIL because router symbols are undefined.
-
-- [ ] **Step 3: Implement route parsing and validation**
-
-Define `type RouteKind int`, `func MatchRoute(method, path string) (RouteKind, map[string]string, error)`, `func ValidAddress(string) bool`, and `func ValidTransactionID(string) bool`. Reject encoded path traversal and any path outside the allowlist.
-
-- [ ] **Step 4: Write failing handler boundary tests**
-
-Use `httptest.Server` seeds to assert request-size rejection (`413`), upstream timeout mapping (`504`), oversized response rejection (`502`), no-store headers on success/error, and safe logs that omit request bodies and authorization-like headers.
-
-- [ ] **Step 5: Implement minimal handler**
-
-Create an `http.Client` with bounded connect/overall timeouts, copy only safe headers, never log transaction bodies, and return generic upstream errors without internal IPs.
-
-- [ ] **Step 6: Run package tests**
-
-Run: `go test ./publicrpc ./cmd/sudharma-wallet-proxy -count=1`
-
-Expected: PASS.
-
-- [ ] **Step 7: Commit**
-
-```bash
-git add publicrpc cmd/sudharma-wallet-proxy
-git commit -m "feat: add bounded public wallet proxy"
-```
-
-### Task 3: Add synchronized two-seed read failover and exact transaction retry
+### Task 3: Implement Two-Seed Failover and Safe Transaction Retry
 
 **Files:**
-- Create: `publicrpc/failover.go`
-- Create: `publicrpc/failover_test.go`
-- Modify: `publicrpc/handler.go`
+- Create: `deployment/testnet/public-rpc/lambda/upstream.mjs`
+- Create: `deployment/testnet/public-rpc/lambda/upstream.test.mjs`
+- Modify: `deployment/testnet/public-rpc/lambda/index.mjs`
 
 **Interfaces:**
-- Consumes: two seed clients and the exact incoming signed transaction bytes.
-- Produces: deterministic seed selection/failover; transaction retry reuses byte-for-byte identical payload and expected transaction ID.
+- Consumes: normalized request and configured seed endpoints `http://172.31.10.171:29100`, `http://172.31.32.195:29100`.
+- Produces: one authoritative proxied HTTP response, or a truthful 502/503/504 outcome when no authoritative result exists.
 
-- [ ] **Step 1: Write failing read-failover tests**
+- [ ] **Step 1: Write failing tests** for read failover on connection error/timeout/retryable 5xx, no failover on authoritative 4xx application responses, and exact-body transaction retry.
+- [ ] **Step 2: Add a test proving POST retry reuses byte-for-byte identical body** and does not mutate transaction ID/body.
+- [ ] **Step 3: Implement bounded `fetch` requests with `AbortController`** and deterministic seed order with one failover attempt.
+- [ ] **Step 4: Implement safe response filtering** with `Cache-Control: no-store`, content type, request correlation metadata that does not expose secrets, and no upstream `Server` header forwarding.
+- [ ] **Step 5: Run Node tests repeatedly and confirm deterministic GREEN.**
 
-Verify primary success does not call secondary; transport/5xx failure calls secondary; 4xx validation responses do not fail over; `/v1/status` results with incompatible network/tip identity mark service degraded instead of pretending synchronization.
-
-- [ ] **Step 2: Write failing transaction retry tests**
-
-Send a fixed signed JSON body containing deterministic transaction ID `aaaaaaaa...` (64 hex chars). Make seed-1 accept then disconnect before response; assert seed-2 receives the exact same bytes. Assert no code path mutates nonce, fee, ID, signature, or creates a replacement transaction.
-
-- [ ] **Step 3: Implement `SeedPool`**
-
-Define `type SeedPool struct { Seeds []*SeedClient }`, `func (p *SeedPool) DoRead(...)`, and `func (p *SeedPool) SubmitExact(ctx context.Context, body []byte, expectedID string)`. Retry only transport errors/5xx where outcome is uncertain and only with identical bytes.
-
-- [ ] **Step 4: Add uncertain-outcome semantics**
-
-If all submission attempts fail without authoritative acceptance/rejection, return a retryable/uncertain gateway error; never return success. Android will reconcile using `GET /v1/transactions/{transactionID}`.
-
-- [ ] **Step 5: Run tests**
-
-Run: `go test ./publicrpc -run 'TestFailover|TestSubmitExact|TestUncertain' -count=1`
-
-Expected: PASS.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add publicrpc
-git commit -m "feat: add two-seed safe failover"
-```
-
-### Task 4: Define least-privilege AWS infrastructure and OIDC deployment policy
+### Task 4: Add Deployment Configuration, Monitoring, and Least-Privilege IAM
 
 **Files:**
-- Create: `deployment/testnet/public-rpc/template.yaml`
-- Create: `deployment/testnet/public-rpc/iam-github-actions-policy.json`
-- Create: `deployment/testnet/public-rpc/iam-policy_test.go`
-- Create: `.github/workflows/deploy-testnet-wallet-proxy.yml`
+- Create: `deployment/testnet/public-rpc/aws/README.md`
+- Create: `deployment/testnet/public-rpc/aws/lambda-execution-policy.json`
+- Create: `deployment/testnet/public-rpc/aws/github-actions-testnet-policy.json`
+- Create: `deployment/testnet/public-rpc/aws/http-api-config.md`
+- Create: `deployment/testnet/public-rpc/aws/alarms.md`
+- Create/Modify: `.github/workflows/testnet-public-rpc.yml`
 
 **Interfaces:**
-- Consumes: GitHub OIDC role `Sudharma-GitHub-Actions-Testnet`, Lambda runtime role ARN, VPC/subnets/SG IDs.
-- Produces: one Lambda, one HTTP API, one stage, log group/retention, throttling, alarms, and deployment workflow restricted to branch `feature/android-wallet-v0.1`.
+- Consumes: exact Sudharma Testnet resource IDs and the existing OIDC role.
+- Produces: least-privilege deployment/documentation and CI package artifact.
 
-- [ ] **Step 1: Write failing IAM-policy tests**
+- [ ] **Step 1: Write policy validation tests/guard checks** that reject wildcard admin policies, permanent credentials, or raw 28545 exposure.
+- [ ] **Step 2: Define the Lambda execution policy** only for VPC ENI/logging permissions actually required by the function.
+- [ ] **Step 3: Define the GitHub OIDC deployment policy** restricted to the exact Lambda/API Gateway/log/alarms resources used by Sudharma Testnet.
+- [ ] **Step 4: Document API Gateway throttling, request limits, timeout expectations, access logging, and CloudWatch alarms** for elevated 5xx, Lambda errors/throttles, and latency.
+- [ ] **Step 5: Package Lambda from the tested source and publish a CI artifact** without secrets.
 
-Assert the policy contains no `*` action, no `AdministratorAccess`, no IAM user/access-key actions, and scopes writes to named Sudharma wallet-proxy Lambda/API/CloudWatch resources. Allow only the minimum deploy-time actions required by the selected deployment mechanism plus `iam:PassRole` restricted to `Sudharma-Wallet-Proxy-Lambda-Execution` and `lambda.amazonaws.com`.
-
-- [ ] **Step 2: Write failing infrastructure-template tests**
-
-Assert Lambda uses both seed subnets, SG `sg-057c9893359ab2300`, runtime role ARN, memory/timeout caps, reserved concurrency, structured log retention, HTTP API throttling, and only the six routes. Assert no `/metrics` route and no Mainnet value.
-
-- [ ] **Step 3: Implement template and policy**
-
-Set environment variables only for non-secret configuration: seed private URLs, network=`testnet`, response/request limits. Add CloudWatch alarms for Lambda errors, throttles, duration, API 5xx, and a custom degraded-seed metric.
-
-- [ ] **Step 4: Implement OIDC workflow**
-
-Use `permissions: id-token: write, contents: read`, `aws-actions/configure-aws-credentials` with role ARN `arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet`, region `ap-south-1`, and no static secrets. Build/test before deploy.
-
-- [ ] **Step 5: Run policy/template tests and secret guard**
-
-Run: `go test ./deployment/testnet/public-rpc -count=1` and the repository's tracked-secret guard.
-
-Expected: PASS.
-
-- [ ] **Step 6: Owner review and attach only the custom deployment policy**
-
-Review JSON against exact created resource names before attaching it to `Sudharma-GitHub-Actions-Testnet`. Do not attach broad AWS managed policies.
-
-- [ ] **Step 7: Commit**
-
-```bash
-git add deployment/testnet/public-rpc .github/workflows/deploy-testnet-wallet-proxy.yml
-git commit -m "ci: deploy testnet wallet proxy with OIDC"
-```
-
-### Task 5: Deploy and smoke-test the public gateway
+### Task 5: Deploy Lambda and API Gateway, Then Smoke-Test Public HTTPS
 
 **Files:**
 - Create: `scripts/smoke-public-wallet-api.sh`
-- Create: `deployment/testnet/public-rpc/OPERATIONS.md`
+- Create: `deployment/testnet/public-rpc/aws/deployment-state.md` after successful deployment.
 
 **Interfaces:**
-- Consumes: deployed `https://<api-id>.execute-api.ap-south-1.amazonaws.com` endpoint.
-- Produces: verified stable Testnet HTTPS base URL and operational runbook.
+- Consumes: tested Lambda artifact, VPC subnets/security group, Lambda execution role, API Gateway HTTP API.
+- Produces: stable AWS-generated HTTPS `execute-api` endpoint.
 
-- [ ] **Step 1: Write smoke script assertions**
+- [ ] **Step 1: Deploy the tested Lambda package** to the existing `Sudharma-Testnet-Wallet-Proxy` function using Node.js 24.x and the existing VPC/execution-role configuration.
+- [ ] **Step 2: Configure non-secret environment values** for the two private seed endpoints and bounded timeout/body-size settings.
+- [ ] **Step 3: Create/configure the HTTP API and `$default` stage** with only the proxy integration routes needed by the six-path allowlist; Lambda still enforces the definitive route boundary.
+- [ ] **Step 4: Configure throttling/logging/alarms** and verify Lambda security-group egress plus seed security-group ingress on 29100.
+- [ ] **Step 5: Smoke-test `/health`, `/ready`, `/v1/status`, a syntactically valid account lookup, forbidden `/metrics`, and malformed routes from the public HTTPS endpoint.**
+- [ ] **Step 6: Exercise failover by making one seed unavailable to Lambda without stopping both seeds, then restore it; verify truthful degraded behavior and no false success.**
+- [ ] **Step 7: Record the stable HTTPS base URL and deployment IDs that are safe to commit.**
 
-Check `/health`, `/ready`, `/v1/status`, account validation, transaction-ID validation, `Cache-Control: no-store`, request-size rejection, and explicit `404/405` for blocked endpoints.
-
-- [ ] **Step 2: Deploy from OIDC workflow**
-
-Verify CloudFormation/Lambda/API resources are tagged `Project=Sudharma-Testnet` and no unexpected resources are created.
-
-- [ ] **Step 3: Test seed failover**
-
-Temporarily make one private seed target unavailable using an owner-approved reversible method, confirm reads remain available/degraded, restore it, and confirm synchronized state. Do not stop both seeds simultaneously.
-
-- [ ] **Step 4: Test transaction uncertainty safely**
-
-Use a non-secret Testnet fixture transaction only; verify the gateway never generates a replacement and reports uncertain outcome rather than false success when both upstream attempts fail.
-
-- [ ] **Step 5: Commit runbook/smoke script**
-
-```bash
-git add scripts/smoke-public-wallet-api.sh deployment/testnet/public-rpc/OPERATIONS.md
-git commit -m "test: add public wallet API smoke checks"
-```
-
-### Task 6: Compile the Testnet endpoint and migrate blank Android preferences
+### Task 6: Add Android Compiled Testnet Endpoint and Preference Migration
 
 **Files:**
 - Modify: `mobile/android/app/build.gradle.kts`
 - Modify: `mobile/android/app/src/main/java/network/sudharma/wallet/WalletPreferences.kt`
-- Create: `mobile/android/app/src/test/java/network/sudharma/wallet/WalletPreferencesTest.kt`
-- Modify: `mobile/android/app/src/main/java/network/sudharma/wallet/SudharmaWalletRepository.kt`
+- Modify: `mobile/android/app/src/main/java/network/sudharma/wallet/chain/sudharma/SudharmaRpcClient.kt`
+- Test: existing/new tests under `mobile/android/app/src/test/java/network/sudharma/wallet/`
 
 **Interfaces:**
-- Consumes: build-time `TESTNET_API_BASE_URL` HTTPS value.
-- Produces: `WalletPreferences.effectiveRpcUrl()` using compiled endpoint when legacy preference is blank; debug-only override remains possible.
+- Consumes: stable public HTTPS base URL from Task 5.
+- Produces: Testnet default RPC endpoint with blank-config migration and optional debug-only override.
 
-- [ ] **Step 1: Write failing migration tests**
+- [ ] **Step 1: Write failing tests** for fresh install default, blank-value migration, preserved explicit debug override, and no mainnet endpoint.
+- [ ] **Step 2: Add a Testnet build constant** for the HTTPS base URL and ensure release/Testnet UI never requires manual RPC entry.
+- [ ] **Step 3: Implement migration logic** that replaces only blank/unconfigured legacy values.
+- [ ] **Step 4: Run Android unit tests and lint.**
 
-Verify a fresh install and an existing blank `testnet_rpc_url` use the compiled endpoint; an existing explicit HTTPS value is preserved only in debug builds; release builds ignore/clear manual overrides; invalid/non-HTTPS compiled endpoint fails build/config validation.
-
-- [ ] **Step 2: Run test and verify failure**
-
-Run: `cd mobile/android && ./gradlew testDebugUnitTest --tests '*WalletPreferencesTest*'`
-
-- [ ] **Step 3: Implement build config and migration**
-
-Expose `BuildConfig.TESTNET_API_BASE_URL`. Replace direct `rpcUrl` UI dependency with `effectiveRpcUrl()`. Keep Mainnet absent.
-
-- [ ] **Step 4: Remove ordinary-user RPC form**
-
-In production UI flow, show connection status/height/last sync only. Keep developer override behind `BuildConfig.DEBUG`.
-
-- [ ] **Step 5: Run Android tests**
-
-Run: `cd mobile/android && ./gradlew testDebugUnitTest lintDebug`
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add mobile/android
-git commit -m "feat(android): auto-configure testnet API"
-```
-
-### Task 7: Add autosync state and RPC response integrity checks
+### Task 7: Add Autosync Connection State and Production Portfolio Flow
 
 **Files:**
 - Modify: `mobile/android/app/src/main/java/network/sudharma/wallet/PortfolioState.kt`
 - Modify: `mobile/android/app/src/main/java/network/sudharma/wallet/SudharmaWalletRepository.kt`
-- Modify: `mobile/android/app/src/main/java/network/sudharma/wallet/chain/sudharma/SudharmaRpcClient.kt`
-- Modify: `mobile/android/app/src/test/java/network/sudharma/wallet/PortfolioStateTest.kt`
-- Modify: `mobile/android/app/src/test/java/network/sudharma/wallet/chain/sudharma/SudharmaRpcClientTest.kt`
-
-**Interfaces:**
-- Produces connection states `CONNECTING`, `SYNCHRONIZED`, `DEGRADED`, `OFFLINE` plus height and last-sync timestamp.
-
-- [ ] **Step 1: Write failing autosync state tests**
-
-Cover initial connecting, successful synchronized status, one-seed degraded signal, bounded exponential backoff, offline after repeated transport failures, and recovery without app restart.
-
-- [ ] **Step 2: Write failing response-integrity tests**
-
-For every response shape carrying an ID or request correlation field, reject missing/mismatched IDs rather than accepting a different response. Preserve the existing transaction-ID equality check in `SudharmaChainAdapter.submit`.
-
-- [ ] **Step 3: Implement repository autosync loop**
-
-Use lifecycle-aware coroutine scope, bounded exponential backoff with jitter and a maximum delay, no busy-looping, and truthful status transitions.
-
-- [ ] **Step 4: Route production portfolio through `PortfolioState`**
-
-Make home/activity rendering consume `PortfolioState` instead of parallel ad-hoc state.
-
-- [ ] **Step 5: Run tests**
-
-Run: `cd mobile/android && ./gradlew testDebugUnitTest`
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add mobile/android
-git commit -m "feat(android): add truthful testnet autosync state"
-```
-
-### Task 8: Make prepared transfers immutable and recreation-safe
-
-**Files:**
-- Modify: `mobile/android/app/src/main/java/network/sudharma/wallet/chain/ChainModels.kt`
-- Modify: `mobile/android/app/src/main/java/network/sudharma/wallet/chain/sudharma/SudharmaChainAdapter.kt`
 - Modify: `mobile/android/app/src/main/java/network/sudharma/wallet/WalletApp.kt`
-- Create: `mobile/android/app/src/main/java/network/sudharma/wallet/PreparedTransferState.kt`
-- Create: `mobile/android/app/src/test/java/network/sudharma/wallet/PreparedTransferStateTest.kt`
-- Modify: `mobile/android/app/src/test/java/network/sudharma/wallet/chain/sudharma/SudharmaTransferFlowTest.kt`
+- Add focused connection-state tests.
 
 **Interfaces:**
-- Produces immutable `PreparedTransfer(from,to,amountAtomic,feeAtomic,nonce)` before authorization; signing consumes that exact object; persisted send state records transaction ID and submission phase.
+- Produces: `Connecting`, `Synchronized(height,lastSync)`, `Degraded(height,lastSync)`, and `Offline(lastSync)` states with bounded exponential backoff.
 
-- [ ] **Step 1: Write failing prepared-transfer tests**
+- [ ] **Step 1: Write failing state-transition/backoff tests.**
+- [ ] **Step 2: Route production balance/status refresh through `PortfolioState` and repository state.**
+- [ ] **Step 3: Implement bounded backoff and truthful stale/offline presentation without claiming transaction success.**
+- [ ] **Step 4: Remove ordinary-user RPC URL form from production UI while retaining a debug-only override path if already supported.**
+- [ ] **Step 5: Run unit tests and lint.**
 
-Assert fee and next nonce are fetched before confirmation/authorization, the confirmation displays those exact immutable values, and signing cannot recalculate fee or nonce afterward.
-
-- [ ] **Step 2: Write failing recreation tests**
-
-Simulate recreation in phases `EDITING`, `PREPARED`, `SIGNED_NOT_SUBMITTED`, `SUBMITTING`, `SUBMITTED_PENDING`. Assert recreation never auto-signs a new transaction and never submits a different transaction ID.
-
-- [ ] **Step 3: Implement immutable prepared state**
-
-Persist only non-secret transfer metadata and signed transaction payload only if existing encrypted app storage boundary permits it; otherwise persist transaction ID/submission phase and require explicit user reconciliation. Never put private keys in saved state.
-
-- [ ] **Step 4: Implement ambiguous-submit reconciliation**
-
-After uncertain network outcome, query status by the existing transaction ID before offering retry. A retry sends the exact same signed bytes.
-
-- [ ] **Step 5: Run tests**
-
-Run: `cd mobile/android && ./gradlew testDebugUnitTest --tests '*PreparedTransferStateTest*' --tests '*SudharmaTransferFlowTest*'`
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add mobile/android
-git commit -m "fix(android): make send flow recreation safe"
-```
-
-### Task 9: Move payment URI parsing behind the chain adapter and use production backup boundary
+### Task 8: Resolve Payment URI, Prepared Transfer, Recreation, and RPC-ID Release Blockers
 
 **Files:**
-- Modify: `mobile/android/app/src/main/java/network/sudharma/wallet/chain/ChainModels.kt`
 - Modify: `mobile/android/app/src/main/java/network/sudharma/wallet/chain/sudharma/SudharmaChainAdapter.kt`
 - Modify: `mobile/android/app/src/main/java/network/sudharma/wallet/chain/sudharma/SudharmaPaymentUri.kt`
+- Modify: `mobile/android/app/src/main/java/network/sudharma/wallet/chain/sudharma/SudharmaRpcClient.kt`
+- Modify: `mobile/android/app/src/main/java/network/sudharma/wallet/SudharmaWalletRepository.kt`
 - Modify: `mobile/android/app/src/main/java/network/sudharma/wallet/WalletApp.kt`
-- Modify: `mobile/android/app/src/main/java/network/sudharma/wallet/backup/CloudBackupBoundary.kt`
-- Modify: `mobile/android/app/src/test/java/network/sudharma/wallet/chain/sudharma/SudharmaPaymentUriTest.kt`
-- Modify: `mobile/android/app/src/test/java/network/sudharma/wallet/backup/CloudBackupBoundaryTest.kt`
+- Add/modify focused tests.
 
 **Interfaces:**
-- Produces `ChainAdapter.parsePaymentRequest(raw)` returning address plus optional amount; production optional backup flow must pass only encrypted ciphertext through `CloudBackupBoundary`.
+- Produces: immutable prepared transfer containing recipient, amount, fee, nonce, network, and deterministic unsigned/signing payload before authorization.
 
-- [ ] **Step 1: Write failing QR amount tests**
+- [ ] **Step 1: Write failing tests proving scanned URI amount is preserved and parsing occurs through the chain adapter.**
+- [ ] **Step 2: Write failing tests proving fee/nonce are fetched before authorization and confirmation data cannot change afterward.**
+- [ ] **Step 3: Write recreation tests proving a prepared/signed/submitting transfer survives state restoration without automatic second signing or ambiguous retry.**
+- [ ] **Step 4: Add tests rejecting mismatched RPC response IDs and malformed transaction-status responses.**
+- [ ] **Step 5: Implement the minimal production changes and run Android tests/lint.**
 
-Assert scanning a valid Sudharma URI with amount pre-fills both address and amount; invalid/overflow amount is rejected; plain address remains supported.
-
-- [ ] **Step 2: Implement chain-level payment request parsing**
-
-Move parsing out of Compose/UI code. UI consumes only chain-agnostic parsed result.
-
-- [ ] **Step 3: Write failing production backup-boundary test**
-
-Exercise the production backup action and assert plaintext recovery material cannot cross `CloudBackupBoundary`; only `EncryptedBackup` ciphertext is accepted.
-
-- [ ] **Step 4: Wire production flow through `CloudBackupBoundary`**
-
-Keep backup optional and non-blocking.
-
-- [ ] **Step 5: Run tests and commit**
-
-Run: `cd mobile/android && ./gradlew testDebugUnitTest`
-
-```bash
-git add mobile/android
-git commit -m "fix(android): enforce chain and backup boundaries"
-```
-
-### Task 10: Relock on background, preserve onboarding state, and add instrumentation security tests
+### Task 9: Resolve Lifecycle Relock, FLAG_SECURE, Onboarding Recreation, and Cloud Backup Production Use
 
 **Files:**
 - Modify: `mobile/android/app/src/main/java/network/sudharma/wallet/MainActivity.kt`
 - Modify: `mobile/android/app/src/main/java/network/sudharma/wallet/WalletFlow.kt`
 - Modify: `mobile/android/app/src/main/java/network/sudharma/wallet/WalletApp.kt`
-- Modify: `mobile/android/app/build.gradle.kts`
-- Create: `mobile/android/app/src/androidTest/java/network/sudharma/wallet/LifecycleRelockTest.kt`
-- Create: `mobile/android/app/src/androidTest/java/network/sudharma/wallet/FlagSecureTest.kt`
-- Create: `mobile/android/app/src/androidTest/java/network/sudharma/wallet/OnboardingRecreationTest.kt`
+- Modify production integration points for `mobile/android/app/src/main/java/network/sudharma/wallet/backup/CloudBackupBoundary.kt`
+- Add instrumentation tests under `mobile/android/app/src/androidTest/`
 
 **Interfaces:**
-- Produces immediate lock when app backgrounds after wallet unlock; onboarding survives configuration/process recreation without storing secrets in plain saved state.
+- Produces: wallet relock on background, secure-window behavior, recreation-safe onboarding state, and encrypted-only production backup boundary.
 
-- [ ] **Step 1: Write instrumentation tests first**
+- [ ] **Step 1: Write lifecycle/instrumentation tests** for background relock and `FLAG_SECURE` on sensitive screens.
+- [ ] **Step 2: Write unit tests for onboarding recreation** that exclude recovery phrase/private material from ordinary saved navigation state.
+- [ ] **Step 3: Wire `CloudBackupBoundary` into the optional production backup/export flow** so only encrypted ciphertext crosses the boundary.
+- [ ] **Step 4: Implement lifecycle relock and saved-state changes, then run unit/instrumentation tests where supported.**
 
-Use ActivityScenario to move activity to background/foreground and assert wallet returns to unlock. Assert `WindowManager.LayoutParams.FLAG_SECURE` is set on wallet screens. Recreate during onboarding and assert flow resumes safely.
-
-- [ ] **Step 2: Run tests and observe failure**
-
-Run: `cd mobile/android && ./gradlew connectedDebugAndroidTest`
-
-- [ ] **Step 3: Implement lifecycle relock**
-
-Use lifecycle callbacks/process lifecycle to clear unlocked session state on background. Do not delete encrypted wallet data.
-
-- [ ] **Step 4: Implement recreation-safe onboarding**
-
-Move non-secret flow state to `SavedStateHandle`/saveable state; keep recovery phrase/private material only inside existing secure boundaries and require safe restart if secret-only transient state cannot be restored.
-
-- [ ] **Step 5: Run instrumentation and unit tests**
-
-Run: `cd mobile/android && ./gradlew testDebugUnitTest connectedDebugAndroidTest lintDebug`
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add mobile/android
-git commit -m "fix(android): relock and preserve safe lifecycle state"
-```
-
-### Task 11: Integrate official Sudharma branding with asset tests
+### Task 10: Integrate the Official Sudharma Logo
 
 **Files:**
-- Verify authoritative source: Library asset `sudharma-logo(1).png` versus repo `assets/sudharma-logo.png`; do not replace until byte/visual comparison is complete.
-- Modify/Create Android drawable/mipmap assets under `mobile/android/app/src/main/res/`.
-- Modify: `mobile/android/app/src/main/AndroidManifest.xml`
-- Modify: `mobile/android/app/src/main/java/network/sudharma/wallet/WalletApp.kt`
-- Create: `mobile/android/app/src/test/java/network/sudharma/wallet/BrandAssetTest.kt`
+- Add authoritative source under Android resources/assets without altering the master source semantics.
+- Add generated launcher/adaptive icon derivatives under Android resource directories.
+- Modify `mobile/android/app/src/main/java/network/sudharma/wallet/WalletApp.kt`, Android theme/resources, and manifest icon references.
+- Add asset/config tests.
 
 **Interfaces:**
-- Produces full circular logo on splash/welcome/About, derived center emblem for launcher/adaptive icon, compact home header logo, persistent TESTNET labeling.
+- Consumes: official 1254x1254 RGBA circular black-and-gold Sudharma logo supplied by the owner.
+- Produces: full-logo splash/welcome/About usage, compact header branding, and center-emblem launcher/adaptive icon derivative with clear TESTNET labeling.
 
-- [ ] **Step 1: Verify authoritative source asset**
+- [ ] **Step 1: Verify the supplied official asset against repository `assets/sudharma-logo.png` and choose the owner-supplied file as authoritative when they differ.**
+- [ ] **Step 2: Add tests for required resource presence and launcher/adaptive icon configuration.**
+- [ ] **Step 3: Generate size-appropriate derivatives from the authoritative source without redesigning the logo.**
+- [ ] **Step 4: Integrate full and compact logo placements and preserve TESTNET branding.**
+- [ ] **Step 5: Build and visually inspect key screens/launcher assets.**
 
-Compare dimensions/hash/visuals of the user-supplied 1254x1254 RGBA original with `assets/sudharma-logo.png`. If the Library asset is unavailable, ask the user to attach it again; do not guess.
-
-- [ ] **Step 2: Write failing asset/config tests**
-
-Assert launcher foreground/background resources exist, manifest references the intended icon, TESTNET text remains present, and full-logo resources are not accidentally replaced by the cropped emblem.
-
-- [ ] **Step 3: Generate deterministic Android resources**
-
-Keep original full logo untouched as source; derive center-emblem launcher asset with documented crop procedure. Do not alter brand colors/text beyond necessary small-icon crop.
-
-- [ ] **Step 4: Integrate UI placements**
-
-Add full logo to splash, welcome, Settings/About; compact logo to home/header. Preserve accessibility descriptions and clear TESTNET branding.
-
-- [ ] **Step 5: Build and visually inspect**
-
-Run debug build, capture emulator/device screenshots for launcher, splash, welcome, home, settings, and compare against approved source.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add assets mobile/android
-git commit -m "feat(android): integrate official Sudharma branding"
-```
-
-### Task 12: Full verification, device test, and PR release gate
+### Task 11: Full Verification and APK Artifact
 
 **Files:**
-- Modify: `.github/workflows/android-wallet.yml`
-- Modify: PR #20 description/checklist only after verification; do not merge.
+- CI/workflow files as needed for reproducible Android artifact generation.
 
 **Interfaces:**
-- Produces a new intermediate Testnet APK plus hashes and an evidence checklist; not a final release until independent review passes.
+- Produces: installable Testnet debug APK plus SHA-256 and verification report.
 
-- [ ] **Step 1: Run Go verification**
-
-Run: `go test ./... -count=1`.
-
-- [ ] **Step 2: Run Android verification**
-
-Run: `cd mobile/android && ./gradlew testDebugUnitTest connectedDebugAndroidTest lintDebug assembleDebug`.
-
-- [ ] **Step 3: Run secret guard**
-
-Verify no tracked APK/AAB, keystore, `google-services.json`, `local.properties`, mnemonic/private key, AWS static credential, or secret-like material.
-
-- [ ] **Step 4: Run deployed API smoke tests**
-
-Execute `scripts/smoke-public-wallet-api.sh` against the stable `execute-api` URL and verify alarms/logging have no secret/body leakage.
-
-- [ ] **Step 5: Hash APK**
-
-Compute SHA-256 of the newly built APK and record it as an intermediate Testnet artifact.
-
-- [ ] **Step 6: Install on OnePlus 11R and execute manual matrix**
-
-Verify fresh install auto-connects without RPC entry; synchronized/degraded/offline states; background relock; rotation/recreation during onboarding/send; QR amount; prepared fee+nonce confirmation; exact retry semantics; screenshot blocking; backup boundary; logo placements; TESTNET branding.
-
-- [ ] **Step 7: Independent review gate**
-
-Have an independent reviewer verify all eight original blockers, infrastructure allowlist, least-privilege IAM, failover behavior, and no Mainnet path. Keep PR #20 draft/open if any item is unresolved.
-
-- [ ] **Step 8: Update PR #20 evidence only**
-
-Update the draft PR description with verified commit SHA, workflow results, API smoke evidence, APK hash, and explicit remaining limitations. Do not merge.
+- [ ] **Step 1: Run `go test ./... -count=1` and the repository secret guard.**
+- [ ] **Step 2: Run all Lambda Node tests.**
+- [ ] **Step 3: Run Android unit tests and lint.**
+- [ ] **Step 4: Run instrumentation/UI tests where CI supports an emulator; otherwise record the exact owner-device checks still required.**
+- [ ] **Step 5: Build the Testnet debug APK and publish/download the workflow artifact.**
+- [ ] **Step 6: Compute SHA-256 and verify no credentials, mnemonic, private key, signing keystore, or secret file is packaged/tracked.**
+- [ ] **Step 7: Visually inspect the APK/screenshots for logo scaling, TESTNET branding, connection state, and absence of ordinary RPC configuration UI.**
+- [ ] **Step 8: Provide the APK to the owner for OnePlus 11R installation and real-device smoke tests.**
+- [ ] **Step 9: Keep PR #20 draft/unmerged and label the APK intermediate until independent review closes every release gate.**
