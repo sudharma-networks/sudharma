@@ -1,0 +1,41 @@
+name: Apply Wallet V2 Faucet UI Patch
+
+on:
+  push:
+    branches:
+      - feature/public-testnet-wallet-v2
+    paths:
+      - 'scripts/apply-wallet-v2-faucet-ui.py'
+      - '.github/workflows/wallet-v2-faucet-ui-patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/public-testnet-wallet-v2
+          fetch-depth: 0
+
+      - name: Apply deterministic UI patch
+        run: python scripts/apply-wallet-v2-faucet-ui.py
+
+      - name: Remove one-shot patch files
+        run: |
+          rm scripts/apply-wallet-v2-faucet-ui.py
+          rm .github/workflows/wallet-v2-faucet-ui-patch.yml
+
+      - name: Commit patched wallet UI
+        run: |
+          set -euo pipefail
+          git config user.name 'sudharma-network'
+          git config user.email 'vkw143download@gmail.com'
+          git add mobile/android/app/src/main/java/network/sudharma/wallet/WalletApp.kt \
+            scripts/apply-wallet-v2-faucet-ui.py \
+            .github/workflows/wallet-v2-faucet-ui-patch.yml
+          git commit -m 'feat(android): wire faucet and challenge actions'
+          git push origin HEAD:feature/public-testnet-wallet-v2
