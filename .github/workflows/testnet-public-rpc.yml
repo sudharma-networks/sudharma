@@ -55,6 +55,44 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  inspect-faucet-aws:
+    if: github.ref == 'refs/heads/feature/public-testnet-wallet-v2'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Configure AWS credentials from GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+
+      - name: Inspect Lambda execution role
+        run: |
+          set -euo pipefail
+          aws lambda get-function-configuration \
+            --function-name Sudharma-Testnet-Wallet-Proxy \
+            --query '{Role:Role,Runtime:Runtime,State:State,LastUpdateStatus:LastUpdateStatus}' \
+            --output json
+
+      - name: Check faucet table without changing AWS
+        run: |
+          if aws dynamodb describe-table --table-name Sudharma-Testnet-Faucet --query 'Table.{Name:TableName,Status:TableStatus,KeySchema:KeySchema}' --output json; then
+            echo 'FAUCET_TABLE_EXISTS=true'
+          else
+            echo 'FAUCET_TABLE_EXISTS=false'
+          fi
+
+      - name: Check faucet secret metadata without reading secret value
+        run: |
+          if aws secretsmanager describe-secret --secret-id sudharma/testnet/faucet-wallet --query '{Name:Name,ARN:ARN}' --output json; then
+            echo 'FAUCET_SECRET_EXISTS=true'
+          else
+            echo 'FAUCET_SECRET_EXISTS=false'
+          fi
+
   deploy:
     if: github.ref == 'refs/heads/feature/android-wallet-v0.1'
     needs: build
