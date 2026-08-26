@@ -8,10 +8,9 @@ object TestnetChallengeConfig {
     const val MAX_ROUNDS = 5
     const val COOLDOWN_HOURS = 24
 
-    // Set only after a dedicated challenge wallet is created and funded.
-    // Keeping this null prevents the app from accidentally sending tester funds
-    // to an unrelated address before the official wallet exists.
+    // Legacy-safe defaults. The working wallet obtains the live challenge
+    // address and enablement state from GET /v1/faucet/info so key rotation
+    // does not require publishing a new APK.
     val challengeDepositAddress: String? = null
-
     val faucetEnabled: Boolean = false
 }
