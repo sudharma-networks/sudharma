@@ -8,20 +8,15 @@ export class RequestError extends Error {
   }
 }
 
+const LOWER_HEX_40 = /^[0-9a-f]{40}$/;
 const LOWER_HEX_64 = /^[0-9a-f]{64}$/;
 
 export function validTransactionId(value) {
   return typeof value === 'string' && LOWER_HEX_64.test(value);
 }
 
-function validAccountAddress(value) {
-  return typeof value === 'string' &&
-    value.length > 0 &&
-    value.length <= 256 &&
-    !value.includes('/') &&
-    !value.includes('\\') &&
-    !value.includes('%') &&
-    !/[\u0000-\u001f\u007f]/.test(value);
+export function validAccountAddress(value) {
+  return typeof value === 'string' && LOWER_HEX_40.test(value);
 }
 
 function reject(message = 'route not found', statusCode = 404) {
