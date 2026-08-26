@@ -39,11 +39,16 @@ function safeLog(logger, level, record) {
   if (typeof fn === 'function') fn.call(logger, record);
 }
 
+function isFaucetRoute(kind) {
+  return kind === 'faucetInitial' || kind === 'faucetChallenge';
+}
+
 export function createHandler(options = {}) {
   const seeds = options.seeds || DEFAULT_SEEDS;
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   const timeoutMs = options.timeoutMs;
   const logger = options.logger || console;
+  const faucetHandler = options.faucetHandler || null;
 
   return async function walletProxyHandler(event, context = {}) {
     const started = Date.now();
@@ -68,6 +73,40 @@ export function createHandler(options = {}) {
       route: request.kind,
       request_id: context?.awsRequestId || null,
     });
+
+    if (isFaucetRoute(request.kind)) {
+      if (typeof faucetHandler !== 'function') {
+        safeLog(logger, 'warn', {
+          event: 'wallet_faucet_unavailable',
+          route: request.kind,
+          request_id: context?.awsRequestId || null,
+        });
+        return jsonResponse(503, { error: 'testnet faucet is not configured yet' });
+      }
+      try {
+        const result = await faucetHandler(request, { context, seeds, fetchImpl, timeoutMs });
+        const statusCode = Number.isInteger(result?.statusCode) ? result.statusCode : 200;
+        const payload = result?.payload ?? result ?? { status: 'ok' };
+        safeLog(logger, 'info', {
+          event: 'wallet_faucet_response',
+          route: request.kind,
+          status_code: statusCode,
+          latency_ms: Date.now() - started,
+          request_id: context?.awsRequestId || null,
+        });
+        return jsonResponse(statusCode, payload);
+      } catch (error) {
+        const statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : 500;
+        safeLog(logger, statusCode >= 500 ? 'error' : 'warn', {
+          event: 'wallet_faucet_error',
+          route: request.kind,
+          status_code: statusCode,
+          latency_ms: Date.now() - started,
+          request_id: context?.awsRequestId || null,
+        });
+        return jsonResponse(statusCode, { error: statusCode >= 500 ? 'testnet faucet is temporarily unavailable' : String(error?.message || 'faucet request rejected') });
+      }
+    }
 
     try {
       const result = await proxyWithFailover(request, { seeds, fetchImpl, timeoutMs });
