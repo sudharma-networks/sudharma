@@ -9,7 +9,7 @@ import {
 
 const ADDRESS = '0123456789abcdef0123456789abcdef01234567';
 
-test('allows exactly the six public wallet route shapes', () => {
+test('allows the public wallet and faucet route shapes', () => {
   const cases = [
     ['GET', '/health', 'health'],
     ['GET', '/ready', 'ready'],
@@ -17,6 +17,8 @@ test('allows exactly the six public wallet route shapes', () => {
     ['GET', `/v1/accounts/${ADDRESS}`, 'account'],
     ['POST', '/v1/transactions', 'submitTransaction'],
     ['GET', '/v1/transactions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'transactionStatus'],
+    ['POST', '/v1/faucet/request', 'faucetInitial'],
+    ['POST', '/v1/faucet/challenge', 'faucetChallenge'],
   ];
   for (const [method, path, kind] of cases) {
     assert.equal(matchRoute(method, path).kind, kind, `${method} ${path}`);
@@ -38,6 +40,8 @@ test('rejects forbidden, malformed and wrong-method routes', () => {
     ['GET', '/v1/transactions/not-a-transaction-id'],
     ['GET', '/v1/transactions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'],
     ['GET', '/v1/transactions/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'],
+    ['GET', '/v1/faucet/request'],
+    ['GET', '/v1/faucet/challenge'],
   ];
   for (const [method, path] of cases) {
     assert.throws(() => matchRoute(method, path), undefined, `${method} ${path}`);
@@ -62,6 +66,19 @@ test('normalizes API Gateway v2 events without changing transaction bytes', () =
   });
   assert.equal(normalized.method, 'POST');
   assert.equal(normalized.path, '/v1/transactions');
+  assert.deepEqual(normalized.body, Buffer.from(body, 'utf8'));
+});
+
+test('normalizes faucet JSON request bodies', () => {
+  const body = JSON.stringify({ address: ADDRESS });
+  const normalized = normalizeEvent({
+    rawPath: '/v1/faucet/request',
+    headers: { 'content-type': 'application/json' },
+    body,
+    isBase64Encoded: false,
+    requestContext: { http: { method: 'POST' } },
+  });
+  assert.equal(normalized.kind, 'faucetInitial');
   assert.deepEqual(normalized.body, Buffer.from(body, 'utf8'));
 });
 
