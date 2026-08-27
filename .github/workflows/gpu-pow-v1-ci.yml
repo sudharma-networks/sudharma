@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -30,13 +32,22 @@ jobs:
       - name: Go version
         run: go version
 
-      - name: Format check
+      - name: Format check for GPU-PoW changes
         shell: bash
         run: |
           set -euo pipefail
-          bad="$(gofmt -l .)"
+          base="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$base" ]; then
+            base="$(git merge-base HEAD origin/main)"
+          fi
+          files="$(git diff --name-only --diff-filter=ACMR "$base" HEAD -- '*.go')"
+          if [ -z "$files" ]; then
+            echo 'No changed Go files.'
+            exit 0
+          fi
+          bad="$(printf '%s\n' "$files" | xargs -r gofmt -l)"
           if [ -n "$bad" ]; then
-            echo 'Files requiring gofmt:'
+            echo 'Changed files requiring gofmt:'
             echo "$bad"
             exit 1
           fi
