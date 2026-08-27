@@ -13,7 +13,9 @@ var gpuV1ReferenceHeaderDomain = []byte("SUDHARMA-GPU-POW-V1-REFERENCE-HEADER\x0
 // reference primitive.
 //
 // Canonical reference encoding is:
-//   domain || header-prefix || nonce-little-endian
+//
+//	domain || header-prefix || nonce-little-endian
+//
 // The resulting SHA-256 digest provides both the final header binding and the
 // little-endian 64-bit work seed. The height selects the three-block
 // programmatic schedule; the caller-selected cache binds the epoch dataset.
