@@ -10,7 +10,7 @@ func testMiningBlock(height uint64, reward string) *blockchain.Block {
 	return &blockchain.Block{
 		Version:      2,
 		Height:       height,
-		Timestamp:    1786924860 + height,
+		Timestamp:    1786924860 + int64(height),
 		PreviousHash: "0123456789abcdef",
 		MerkleRoot:   "fedcba9876543210",
 		Difficulty:   1,
