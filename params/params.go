@@ -31,9 +31,9 @@ const (
 	// GPU-PoW v1 activation is intentionally unarmed by default. The staged
 	// testnet deployment task must replace the testnet sentinel with an explicit
 	// future height only after CUDA interoperability and deployment gates pass.
-	GPUV1ActivationDisabled       uint64 = ^uint64(0)
-	GPUV1TestnetActivationHeight  uint64 = GPUV1ActivationDisabled
-	GPUV1MainnetActivationHeight  uint64 = GPUV1ActivationDisabled
+	GPUV1ActivationDisabled      uint64 = ^uint64(0)
+	GPUV1TestnetActivationHeight uint64 = GPUV1ActivationDisabled
+	GPUV1MainnetActivationHeight uint64 = GPUV1ActivationDisabled
 
 	// Mining subsidy
 	// Internal identifier will be renamed from SUDH to SUDH
