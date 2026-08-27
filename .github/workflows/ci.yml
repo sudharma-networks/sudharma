@@ -5,9 +5,11 @@ on:
     branches:
       - main
       - 'security/**'
+      - 'feature/demand-miner-v1'
   pull_request:
     branches:
       - main
+      - 'feature/public-testnet-wallet-v2'
 
 permissions:
   contents: read
