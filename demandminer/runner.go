@@ -12,13 +12,14 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 const maxMinerOutputBytes = 64 << 10
 
 var (
 	pendingTransactionsPattern = regexp.MustCompile(`(?m)^Pending Transactions:\s*([0-9]+)\s*$`)
-	includedTransactionsPattern = regexp.MustCompile(`(?m)^Transactions:\s*([0-9]+)\s*$`)
+	includedTransactionsPattern = regexp.MustCompile(`(?m)^Block #[0-9]+ found \| Hash: [^|]+ \| Transactions:\s*([0-9]+)\s*\|`)
 )
 
 type ExecCommandContext func(context.Context, string, ...string) *exec.Cmd
@@ -63,24 +64,68 @@ func (r *NativeRunner) MineOne(ctx context.Context) error {
 		"-testmineraddress", r.config.RewardAddress,
 	}
 
-	runCtx, cancel := context.WithTimeout(ctx, r.config.ChildTimeoutDuration())
-	defer cancel()
-	cmd := r.command(runCtx, r.config.MinerBinary, args...)
-	var output boundedBuffer
+	runCtx, cancelRun := context.WithTimeout(ctx, r.config.ChildTimeoutDuration())
+	defer cancelRun()
+	childCtx, stopChild := context.WithCancel(runCtx)
+	defer stopChild()
+
+	evidence := make(chan struct{})
+	var evidenceOnce sync.Once
+	output := boundedBuffer{onWrite: func(current string) {
+		if validateMiningOutput(current) == nil {
+			evidenceOnce.Do(func() { close(evidence) })
+		}
+	}}
+
+	cmd := r.command(childCtx, r.config.MinerBinary, args...)
 	cmd.Stdout = &output
 	cmd.Stderr = &output
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start miner child: %w", err)
+	}
 
-	runErr := cmd.Run()
-	if err := runCtx.Err(); err != nil {
-		return err
+	waitCh := make(chan error, 1)
+	go func() { waitCh <- cmd.Wait() }()
+
+	select {
+	case runErr := <-waitCh:
+		if err := runCtx.Err(); err != nil {
+			return err
+		}
+		if runErr != nil {
+			return fmt.Errorf("miner child failed: %w; output: %s", runErr, output.String())
+		}
+		if err := validateMiningOutput(output.String()); err != nil {
+			return err
+		}
+		return nil
+
+	case <-evidence:
+		if err := runCtx.Err(); err != nil {
+			stopChild()
+			<-waitCh
+			return err
+		}
+
+		// sudharmad enters its normal node loop after -mineblocks completes.
+		// The included-transaction evidence is emitted only after the mined
+		// block has been successfully broadcast. At that point this runner
+		// stops only the unique ephemeral child it created, then reaps it.
+		stopChild()
+		<-waitCh
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := validateMiningOutput(output.String()); err != nil {
+			return err
+		}
+		return nil
+
+	case <-runCtx.Done():
+		stopChild()
+		<-waitCh
+		return runCtx.Err()
 	}
-	if runErr != nil {
-		return fmt.Errorf("miner child failed: %w; output: %s", runErr, output.String())
-	}
-	if err := validateMiningOutput(output.String()); err != nil {
-		return err
-	}
-	return nil
 }
 
 func validateMiningOutput(output string) error {
@@ -126,11 +171,14 @@ func isImmediateChild(parent, child string) bool {
 }
 
 type boundedBuffer struct {
-	buf bytes.Buffer
+	mu      sync.Mutex
+	buf     bytes.Buffer
+	onWrite func(string)
 }
 
 func (b *boundedBuffer) Write(p []byte) (int, error) {
 	original := len(p)
+	b.mu.Lock()
 	remaining := maxMinerOutputBytes - b.buf.Len()
 	if remaining > 0 {
 		if len(p) > remaining {
@@ -138,10 +186,21 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 		}
 		_, _ = b.buf.Write(p)
 	}
+	current := b.buf.String()
+	onWrite := b.onWrite
+	b.mu.Unlock()
+
+	if onWrite != nil {
+		onWrite(current)
+	}
 	return original, nil
 }
 
-func (b *boundedBuffer) String() string { return b.buf.String() }
+func (b *boundedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
 
 var _ io.Writer = (*boundedBuffer)(nil)
 var _ BlockMiner = (*NativeRunner)(nil)
