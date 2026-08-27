@@ -54,13 +54,12 @@ func TestNativeRunnerUsesExactBoundedMiningArguments(t *testing.T) {
 }
 
 func TestNativeRunnerStopsOwnChildAfterBroadcastEvidence(t *testing.T) {
-	runner := testRunner(t, "long-running-success", "300ms")
-	start := time.Now()
-	if err := runner.MineOne(context.Background()); err != nil {
-		t.Fatalf("MineOne: %v", err)
-	}
-	if time.Since(start) >= 250*time.Millisecond {
-		t.Fatalf("runner waited for long-running node loop after mining evidence")
+	runner := testRunner(t, "long-running-success", "30s")
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	if err := runner.MineOne(ctx); err != nil {
+		t.Fatalf("MineOne must stop its own long-running child after mining evidence, before parent deadline: %v", err)
 	}
 }
 
