@@ -24,8 +24,8 @@ func TestGPUV1CoreParameters(t *testing.T) {
 }
 
 func TestGPUV1RandomMathContract(t *testing.T) {
-	const a uint32 = 0x12345678
-	const b uint32 = 0x0f1e2d3c
+	var a uint32 = 0x12345678
+	var b uint32 = 0x0f1e2d3c
 
 	cases := []struct {
 		selector uint32
@@ -52,8 +52,8 @@ func TestGPUV1RandomMathContract(t *testing.T) {
 }
 
 func TestGPUV1RandomMergeContract(t *testing.T) {
-	const a uint32 = 0x11223344
-	const b uint32 = 0xaabbccdd
+	var a uint32 = 0x11223344
+	var b uint32 = 0xaabbccdd
 
 	cases := []struct {
 		selector uint32
