@@ -7,12 +7,24 @@ class WalletPreferences(context: Context) {
     private val prefs = context.getSharedPreferences("sudharma_wallet_app_v1", Context.MODE_PRIVATE)
 
     var rpcUrl: String
-        get() = prefs.getString("testnet_rpc_url", TestnetChallengeConfig.DEFAULT_RPC_URL)
-            ?: TestnetChallengeConfig.DEFAULT_RPC_URL
+        get() {
+            val stored = prefs.getString(RPC_URL_KEY, null)
+            val resolved = RpcEndpointPolicy.resolve(stored, allowDebugOverride = BuildConfig.DEBUG)
+            if (stored != resolved) prefs.edit().putString(RPC_URL_KEY, resolved).apply()
+            return resolved
+        }
         set(value) {
+            if (!BuildConfig.DEBUG) {
+                prefs.edit().putString(RPC_URL_KEY, TestnetChallengeConfig.DEFAULT_RPC_URL).apply()
+                return
+            }
             val trimmed = value.trim().trimEnd('/')
             if (trimmed.isNotEmpty()) validateRpcUrl(trimmed)
-            prefs.edit().putString("testnet_rpc_url", trimmed).apply()
+            if (trimmed.isEmpty()) {
+                prefs.edit().remove(RPC_URL_KEY).apply()
+            } else {
+                prefs.edit().putString(RPC_URL_KEY, trimmed).apply()
+            }
         }
 
     var backupAcknowledged: Boolean
@@ -34,6 +46,8 @@ class WalletPreferences(context: Context) {
     fun clear() = prefs.edit().clear().apply()
 
     companion object {
+        private const val RPC_URL_KEY = "testnet_rpc_url"
+
         fun validateRpcUrl(value: String) {
             val url = value.toHttpUrlOrNull() ?: throw IllegalArgumentException("Invalid RPC URL")
             require(url.scheme == "https" || (BuildConfig.DEBUG && url.scheme == "http")) {

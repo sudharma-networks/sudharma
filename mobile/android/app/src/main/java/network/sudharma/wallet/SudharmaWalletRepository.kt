@@ -87,15 +87,11 @@ class SudharmaWalletRepository(context: Context) {
     }
 
     private fun adapter(): SudharmaChainAdapter {
-        val url = preferences.rpcUrl
-        require(url.isNotBlank()) { "Sudharma Testnet RPC is not configured" }
-        return SudharmaChainAdapter(SudharmaRpcClient(url))
+        return SudharmaChainAdapter(SudharmaRpcClient(preferences.rpcUrl))
     }
 
     private fun faucetClient(): TestnetFaucetClient {
-        val url = preferences.rpcUrl
-        require(url.isNotBlank()) { "Sudharma Testnet RPC is not configured" }
-        return TestnetFaucetClient(url)
+        return TestnetFaucetClient(preferences.rpcUrl)
     }
 
     companion object {

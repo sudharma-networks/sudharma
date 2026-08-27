@@ -376,13 +376,12 @@ private fun HomeScreen(
     val scope = rememberCoroutineScope()
     val account = remember { runCatching { repository.account() }.getOrNull() }
     var balance by remember { mutableStateOf("—") }
-    var status by remember { mutableStateOf(if (repository.preferences.rpcUrl.isBlank()) "RPC not configured" else "Connecting…") }
+    var status by remember { mutableStateOf("Connecting…") }
     var faucetMessage by remember { mutableStateOf("") }
     var faucetInfo by remember { mutableStateOf<TestnetFaucetClient.Info?>(null) }
     var faucetLoading by remember { mutableStateOf(false) }
 
     fun refresh() {
-        if (repository.preferences.rpcUrl.isBlank()) { status = "RPC not configured"; return }
         scope.launch {
             runCatching { repository.balance() }
                 .onSuccess { balance = it.amount.formatted(); status = "Connected" }
@@ -391,7 +390,6 @@ private fun HomeScreen(
     }
 
     fun refreshFaucet() {
-        if (repository.preferences.rpcUrl.isBlank()) return
         scope.launch {
             runCatching { repository.faucetInfo() }
                 .onSuccess { faucetInfo = it }
@@ -668,7 +666,6 @@ private fun ActivityScreen(repository: SudharmaWalletRepository, onBack: () -> U
     var statuses by remember { mutableStateOf<List<TransactionStatus>>(emptyList()) }
     var message by remember { mutableStateOf("") }
     fun refresh() {
-        if (repository.preferences.rpcUrl.isBlank()) { message = "Configure Testnet RPC in Settings first."; return }
         scope.launch {
             runCatching { repository.transactionStatuses() }
                 .onSuccess { statuses = it; message = if (it.isEmpty()) "No submitted transactions yet." else "" }
@@ -708,13 +705,20 @@ private fun SettingsScreen(
         }
         OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) { Text("Sudharma Mainnet — unavailable until launch") }
 
-        Text("Testnet RPC", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        OutlinedTextField(rpc, { rpc = it }, label = { Text("https://…") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        Button(onClick = {
-            runCatching { repository.preferences.rpcUrl = rpc }
-                .onSuccess { message = if (rpc.isBlank()) "RPC cleared." else "Testnet RPC saved." }
-                .onFailure { message = it.message ?: "Invalid RPC URL" }
-        }, modifier = Modifier.fillMaxWidth()) { Text("Save RPC") }
+        Text("Testnet connection", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("Automatically managed by Sudharma Wallet")
+        Text(repository.preferences.rpcUrl, style = MaterialTheme.typography.bodySmall)
+        if (BuildConfig.DEBUG) {
+            OutlinedTextField(rpc, { rpc = it }, label = { Text("Debug RPC override") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            Button(onClick = {
+                runCatching { repository.preferences.rpcUrl = rpc }
+                    .onSuccess {
+                        rpc = repository.preferences.rpcUrl
+                        message = "Debug RPC override saved."
+                    }
+                    .onFailure { message = it.message ?: "Invalid RPC URL" }
+            }, modifier = Modifier.fillMaxWidth()) { Text("Save debug override") }
+        }
 
         Text("Security", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         OutlinedButton(onClick = onBackup, modifier = Modifier.fillMaxWidth()) { Text("Back up recovery phrase") }
