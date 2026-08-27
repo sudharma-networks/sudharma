@@ -1,6 +1,11 @@
 package pow
 
-import "testing"
+import (
+	"encoding/hex"
+	"testing"
+
+	"github.com/sudharma-networks/sudharma/blockchain"
+)
 
 func TestGPUV1ReferenceDigestVector(t *testing.T) {
 	header := []byte("sudharma-gpu-pow-v1-reference-header")
@@ -43,5 +48,51 @@ func TestGPUV1ReferenceDigestDependsOnNonceAndHeight(t *testing.T) {
 	}
 	if got := gpuV1ReferenceDigest(header, 7, GPUV1EpochLength, cache1); got == base {
 		t.Fatal("different height/epoch produced identical reference digest")
+	}
+}
+
+func TestGPUV1HashBlockWithCacheMatchesCanonicalReference(t *testing.T) {
+	b := &blockchain.Block{
+		Version:      2,
+		Height:       22501,
+		Timestamp:    1786924860,
+		PreviousHash: "0123456789abcdef",
+		MerkleRoot:   "fedcba9876543210",
+		Difficulty:   7,
+		MinerAddress: "9ccdc094489874bed888ffe4bdf9b8298f4c5131",
+	}
+	const nonce uint64 = 0x0123456789abcdef
+	cache := GPUV1BuildCache(GPUV1EpochSeed(GPUV1EpochForHeight(b.Height)), 8)
+
+	headerWithZeroNonce := b.HeaderBytes(0)
+	headerPrefix := headerWithZeroNonce[:len(headerWithZeroNonce)-8]
+	wantDigest := gpuV1ReferenceDigest(headerPrefix, nonce, b.Height, cache)
+	want := hex.EncodeToString(wantDigest[:])
+
+	if got := gpuV1HashBlockWithCache(b, nonce, cache); got != want {
+		t.Fatalf("block reference hash mismatch: got %s want %s", got, want)
+	}
+}
+
+func TestGPUV1CheckBlockWithCacheUsesTarget(t *testing.T) {
+	b := &blockchain.Block{
+		Version:      2,
+		Height:       7500,
+		Timestamp:    1786924860,
+		PreviousHash: "0123456789abcdef",
+		MerkleRoot:   "fedcba9876543210",
+		Difficulty:   1,
+		Nonce:        99,
+		MinerAddress: "9ccdc094489874bed888ffe4bdf9b8298f4c5131",
+	}
+	cache := GPUV1BuildCache(GPUV1EpochSeed(GPUV1EpochForHeight(b.Height)), 8)
+
+	if !gpuV1CheckBlockWithCache(b, cache) {
+		t.Fatal("difficulty-1 GPU-PoW reference block should satisfy the maximum target")
+	}
+
+	b.Difficulty = 0
+	if gpuV1CheckBlockWithCache(b, cache) {
+		t.Fatal("difficulty zero must be rejected")
 	}
 }
