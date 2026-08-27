@@ -3,6 +3,9 @@ package pow
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
+
+	"github.com/sudharma-networks/sudharma/blockchain"
 )
 
 var gpuV1ReferenceHeaderDomain = []byte("SUDHARMA-GPU-POW-V1-REFERENCE-HEADER\x00")
@@ -34,4 +37,33 @@ func gpuV1ReferenceDigest(header []byte, nonce, height uint64, cache []GPUV1Cach
 	mix := gpuV1ProgrammaticGroupDigest(workSeed, programSeed, cache)
 
 	return gpuV1FinalizeDigest(headerDigest, mix)
+}
+
+// gpuV1HashBlockWithCache composes the canonical block header prefix with the
+// GPU-PoW v1 nonce encoding and returns the deterministic reference digest.
+// The epoch cache is supplied explicitly so this primitive does not silently
+// choose a consensus cache size before that parameter is frozen.
+func gpuV1HashBlockWithCache(block *blockchain.Block, nonce uint64, cache []GPUV1CacheNode) string {
+	if block == nil || len(cache) == 0 {
+		return ""
+	}
+
+	headerWithNonce := block.HeaderBytes(0)
+	if len(headerWithNonce) < 8 {
+		return ""
+	}
+	headerPrefix := headerWithNonce[:len(headerWithNonce)-8]
+	digest := gpuV1ReferenceDigest(headerPrefix, nonce, block.Height, cache)
+	return hex.EncodeToString(digest[:])
+}
+
+// gpuV1CheckBlockWithCache verifies a Version-2 reference block against the
+// existing Sudharma difficulty target while keeping cache selection explicit.
+func gpuV1CheckBlockWithCache(block *blockchain.Block, cache []GPUV1CacheNode) bool {
+	if block == nil || block.Version != 2 || len(cache) == 0 {
+		return false
+	}
+
+	hash := gpuV1HashBlockWithCache(block, block.Nonce, cache)
+	return hash != "" && ValidHash(hash, block.Difficulty)
 }
