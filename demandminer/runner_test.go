@@ -117,7 +117,9 @@ func testRunner(t *testing.T, mode, timeout string) *NativeRunner {
 }
 
 func helperCommand(ctx context.Context, mode string) *exec.Cmd {
-	return exec.CommandContext(ctx, os.Args[0], "-test.run=TestNativeRunnerHelperProcess", "--", mode)
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=TestNativeRunnerHelperProcess", "--", mode)
+	cmd.Env = append(os.Environ(), "GO_WANT_HELPER_PROCESS=1")
+	return cmd
 }
 
 func TestNativeRunnerHelperProcess(t *testing.T) {
