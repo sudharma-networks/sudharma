@@ -6,6 +6,7 @@ on:
       - feature/public-testnet-wallet-v2
     paths:
       - '.github/workflows/confirm-faucet-payout-once.yml'
+      - 'cmd/sudharmad/**'
 
 permissions:
   contents: read
