@@ -9,7 +9,9 @@ import (
 	"github.com/sudharma-networks/sudharma/consensus"
 )
 
-// HashBlock calculates the canonical Sudharma Network PoW hash.
+const gpuPoWV1Domain = "SUDHARMA-GPU-POW-V1\x00"
+
+// HashBlock calculates the canonical legacy Sudharma Network PoW hash.
 func HashBlock(block *blockchain.Block, nonce uint64) string {
 	header := block.HeaderBytes(nonce)
 
@@ -17,6 +19,29 @@ func HashBlock(block *blockchain.Block, nonce uint64) string {
 	second := sha256Hash(first)
 
 	return hex.EncodeToString(second)
+}
+
+// HashBlockForVersion dispatches proof-of-work hashing by block version.
+// Version 1 remains byte-for-byte compatible with the legacy chain. Version 2
+// is explicitly domain-separated for GPU-PoW v1. The current v2 digest is the
+// minimal deterministic consensus scaffold; the memory-hard/programmatic mix
+// will replace gpuPoWV1Digest behind fixed cross-implementation test vectors.
+func HashBlockForVersion(block *blockchain.Block, nonce uint64) string {
+	if block.Version < 2 {
+		return HashBlock(block, nonce)
+	}
+
+	return hex.EncodeToString(gpuPoWV1Digest(block.HeaderBytes(nonce)))
+}
+
+func gpuPoWV1Digest(header []byte) []byte {
+	input := make([]byte, 0, len(gpuPoWV1Domain)+len(header))
+	input = append(input, gpuPoWV1Domain...)
+	input = append(input, header...)
+
+	first := sha256Hash(input)
+	second := sha256Hash(first)
+	return second
 }
 
 // sha256Hash returns a SHA-256 digest.
@@ -53,9 +78,9 @@ func ValidHash(hash string, difficulty uint32) bool {
 	return hashInt.Cmp(target) <= 0
 }
 
-// CheckBlock verifies the block's proof of work.
+// CheckBlock verifies the block's proof of work using its declared version.
 func CheckBlock(block *blockchain.Block) bool {
-	hash := HashBlock(block, block.Nonce)
+	hash := HashBlockForVersion(block, block.Nonce)
 
 	return ValidHash(hash, block.Difficulty)
 }
