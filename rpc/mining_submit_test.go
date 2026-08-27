@@ -25,6 +25,8 @@ func solutionFor(work MiningWorkTemplate, nonce uint64) MiningSolution {
 		Algorithm:       work.Algorithm,
 		Version:         work.Version,
 		Height:          work.Height,
+		Difficulty:      work.Difficulty,
+		TargetHex:       work.TargetHex,
 		HeaderPrefixHex: work.HeaderPrefixHex,
 		RewardAddress:   work.RewardAddress,
 	}
@@ -85,6 +87,8 @@ func TestMiningWorkServiceRejectsMutatedImmutableFields(t *testing.T) {
 		func(s *MiningSolution) { s.Algorithm = "other" },
 		func(s *MiningSolution) { s.Version++ },
 		func(s *MiningSolution) { s.Height++ },
+		func(s *MiningSolution) { s.Difficulty++ },
+		func(s *MiningSolution) { s.TargetHex = "00" + s.TargetHex[2:] },
 		func(s *MiningSolution) { s.HeaderPrefixHex = "00" + s.HeaderPrefixHex },
 		func(s *MiningSolution) { s.RewardAddress = "miner-b" },
 	}
