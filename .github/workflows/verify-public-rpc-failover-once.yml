@@ -1,0 +1,80 @@
+name: Verify Public RPC Failover Once
+
+on:
+  push:
+    branches:
+      - feature/public-testnet-wallet-v2
+    paths:
+      - '.github/workflows/verify-public-rpc-failover-once.yml'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FUNCTION_NAME: Sudharma-Testnet-Wallet-Proxy
+      RPC_BASE_URL: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com
+      NORMAL_ENV: Variables={SEED_1_URL=http://172.31.10.171:29100,SEED_2_URL=http://172.31.32.195:29100,UPSTREAM_TIMEOUT_MS=3500,FAUCET_ENABLED=true,FAUCET_TABLE_NAME=Sudharma-Testnet-Faucet,FAUCET_SECRET_ID=sudharma/testnet/faucet-wallet}
+      FAILOVER_ENV: Variables={SEED_1_URL=http://127.0.0.1:9,SEED_2_URL=http://172.31.32.195:29100,UPSTREAM_TIMEOUT_MS=3500,FAUCET_ENABLED=true,FAUCET_TABLE_NAME=Sudharma-Testnet-Faucet,FAUCET_SECRET_ID=sudharma/testnet/faucet-wallet}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Test proxy failover behavior
+        working-directory: deployment/testnet/public-rpc/lambda
+        run: npm test
+
+      - name: Configure AWS credentials from GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+
+      - name: Prove live Seed-2 failover and restore configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          restore_normal_configuration() {
+            aws lambda update-function-configuration \
+              --function-name "$FUNCTION_NAME" \
+              --environment "$NORMAL_ENV" \
+              --no-cli-pager >/dev/null
+            aws lambda wait function-updated --function-name "$FUNCTION_NAME"
+          }
+          trap restore_normal_configuration EXIT
+
+          baseline="$(curl -fsS --max-time 15 "$RPC_BASE_URL/v1/status")"
+          baseline_network="$(printf '%s' "$baseline" | jq -r '.network')"
+          baseline_height="$(printf '%s' "$baseline" | jq -r '.height')"
+          test "$baseline_network" = sudharma-testnet-1
+
+          aws lambda update-function-configuration \
+            --function-name "$FUNCTION_NAME" \
+            --environment "$FAILOVER_ENV" \
+            --no-cli-pager >/dev/null
+          aws lambda wait function-updated --function-name "$FUNCTION_NAME"
+
+          failover="$(curl -fsS --max-time 20 "$RPC_BASE_URL/v1/status")"
+          failover_network="$(printf '%s' "$failover" | jq -r '.network')"
+          failover_height="$(printf '%s' "$failover" | jq -r '.height')"
+          test "$failover_network" = sudharma-testnet-1
+          test "$failover_height" -ge "$baseline_height"
+
+          printf 'Failover passed: network=%s baseline_height=%s seed2_height=%s\n' \
+            "$failover_network" "$baseline_height" "$failover_height"
+
+      - name: Verify restored two-seed service
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(curl -fsS --max-time 15 "$RPC_BASE_URL/v1/status")"
+          test "$(printf '%s' "$status" | jq -r '.network')" = sudharma-testnet-1
+          aws lambda get-function-configuration \
+            --function-name "$FUNCTION_NAME" \
+            --query 'Environment.Variables.{Seed1:SEED_1_URL,Seed2:SEED_2_URL,Faucet:FAUCET_ENABLED}' \
+            --output json
