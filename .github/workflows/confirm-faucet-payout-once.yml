@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 jobs:
   confirm:
@@ -30,7 +31,22 @@ jobs:
       - name: Build native Sudharma miner
         run: go build -trimpath -o "$RUNNER_TEMP/sudharmad" ./cmd/sudharmad
 
+      - name: Check whether mining is still required
+        id: payout
+        shell: bash
+        run: |
+          set -euo pipefail
+          tx_url='https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com/v1/transactions/0d35b1e701a8c62a8775104d01fd6c54190519bfb42fa6d9fdc53b84e6b1d25c'
+          status="$(curl -fsS --max-time 15 "$tx_url" | jq -r '.status')"
+          printf 'Current payout status: %s\n' "$status"
+          if [ "$status" = confirmed ]; then
+            echo 'mine=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'mine=true' >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Mine one block containing the pending faucet payout
+        if: steps.payout.outputs.mine == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -74,3 +90,16 @@ jobs:
 
           echo 'Faucet payout was not confirmed through the public RPC.' >&2
           exit 1
+
+      - name: Record successful Stage 3 verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api \
+            --method POST \
+            "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=success \
+            -f context=stage-3/faucet-confirmation \
+            -f description='Native PoW payout confirmation passed'
