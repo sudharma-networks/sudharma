@@ -6,6 +6,7 @@ on:
       - feature/public-testnet-wallet-v2
     paths:
       - '.github/workflows/provision-faucet-endpoints.yml'
+      - 'deployment/testnet/public-rpc/scripts/**'
   workflow_dispatch:
 
 permissions:
@@ -22,8 +23,14 @@ jobs:
       LAMBDA_SG_ID: sg-057c9893359ab2300
       SUBNET_1: subnet-0c04f19843bf6a401
       SUBNET_2: subnet-0f213d036a08fd543
-      ROUTE_TABLE_ID: rtb-01b677867c34cc275
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Test route table resolution
+        shell: bash
+        run: deployment/testnet/public-rpc/scripts/tests/resolve-lambda-route-tables.test.sh
+
       - name: Configure AWS credentials from GitHub OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -69,9 +76,28 @@ jobs:
         run: |
           set -euo pipefail
           SERVICE='com.amazonaws.ap-south-1.dynamodb'
+          mapfile -t ROUTE_TABLE_IDS < <(deployment/testnet/public-rpc/scripts/resolve-lambda-route-tables.sh "$VPC_ID" "$SUBNET_1" "$SUBNET_2")
+          if [ "${#ROUTE_TABLE_IDS[@]}" -eq 0 ]; then
+            echo 'No Lambda subnet route tables were resolved.' >&2
+            exit 1
+          fi
+          printf 'Effective Lambda route table: %s\n' "${ROUTE_TABLE_IDS[@]}"
           VPCE_ID="$(aws ec2 describe-vpc-endpoints --filters "Name=vpc-id,Values=${VPC_ID}" "Name=service-name,Values=${SERVICE}" --query 'VpcEndpoints[?State!=`deleted`] | [0].VpcEndpointId' --output text)"
           if [ "$VPCE_ID" = 'None' ] || [ -z "$VPCE_ID" ]; then
-            VPCE_ID="$(aws ec2 create-vpc-endpoint --vpc-id "$VPC_ID" --vpc-endpoint-type Gateway --service-name "$SERVICE" --route-table-ids "$ROUTE_TABLE_ID" --query 'VpcEndpoint.VpcEndpointId' --output text)"
+            VPCE_ID="$(aws ec2 create-vpc-endpoint --vpc-id "$VPC_ID" --vpc-endpoint-type Gateway --service-name "$SERVICE" --route-table-ids "${ROUTE_TABLE_IDS[@]}" --query 'VpcEndpoint.VpcEndpointId' --output text)"
+          else
+            mapfile -t CURRENT_ROUTE_TABLE_IDS < <(aws ec2 describe-vpc-endpoints --vpc-endpoint-ids "$VPCE_ID" --query 'VpcEndpoints[0].RouteTableIds[]' --output text | tr '\t' '\n')
+            MISSING_ROUTE_TABLE_IDS=()
+            for route_table_id in "${ROUTE_TABLE_IDS[@]}"; do
+              found=false
+              for current_route_table_id in "${CURRENT_ROUTE_TABLE_IDS[@]}"; do
+                if [ "$route_table_id" = "$current_route_table_id" ]; then found=true; break; fi
+              done
+              if [ "$found" = false ]; then MISSING_ROUTE_TABLE_IDS+=("$route_table_id"); fi
+            done
+            if [ "${#MISSING_ROUTE_TABLE_IDS[@]}" -gt 0 ]; then
+              aws ec2 modify-vpc-endpoint --vpc-endpoint-id "$VPCE_ID" --add-route-table-ids "${MISSING_ROUTE_TABLE_IDS[@]}" >/dev/null
+            fi
           fi
           echo "vpce_id=${VPCE_ID}" >> "$GITHUB_OUTPUT"
           for attempt in $(seq 1 40); do

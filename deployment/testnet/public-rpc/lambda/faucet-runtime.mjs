@@ -25,21 +25,42 @@ function conditionalFailure(error) {
   return error?.name === 'ConditionalCheckFailedException' || error?.name === 'TransactionCanceledException';
 }
 
-function createStore(tableName) {
+export function createOperationTimer({ logger = console, now = Date.now } = {}) {
+  return async function timeOperation(operation, action) {
+    const started = now();
+    try {
+      const result = await action();
+      logger.info({ event: 'faucet_dependency', operation, outcome: 'success', latency_ms: now() - started });
+      return result;
+    } catch (error) {
+      logger.info({
+        event: 'faucet_dependency',
+        operation,
+        outcome: 'error',
+        error_name: String(error?.name || 'Error'),
+        latency_ms: now() - started,
+      });
+      throw error;
+    }
+  };
+}
+
+function createStore(tableName, timed) {
   const client = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
     marshallOptions: { removeUndefinedValues: true },
   });
   const lockOwner = randomUUID();
+  const send = (operation, command) => timed(operation, () => client.send(command));
 
   return {
     async getAddress(address) {
-      const result = await client.send(new GetCommand({ TableName: tableName, Key: { pk: `ADDR#${address}` } }));
+      const result = await send('dynamodb.get_address', new GetCommand({ TableName: tableName, Key: { pk: `ADDR#${address}` } }));
       return result.Item || null;
     },
 
     async reserveInitial(address, at) {
       try {
-        await client.send(new UpdateCommand({
+        await send('dynamodb.reserve_initial', new UpdateCommand({
           TableName: tableName,
           Key: { pk: `ADDR#${address}` },
           UpdateExpression: 'SET #kind = if_not_exists(#kind, :kind), address = :address, initial_status = :reserved, initial_reserved_at = :at, rounds = if_not_exists(rounds, :zero)',
@@ -57,7 +78,7 @@ function createStore(tableName) {
     },
 
     async completeInitial(address, transactionId, at) {
-      await client.send(new UpdateCommand({
+      await send('dynamodb.complete_initial', new UpdateCommand({
         TableName: tableName,
         Key: { pk: `ADDR#${address}` },
         UpdateExpression: 'SET initial_status = :paid, initial_txid = :txid, initial_paid_at = :at',
@@ -67,7 +88,7 @@ function createStore(tableName) {
     },
 
     async failInitial(address, message) {
-      await client.send(new UpdateCommand({
+      await send('dynamodb.fail_initial', new UpdateCommand({
         TableName: tableName,
         Key: { pk: `ADDR#${address}` },
         UpdateExpression: 'SET initial_status = :failed, initial_error = :message',
@@ -79,7 +100,7 @@ function createStore(tableName) {
     async acquirePayoutLock() {
       const now = Date.now();
       try {
-        await client.send(new PutCommand({
+        await send('dynamodb.acquire_payout_lock', new PutCommand({
           TableName: tableName,
           Item: { pk: 'LOCK#payout', kind: 'lock', owner: lockOwner, expires_at: now + 30_000 },
           ConditionExpression: 'attribute_not_exists(pk) OR expires_at < :now',
@@ -94,7 +115,7 @@ function createStore(tableName) {
 
     async releasePayoutLock() {
       try {
-        await client.send(new DeleteCommand({
+        await send('dynamodb.release_payout_lock', new DeleteCommand({
           TableName: tableName,
           Key: { pk: 'LOCK#payout' },
           ConditionExpression: '#owner = :owner',
@@ -108,7 +129,7 @@ function createStore(tableName) {
 
     async reserveChallenge(address, transactionId, round, at) {
       try {
-        await client.send(new TransactWriteCommand({
+        await send('dynamodb.reserve_challenge', new TransactWriteCommand({
           TransactItems: [
             {
               Put: {
@@ -149,7 +170,7 @@ function createStore(tableName) {
       if (!Number.isInteger(round) || round < 1 || round > MAX_ROUNDS) {
         throw new Error('invalid reserved challenge round');
       }
-      await client.send(new TransactWriteCommand({
+      await send('dynamodb.complete_challenge', new TransactWriteCommand({
         TransactItems: [
           {
             Update: {
@@ -176,7 +197,7 @@ function createStore(tableName) {
 
     async failChallenge(address, transactionId, message) {
       try {
-        await client.send(new TransactWriteCommand({
+        await send('dynamodb.fail_challenge', new TransactWriteCommand({
           TransactItems: [
             {
               Delete: {
@@ -205,15 +226,15 @@ function createStore(tableName) {
   };
 }
 
-function createRpc({ seeds, fetchImpl, timeoutMs }) {
-  async function call(method, path, body) {
+function createRpc({ seeds, fetchImpl, timeoutMs, timed }) {
+  async function call(operation, method, path, body) {
     const request = {
       method,
       path,
       headers: body == null ? {} : { 'content-type': 'application/json; charset=utf-8' },
       body: body == null ? Buffer.alloc(0) : Buffer.from(JSON.stringify(body), 'utf8'),
     };
-    const result = await proxyWithFailover(request, { seeds, fetchImpl, timeoutMs });
+    const result = await timed(operation, () => proxyWithFailover(request, { seeds, fetchImpl, timeoutMs }));
     let payload;
     try {
       payload = JSON.parse(result.body.toString('utf8'));
@@ -228,17 +249,17 @@ function createRpc({ seeds, fetchImpl, timeoutMs }) {
 
   return {
     account(address) {
-      return call('GET', `/v1/accounts/${address}`);
+      return call('seed.account', 'GET', `/v1/accounts/${address}`);
     },
     transaction(transactionId) {
-      return call('GET', `/v1/transactions/${transactionId}`);
+      return call('seed.transaction', 'GET', `/v1/transactions/${transactionId}`);
     },
     async submit(transaction) {
       try {
-        return await call('POST', '/v1/transactions', transaction);
+        return await call('seed.submit_transaction', 'POST', '/v1/transactions', transaction);
       } catch (error) {
         try {
-          const status = await call('GET', `/v1/transactions/${transaction.ID}`);
+          const status = await call('seed.reconcile_transaction', 'GET', `/v1/transactions/${transaction.ID}`);
           if (status?.status === 'pending' || status?.status === 'confirmed') {
             return { accepted: true, transaction_id: transaction.ID, reconciled: true };
           }
@@ -261,9 +282,9 @@ function parseBody(request) {
   }
 }
 
-async function loadSigner(secretId) {
+async function loadSigner(secretId, timed) {
   const secrets = new SecretsManagerClient({});
-  const result = await secrets.send(new GetSecretValueCommand({ SecretId: secretId }));
+  const result = await timed('secretsmanager.load_signer', () => secrets.send(new GetSecretValueCommand({ SecretId: secretId })));
   if (typeof result.SecretString !== 'string' || result.SecretString.length === 0) {
     throw new Error('faucet signing secret is unavailable');
   }
@@ -277,18 +298,19 @@ async function loadSigner(secretId) {
   return createSigner(scalar);
 }
 
-export function createRuntimeFaucetHandler({ seeds, fetchImpl = globalThis.fetch, timeoutMs, env = process.env }) {
+export function createRuntimeFaucetHandler({ seeds, fetchImpl = globalThis.fetch, timeoutMs, env = process.env, logger = console, now = Date.now }) {
   const tableName = env.FAUCET_TABLE_NAME;
   const secretId = env.FAUCET_SECRET_ID;
   if (!tableName || !secretId) throw new Error('faucet AWS configuration is incomplete');
 
-  const store = createStore(tableName);
-  const rpc = createRpc({ seeds, fetchImpl, timeoutMs });
+  const timed = createOperationTimer({ logger, now });
+  const store = createStore(tableName, timed);
+  const rpc = createRpc({ seeds, fetchImpl, timeoutMs, timed });
   let servicePromise;
 
   async function service() {
     if (!servicePromise) {
-      servicePromise = loadSigner(secretId).then((signer) => ({
+      servicePromise = loadSigner(secretId, timed).then((signer) => ({
         signer,
         service: createFaucetService({ store, rpc, signer }),
       }));
