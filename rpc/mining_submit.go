@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/sudharma-networks/sudharma/blockchain"
+	"github.com/sudharma-networks/sudharma/transactions"
 )
 
 type MiningSolution struct {
@@ -56,7 +57,7 @@ func (s *MiningWorkService) Issue(block *blockchain.Block) (MiningWorkTemplate, 
 
 	snapshot := *block
 	if block.Transactions != nil {
-		snapshot.Transactions = append([]*blockchain.Transaction(nil), block.Transactions...)
+		snapshot.Transactions = append([]*transactions.Transaction(nil), block.Transactions...)
 	}
 
 	s.mu.Lock()
