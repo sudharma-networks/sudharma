@@ -60,10 +60,16 @@ func main() {
 		"mine N empty development blocks",
 	)
 
+	mineBlocks := flag.Uint64(
+		"mineblocks",
+		0,
+		"mine N development blocks including valid mempool transactions",
+	)
+
 	testMinerAddress := flag.String(
 		"testmineraddress",
 		"",
-		"reward address used with -emptyblocks",
+		"reward address used with -emptyblocks or -mineblocks",
 	)
 
 	mempoolTest := flag.Bool(
@@ -955,6 +961,38 @@ func main() {
 
 			fmt.Println(
 				"Empty-block mining test failed:",
+				err,
+			)
+
+			return
+		}
+	}
+
+	// =================================================
+	// TRANSACTION-CONFIRMING DEVELOPMENT MINING
+	// =================================================
+
+	if *mineBlocks > 0 {
+		if *testMinerAddress == "" {
+			fmt.Println(
+				"-testmineraddress is required when -mineblocks is used",
+			)
+			return
+		}
+
+		if err :=
+			runBlockMiningTest(
+				chain,
+				nodeState,
+				networkNode,
+				chainPath,
+				statePath,
+				*testMinerAddress,
+				*mineBlocks,
+			); err != nil {
+
+			fmt.Println(
+				"Block mining test failed:",
 				err,
 			)
 
@@ -2061,6 +2099,91 @@ func runEmptyBlockMiningTest(
 	fmt.Println(
 		"================================================",
 	)
+
+	return nil
+}
+
+// runBlockMiningTest mines and broadcasts a bounded number of development
+// blocks using the node's current mempool. Unlike runEmptyBlockMiningTest, this
+// helper intentionally permits pending transactions so testnet operators can
+// confirm an end-to-end transaction without changing consensus behavior.
+func runBlockMiningTest(
+	chain *blockchain.Chain,
+	nodeState *blockchain.State,
+	networkNode *p2p.Node,
+	chainPath string,
+	statePath string,
+	minerAddress string,
+	count uint64,
+) error {
+	if chain == nil {
+		return fmt.Errorf("chain cannot be nil")
+	}
+	if nodeState == nil {
+		return fmt.Errorf("state cannot be nil")
+	}
+	if networkNode == nil {
+		return fmt.Errorf("network node cannot be nil")
+	}
+	if minerAddress == "" {
+		return fmt.Errorf("miner address cannot be empty")
+	}
+	if count == 0 {
+		return fmt.Errorf("block count must be greater than zero")
+	}
+	if count > 100 {
+		return fmt.Errorf("development block count cannot exceed 100")
+	}
+
+	pool := networkNode.Mempool()
+
+	fmt.Println()
+	fmt.Println("========== SUDHARMA NETWORK BLOCK MINING TEST ==========")
+	fmt.Printf("Reward Address: %s\n", minerAddress)
+	fmt.Printf("Blocks to Mine: %d\n", count)
+	fmt.Printf("Pending Transactions: %d\n", pool.Count())
+
+	for i := uint64(0); i < count; i++ {
+		targetHeight := chain.Height() + 1
+		pending := pool.Count()
+		fmt.Printf("Mining block #%d with %d pending transaction(s)...\n", targetHeight, pending)
+
+		result, reward, err := miner.MineNextBlock(
+			chain,
+			nodeState,
+			pool,
+			minerAddress,
+			1_000_000,
+		)
+		if err != nil {
+			return fmt.Errorf("failed mining block %d: %w", targetHeight, err)
+		}
+		if !result.Found {
+			return fmt.Errorf("block %d was not found", targetHeight)
+		}
+
+		networkNode.RefreshChainStatus()
+		if err := networkNode.BroadcastBlock(result.Block); err != nil {
+			return fmt.Errorf("failed broadcasting block %d: %w", targetHeight, err)
+		}
+
+		fmt.Printf(
+			"Block #%d found | Hash: %s | Transactions: %d | Reward: %.8f SUDH | Work: %s\n",
+			chain.Height(),
+			result.Hash,
+			len(result.Block.Transactions),
+			float64(reward)/float64(params.CoinDecimals),
+			chain.TotalWork().String(),
+		)
+	}
+
+	if err := saveNodeData(chain, nodeState, chainPath, statePath); err != nil {
+		return err
+	}
+
+	fmt.Printf("Final Height: %d\n", chain.Height())
+	fmt.Printf("Final Work:   %s\n", chain.TotalWork().String())
+	fmt.Printf("Remaining Pending Transactions: %d\n", pool.Count())
 
 	return nil
 }
