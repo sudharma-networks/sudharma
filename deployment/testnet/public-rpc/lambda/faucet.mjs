@@ -109,6 +109,40 @@ function payoutTxId(result, fallback) {
   return result?.transaction_id || result?.transactionId || fallback;
 }
 
+function initialGrantResult(address, transactionId, status) {
+  return {
+    address,
+    amount_sudh: INITIAL_GRANT_SUDH,
+    transaction_id: transactionId,
+    status,
+  };
+}
+
+async function reconcileInitialGrant({ store, rpc, address, state, now }) {
+  const transactionId = state?.initial_txid;
+  if (
+    (state?.initial_status !== 'submitted' && state?.initial_status !== 'paid') ||
+    typeof transactionId !== 'string' ||
+    !LOWER_HEX_64.test(transactionId)
+  ) {
+    return null;
+  }
+
+  const remote = await rpc.transaction(transactionId);
+  const confirmed = remote?.status === 'confirmed' && Number(remote?.confirmations || 0) >= 1;
+  if (confirmed) {
+    if (state.initial_status === 'submitted') {
+      await store.completeInitial(address, transactionId, now());
+    }
+    return initialGrantResult(address, transactionId, 'confirmed');
+  }
+
+  if (state.initial_status === 'paid' && typeof store.markInitialSubmitted === 'function') {
+    await store.markInitialSubmitted(address, transactionId, now());
+  }
+  return initialGrantResult(address, transactionId, 'submitted');
+}
+
 async function submitPayout({ store, rpc, signer, to, amount }) {
   const locked = await store.acquirePayoutLock();
   if (!locked) throw new FaucetError(503, 'faucet is busy; retry shortly');
@@ -141,7 +175,12 @@ export function createFaucetService({ store, rpc, signer, now = Date.now }) {
     async requestInitial(address) {
       validateAddress(address);
       const reserved = await store.reserveInitial(address, now());
-      if (!reserved) throw new FaucetError(409, 'initial 100 SUDH grant was already requested for this address');
+      if (!reserved) {
+        const state = await store.getAddress(address);
+        const reconciled = await reconcileInitialGrant({ store, rpc, address, state, now });
+        if (reconciled) return reconciled;
+        throw new FaucetError(409, 'initial 100 SUDH grant was already requested for this address');
+      }
 
       try {
         const transactionId = await submitPayout({
@@ -151,14 +190,8 @@ export function createFaucetService({ store, rpc, signer, now = Date.now }) {
           to: address,
           amount: INITIAL_GRANT_SUDH * COIN,
         });
-        const paidAt = now();
-        await store.completeInitial(address, transactionId, paidAt);
-        return {
-          address,
-          amount_sudh: INITIAL_GRANT_SUDH,
-          transaction_id: transactionId,
-          status: 'submitted',
-        };
+        await store.markInitialSubmitted(address, transactionId, now());
+        return initialGrantResult(address, transactionId, 'submitted');
       } catch (error) {
         if (!error?.uncertain && typeof store.failInitial === 'function') {
           await store.failInitial(address, String(error?.message || error));
