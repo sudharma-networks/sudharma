@@ -67,6 +67,29 @@ test('repeated initial request reconciles a submitted payout after confirmation'
   assert.ok(calls.some((x) => x[0] === 'completeInitial'));
 });
 
+test('legacy paid state is normalized back to submitted while payout is still pending', async () => {
+  const calls = [];
+  const store = {
+    async reserveInitial() { return false; },
+    async getAddress() {
+      return { initial_status: 'paid', initial_txid: TX_ID };
+    },
+    async markInitialSubmitted(address, txid, at) { calls.push(['markInitialSubmitted', address, txid, at]); },
+  };
+  const rpc = {
+    async transaction(txid) {
+      assert.equal(txid, TX_ID);
+      return { status: 'pending', confirmations: 0 };
+    },
+  };
+  const signer = createSigner('0'.repeat(63) + '1');
+  const service = createFaucetService({ store, rpc, signer, now: () => 1_700_000_000_000 });
+  const result = await service.requestInitial(ADDRESS_A);
+  assert.equal(result.status, 'submitted');
+  assert.equal(result.transaction_id, TX_ID);
+  assert.ok(calls.some((x) => x[0] === 'markInitialSubmitted'));
+});
+
 test('challenge requires confirmed exact 25 SUDH payment and returns 50 SUDH', async () => {
   const signer = createSigner('0'.repeat(63) + '1');
   const calls = [];
