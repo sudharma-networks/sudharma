@@ -53,6 +53,17 @@ func TestNativeRunnerUsesExactBoundedMiningArguments(t *testing.T) {
 	}
 }
 
+func TestNativeRunnerStopsOwnChildAfterBroadcastEvidence(t *testing.T) {
+	runner := testRunner(t, "long-running-success", "300ms")
+	start := time.Now()
+	if err := runner.MineOne(context.Background()); err != nil {
+		t.Fatalf("MineOne: %v", err)
+	}
+	if time.Since(start) >= 250*time.Millisecond {
+		t.Fatalf("runner waited for long-running node loop after mining evidence")
+	}
+}
+
 func TestNativeRunnerRejectsOutputWithoutPendingEvidence(t *testing.T) {
 	runner := testRunner(t, "missing-pending", "5s")
 	if err := runner.MineOne(context.Background()); err == nil || !strings.Contains(err.Error(), "Pending Transactions") {
@@ -130,13 +141,16 @@ func TestNativeRunnerHelperProcess(t *testing.T) {
 	mode := args[len(args)-1]
 	switch mode {
 	case "success":
-		_, _ = os.Stdout.WriteString("Pending Transactions: 2\nTransactions: 2\n")
+		_, _ = os.Stdout.WriteString("Pending Transactions: 2\nBlock #1 found | Hash: abc | Transactions: 2 | Reward: 50.00000000 SUDH | Work: 2\n")
+	case "long-running-success":
+		_, _ = os.Stdout.WriteString("Pending Transactions: 1\nBlock #1 found | Hash: abc | Transactions: 1 | Reward: 50.00000000 SUDH | Work: 2\n")
+		time.Sleep(10 * time.Second)
 	case "missing-pending":
-		_, _ = os.Stdout.WriteString("Transactions: 1\n")
+		_, _ = os.Stdout.WriteString("Block #1 found | Hash: abc | Transactions: 1 | Reward: 50.00000000 SUDH | Work: 2\n")
 	case "missing-included":
 		_, _ = os.Stdout.WriteString("Pending Transactions: 1\n")
 	case "zero-pending":
-		_, _ = os.Stdout.WriteString("Pending Transactions: 0\nTransactions: 0\n")
+		_, _ = os.Stdout.WriteString("Pending Transactions: 0\nBlock #1 found | Hash: abc | Transactions: 0 | Reward: 50.00000000 SUDH | Work: 2\n")
 	case "huge-failure":
 		_, _ = os.Stdout.WriteString(strings.Repeat("x", maxMinerOutputBytes*2))
 		os.Exit(2)
