@@ -20,5 +20,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install CPU OpenCL runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ocl-icd-opencl-dev \
+            pocl-opencl-icd \
+            pkg-config
+
       - name: Run OpenCL compatibility gate
         run: bash scripts/test-gpupow-opencl.sh
