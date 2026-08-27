@@ -20,10 +20,11 @@ test('private scalar derives the expected Sudharma address and signs a valid tra
   assert.equal(Buffer.from(tx.Signature, 'base64').length, 64);
 });
 
-test('initial grant is reserved once and pays exactly 100 SUDH', async () => {
+test('initial grant stays submitted until its transaction is confirmed', async () => {
   const calls = [];
   const store = {
     async reserveInitial(address) { calls.push(['reserveInitial', address]); return true; },
+    async markInitialSubmitted(address, txid, at) { calls.push(['markInitialSubmitted', address, txid, at]); },
     async completeInitial(address, txid, at) { calls.push(['completeInitial', address, txid, at]); },
     async getAddress() { return null; },
     async acquirePayoutLock() { return true; },
@@ -37,7 +38,33 @@ test('initial grant is reserved once and pays exactly 100 SUDH', async () => {
   const service = createFaucetService({ store, rpc, signer, now: () => 1_700_000_000_000 });
   const result = await service.requestInitial(ADDRESS_A);
   assert.equal(result.amount_sudh, 100);
+  assert.equal(result.status, 'submitted');
   assert.equal(calls.find((x) => x[0] === 'submit')[1].Amount, 100 * COIN);
+  assert.ok(calls.some((x) => x[0] === 'markInitialSubmitted'));
+  assert.equal(calls.some((x) => x[0] === 'completeInitial'), false);
+});
+
+test('repeated initial request reconciles a submitted payout after confirmation', async () => {
+  const calls = [];
+  const store = {
+    async reserveInitial() { return false; },
+    async getAddress() {
+      return { initial_status: 'submitted', initial_txid: TX_ID };
+    },
+    async completeInitial(address, txid, at) { calls.push(['completeInitial', address, txid, at]); },
+  };
+  const rpc = {
+    async transaction(txid) {
+      assert.equal(txid, TX_ID);
+      return { status: 'confirmed', confirmations: 1 };
+    },
+  };
+  const signer = createSigner('0'.repeat(63) + '1');
+  const service = createFaucetService({ store, rpc, signer, now: () => 1_700_000_000_000 });
+  const result = await service.requestInitial(ADDRESS_A);
+  assert.equal(result.status, 'confirmed');
+  assert.equal(result.transaction_id, TX_ID);
+  assert.ok(calls.some((x) => x[0] === 'completeInitial'));
 });
 
 test('challenge requires confirmed exact 25 SUDH payment and returns 50 SUDH', async () => {
