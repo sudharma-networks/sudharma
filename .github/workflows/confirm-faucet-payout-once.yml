@@ -1,0 +1,76 @@
+name: Confirm Faucet Payout Once
+
+on:
+  push:
+    branches:
+      - feature/public-testnet-wallet-v2
+    paths:
+      - '.github/workflows/confirm-faucet-payout-once.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  confirm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify all Go tests
+        run: go test ./... -count=1
+
+      - name: Build native Sudharma miner
+        run: go build -trimpath -o "$RUNNER_TEMP/sudharmad" ./cmd/sudharmad
+
+      - name: Mine one block containing the pending faucet payout
+        shell: bash
+        run: |
+          set -euo pipefail
+          miner_data="$RUNNER_TEMP/sudharma-faucet-confirmation"
+          timeout --signal=INT --kill-after=20s --preserve-status 8m \
+            "$RUNNER_TEMP/sudharmad" \
+              -nodeid faucet-confirmation-miner \
+              -listen 127.0.0.1:0 \
+              -peer 3.7.253.229:28444 \
+              -datadir "$miner_data" \
+              -mineblocks 1 \
+              -testmineraddress 9ccdc094489874bed888ffe4bdf9b8298f4c5131 \
+            | tee "$RUNNER_TEMP/faucet-confirmation.log"
+
+          grep -Eq 'Pending Transactions: [1-9][0-9]*' "$RUNNER_TEMP/faucet-confirmation.log"
+          grep -Eq 'Block #[0-9]+ found .* Transactions: [1-9][0-9]*' "$RUNNER_TEMP/faucet-confirmation.log"
+          grep -q 'Remaining Pending Transactions: 0' "$RUNNER_TEMP/faucet-confirmation.log"
+
+      - name: Verify payout confirmed through public RPC
+        shell: bash
+        run: |
+          set -euo pipefail
+          api='https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com'
+          txid='0d35b1e701a8c62a8775104d01fd6c54190519bfb42fa6d9fdc53b84e6b1d25c'
+          recipient='bb90e4a17bbd907135f37610766e27c70a95a728'
+
+          for attempt in $(seq 1 18); do
+            tx_response="$(curl -fsS --max-time 15 "$api/v1/transactions/$txid")"
+            account_response="$(curl -fsS --max-time 15 "$api/v1/accounts/$recipient")"
+            status="$(printf '%s' "$tx_response" | jq -r '.status')"
+            confirmations="$(printf '%s' "$tx_response" | jq -r '.confirmations')"
+            balance="$(printf '%s' "$account_response" | jq -r '.balance')"
+            printf 'Attempt %s: status=%s confirmations=%s recipient_balance=%s\n' \
+              "$attempt" "$status" "$confirmations" "$balance"
+
+            if [ "$status" = confirmed ] && [ "$confirmations" -ge 1 ] && [ "$balance" -eq 10000000000 ]; then
+              exit 0
+            fi
+            sleep 5
+          done
+
+          echo 'Faucet payout was not confirmed through the public RPC.' >&2
+          exit 1
