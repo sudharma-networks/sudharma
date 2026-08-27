@@ -54,9 +54,11 @@ jobs:
           set -euo pipefail
           miner_data="$RUNNER_TEMP/sudharma-faucet-confirmation"
           miner_log="$RUNNER_TEMP/faucet-confirmation.log"
+          miner_node_id="faucet-confirmation-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 
+          printf 'Using ephemeral miner node ID: %s\n' "$miner_node_id"
           "$RUNNER_TEMP/sudharmad" \
-            -nodeid faucet-confirmation-miner \
+            -nodeid "$miner_node_id" \
             -listen 127.0.0.1:0 \
             -peer 3.7.253.229:28444 \
             -datadir "$miner_data" \
