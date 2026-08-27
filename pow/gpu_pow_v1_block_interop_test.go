@@ -12,18 +12,18 @@ import (
 
 type gpuV1BlockInteropFixture struct {
 	BlockVectors []struct {
-		Name          string `json:"name"`
-		Version       uint32 `json:"version"`
-		Height        uint64 `json:"height"`
-		Timestamp     int64  `json:"timestamp"`
-		PreviousHash  string `json:"previous_hash"`
-		MerkleRoot    string `json:"merkle_root"`
-		Difficulty    uint32 `json:"difficulty"`
-		MinerAddress  string `json:"miner_address"`
-		NonceHex      string `json:"nonce_hex"`
-		CacheNodes    uint32 `json:"cache_nodes"`
-		HeaderPrefix  string `json:"header_prefix_hex"`
-		DigestHex     string `json:"digest_hex"`
+		Name         string `json:"name"`
+		Version      uint32 `json:"version"`
+		Height       uint64 `json:"height"`
+		Timestamp    int64  `json:"timestamp"`
+		PreviousHash string `json:"previous_hash"`
+		MerkleRoot   string `json:"merkle_root"`
+		Difficulty   uint32 `json:"difficulty"`
+		MinerAddress string `json:"miner_address"`
+		NonceHex     string `json:"nonce_hex"`
+		CacheNodes   uint32 `json:"cache_nodes"`
+		HeaderPrefix string `json:"header_prefix_hex"`
+		DigestHex    string `json:"digest_hex"`
 	} `json:"block_vectors"`
 }
 
