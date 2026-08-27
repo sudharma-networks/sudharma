@@ -1,0 +1,67 @@
+name: Fund Testnet Faucet Once
+
+on:
+  push:
+    branches:
+      - feature/public-testnet-wallet-v2
+    paths:
+      - '.github/workflows/fund-testnet-faucet-once.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  mine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify consensus and P2P tests
+        run: go test ./... -count=1
+
+      - name: Build native Sudharma miner
+        run: go build -trimpath -o "$RUNNER_TEMP/sudharmad" ./cmd/sudharmad
+
+      - name: Mine three legitimate blocks to faucet address
+        shell: bash
+        run: |
+          set -euo pipefail
+          miner_data="$RUNNER_TEMP/sudharma-faucet-funding"
+          timeout --signal=INT --kill-after=20s --preserve-status 8m \
+            "$RUNNER_TEMP/sudharmad" \
+              -nodeid faucet-funding-miner \
+              -listen 127.0.0.1:0 \
+              -peer 3.7.253.229:28444 \
+              -datadir "$miner_data" \
+              -emptyblocks 3 \
+              -testmineraddress 9ccdc094489874bed888ffe4bdf9b8298f4c5131 \
+            | tee "$RUNNER_TEMP/faucet-funding.log"
+          found_count="$(grep -cE 'Block #[0-9]+ found' "$RUNNER_TEMP/faucet-funding.log")"
+          if [ "$found_count" -ne 3 ]; then
+            printf 'Expected 3 mined blocks, found %s in miner output.\n' "$found_count" >&2
+            exit 1
+          fi
+
+      - name: Verify faucet received mined rewards
+        shell: bash
+        run: |
+          set -euo pipefail
+          account_url='https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com/v1/accounts/9ccdc094489874bed888ffe4bdf9b8298f4c5131'
+          for attempt in $(seq 1 12); do
+            if response="$(curl -fsS --max-time 15 "$account_url")"; then
+              balance="$(printf '%s' "$response" | jq -r '.balance')"
+              printf 'Faucet atomic balance: %s\n' "$balance"
+              if [ "$balance" -ge 15000000000 ]; then exit 0; fi
+            fi
+            sleep 5
+          done
+          echo 'Faucet did not reach the expected 150 SUDH balance.' >&2
+          exit 1
