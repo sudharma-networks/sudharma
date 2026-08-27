@@ -33,7 +33,7 @@ func TestRunBlockMiningTestConfirmsMempoolTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	node, err := p2p.NewNode("block-mining-test", "127.0.0.1:0", chain.Height(), chain.Tip().Hash)
+	node, err := p2p.NewNode("block-mining-test", "127.0.0.1:0", chain.Height(), chain.Tip().Hash())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestRunBlockMiningTestConfirmsMempoolTransaction(t *testing.T) {
 func TestRunBlockMiningTestRejectsUnsafeCounts(t *testing.T) {
 	chain := blockchain.NewChain()
 	state := blockchain.NewState()
-	node, err := p2p.NewNode("block-mining-limits", "127.0.0.1:0", chain.Height(), chain.Tip().Hash)
+	node, err := p2p.NewNode("block-mining-limits", "127.0.0.1:0", chain.Height(), chain.Tip().Hash())
 	if err != nil {
 		t.Fatal(err)
 	}
