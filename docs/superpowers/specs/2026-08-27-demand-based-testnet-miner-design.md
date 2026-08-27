@@ -62,6 +62,7 @@ The service runs as a dedicated unprivileged account with restart-on-failure beh
 Configuration supplies only non-secret operational values:
 
 - Private loopback RPC status URL.
+- Immutable environment value `public-testnet` and expected status identities.
 - Seed P2P address.
 - Public miner reward address.
 - Poll interval, cooldown, and failure backoff.
@@ -86,7 +87,7 @@ The miner reads canonical chain and mempool state through normal P2P synchroniza
 
 ## Safety Controls
 
-- Testnet-only executable/configuration guard; startup fails for any other network identity.
+- Testnet-only executable/configuration guard requiring `environment: public-testnet`; startup fails for any other environment or for status identities other than network `sudharma`, coin `Sudharma`, and symbol `SUDH`.
 - Private RPC monitoring; no public mining-control endpoint.
 - Exactly one block per miner invocation.
 - No mining when the mempool is empty.
