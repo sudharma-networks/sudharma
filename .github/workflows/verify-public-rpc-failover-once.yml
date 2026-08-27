@@ -24,6 +24,10 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Install Lambda dependencies
+        working-directory: deployment/testnet/public-rpc/lambda
+        run: npm install --ignore-scripts --no-audit --no-fund
+
       - name: Test proxy failover behavior
         working-directory: deployment/testnet/public-rpc/lambda
         run: npm test
