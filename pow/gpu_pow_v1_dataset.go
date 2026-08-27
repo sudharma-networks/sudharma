@@ -2,11 +2,12 @@ package pow
 
 import "encoding/binary"
 
-const gpuV1DatasetParents = 64
+const gpuV1DatasetParents = 512
 
 // GPUV1DatasetItem derives one light-verifiable dataset node from the epoch
-// cache. It follows the proven Ethash/ProgPoW pattern of cache-parent mixing,
-// while using Sudharma's own epoch seed schedule and consensus namespace.
+// cache. It follows the KAWPOW 0.9.4 pattern of 512 cache-parent mixing
+// rounds, while using Sudharma's own epoch seed schedule and consensus
+// namespace.
 func GPUV1DatasetItem(cache []GPUV1CacheNode, index uint32) GPUV1CacheNode {
 	if len(cache) == 0 {
 		return GPUV1CacheNode{}
@@ -29,6 +30,7 @@ func GPUV1DatasetItem(cache []GPUV1CacheNode, index uint32) GPUV1CacheNode {
 	return gpuV1Keccak512(mix[:])
 }
 
+// gpuV1FNV is the Ethash-style FNV1 operation used for DAG generation.
 func gpuV1FNV(a, b uint32) uint32 {
 	const prime uint32 = 0x01000193
 	return (a * prime) ^ b
