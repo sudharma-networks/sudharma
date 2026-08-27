@@ -1,0 +1,288 @@
+name: Verify Testnet Signed Transfer Once
+
+on:
+  push:
+    branches:
+      - feature/public-testnet-wallet-v2
+    paths:
+      - '.github/workflows/verify-testnet-signed-transfer-once.yml'
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: sudharma-testnet-signed-transfer
+  cancel-in-progress: false
+
+jobs:
+  transfer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      API: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com
+      SEED: 3.7.253.229:28444
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify repository tests
+        run: go test ./... -count=1
+
+      - name: Build native node and wallet
+        run: |
+          set -euo pipefail
+          go build -trimpath -o "$RUNNER_TEMP/sudharmad" ./cmd/sudharmad
+          go build -trimpath -o "$RUNNER_TEMP/sudharma-wallet" ./cmd/sudharma-wallet
+
+      - name: Create ephemeral sender and receiver wallets
+        id: wallets
+        shell: bash
+        run: |
+          set -euo pipefail
+          password="ci-transfer-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          sender_wallet="$RUNNER_TEMP/sender.wallet"
+          receiver_wallet="$RUNNER_TEMP/receiver.wallet"
+
+          sender_output="$(printf '%s\n%s\n' "$password" "$password" | "$RUNNER_TEMP/sudharma-wallet" create "$sender_wallet")"
+          receiver_output="$(printf '%s\n%s\n' "$password" "$password" | "$RUNNER_TEMP/sudharma-wallet" create "$receiver_wallet")"
+
+          sender="$(printf '%s\n' "$sender_output" | grep -E '^[0-9a-f]{40}$' | tail -1)"
+          receiver="$(printf '%s\n' "$receiver_output" | grep -E '^[0-9a-f]{40}$' | tail -1)"
+
+          test -n "$sender"
+          test -n "$receiver"
+          test "$sender" != "$receiver"
+
+          printf 'Sender:   %s\n' "$sender"
+          printf 'Receiver: %s\n' "$receiver"
+
+          echo "password=$password" >> "$GITHUB_OUTPUT"
+          echo "sender_wallet=$sender_wallet" >> "$GITHUB_OUTPUT"
+          echo "receiver_wallet=$receiver_wallet" >> "$GITHUB_OUTPUT"
+          echo "sender=$sender" >> "$GITHUB_OUTPUT"
+          echo "receiver=$receiver" >> "$GITHUB_OUTPUT"
+
+      - name: Mine one funding block to sender
+        id: funding
+        shell: bash
+        env:
+          SENDER: ${{ steps.wallets.outputs.sender }}
+        run: |
+          set -euo pipefail
+          data="$RUNNER_TEMP/funding-miner"
+          log="$RUNNER_TEMP/funding-miner.log"
+          node_id="transfer-funder-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+          "$RUNNER_TEMP/sudharmad" \
+            -nodeid "$node_id" \
+            -listen 127.0.0.1:0 \
+            -peer "$SEED" \
+            -datadir "$data" \
+            -mineblocks 1 \
+            -testmineraddress "$SENDER" \
+            > >(tee "$log") 2>&1 &
+          pid=$!
+
+          cleanup() {
+            if kill -0 "$pid" 2>/dev/null; then
+              kill -INT "$pid" 2>/dev/null || true
+              wait "$pid" || true
+            fi
+          }
+          trap cleanup EXIT
+
+          found=false
+          for attempt in $(seq 1 120); do
+            if grep -Eq 'Block #[0-9]+ found .* Reward: 50(\.[0-9]+)? SUDH' "$log" 2>/dev/null; then
+              found=true
+              break
+            fi
+            if ! kill -0 "$pid" 2>/dev/null; then
+              wait "$pid" || true
+              cat "$log" >&2 || true
+              exit 1
+            fi
+            sleep 0.5
+          done
+
+          if [ "$found" != true ]; then
+            echo 'Timed out waiting for sender funding block.' >&2
+            cat "$log" >&2 || true
+            exit 1
+          fi
+
+          cleanup
+          trap - EXIT
+
+      - name: Verify sender funding through public RPC
+        shell: bash
+        env:
+          SENDER: ${{ steps.wallets.outputs.sender }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 24); do
+            account="$(curl -fsS --max-time 15 "$API/v1/accounts/$SENDER")"
+            balance="$(printf '%s' "$account" | jq -r '.balance')"
+            printf 'Funding attempt %s: sender_balance=%s\n' "$attempt" "$balance"
+            if [ "$balance" -ge 5000000000 ]; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'Sender mining reward did not reach public RPC.' >&2
+          exit 1
+
+      - name: Sign and submit normal transfer
+        id: submit
+        shell: bash
+        env:
+          PASSWORD: ${{ steps.wallets.outputs.password }}
+          SENDER_WALLET: ${{ steps.wallets.outputs.sender_wallet }}
+          RECEIVER: ${{ steps.wallets.outputs.receiver }}
+        run: |
+          set -euo pipefail
+          output="$(printf '%s\n' "$PASSWORD" | "$RUNNER_TEMP/sudharma-wallet" send "$SENDER_WALLET" "$RECEIVER" 1 "$API")"
+          printf '%s\n' "$output"
+
+          printf '%s\n' "$output" | grep -q 'Transaction accepted.'
+          txid="$(printf '%s\n' "$output" | sed -n 's/^Transaction ID: //p' | tail -1)"
+          test -n "$txid"
+          printf 'Submitted signed transaction: %s\n' "$txid"
+          echo "txid=$txid" >> "$GITHUB_OUTPUT"
+
+      - name: Verify transaction is pending before confirmation
+        shell: bash
+        env:
+          TXID: ${{ steps.submit.outputs.txid }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 12); do
+            response="$(curl -fsS --max-time 15 "$API/v1/transactions/$TXID")"
+            status="$(printf '%s' "$response" | jq -r '.status')"
+            printf 'Pending attempt %s: status=%s\n' "$attempt" "$status"
+            if [ "$status" = pending ]; then
+              exit 0
+            fi
+            if [ "$status" = confirmed ]; then
+              echo 'Transaction confirmed before the dedicated confirmation miner; continuing is still valid.'
+              exit 0
+            fi
+            sleep 1
+          done
+          echo 'Signed transaction was not visible through public RPC.' >&2
+          exit 1
+
+      - name: Mine one block containing signed transfer
+        shell: bash
+        env:
+          TXID: ${{ steps.submit.outputs.txid }}
+        run: |
+          set -euo pipefail
+
+          current="$(curl -fsS --max-time 15 "$API/v1/transactions/$TXID" | jq -r '.status')"
+          if [ "$current" = confirmed ]; then
+            echo 'Transaction already confirmed by another miner.'
+            exit 0
+          fi
+
+          data="$RUNNER_TEMP/confirmation-miner"
+          log="$RUNNER_TEMP/confirmation-miner.log"
+          node_id="transfer-confirmer-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          reward_address="${{ steps.wallets.outputs.receiver }}"
+
+          "$RUNNER_TEMP/sudharmad" \
+            -nodeid "$node_id" \
+            -listen 127.0.0.1:0 \
+            -peer "$SEED" \
+            -datadir "$data" \
+            -mineblocks 1 \
+            -testmineraddress "$reward_address" \
+            > >(tee "$log") 2>&1 &
+          pid=$!
+
+          cleanup() {
+            if kill -0 "$pid" 2>/dev/null; then
+              kill -INT "$pid" 2>/dev/null || true
+              wait "$pid" || true
+            fi
+          }
+          trap cleanup EXIT
+
+          success=false
+          for attempt in $(seq 1 120); do
+            if grep -Eq 'Pending Transactions: [1-9][0-9]*' "$log" 2>/dev/null \
+              && grep -Eq 'Block #[0-9]+ found .* Transactions: [1-9][0-9]*' "$log" 2>/dev/null \
+              && grep -q 'Remaining Pending Transactions: 0' "$log" 2>/dev/null; then
+              success=true
+              break
+            fi
+            if ! kill -0 "$pid" 2>/dev/null; then
+              wait "$pid" || true
+              cat "$log" >&2 || true
+              exit 1
+            fi
+            sleep 0.5
+          done
+
+          if [ "$success" != true ]; then
+            echo 'Timed out waiting for signed-transfer confirmation block.' >&2
+            cat "$log" >&2 || true
+            exit 1
+          fi
+
+          cleanup
+          trap - EXIT
+
+      - name: Verify confirmed transfer and balances through public RPC
+        shell: bash
+        env:
+          TXID: ${{ steps.submit.outputs.txid }}
+          SENDER: ${{ steps.wallets.outputs.sender }}
+          RECEIVER: ${{ steps.wallets.outputs.receiver }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 24); do
+            tx="$(curl -fsS --max-time 15 "$API/v1/transactions/$TXID")"
+            sender_account="$(curl -fsS --max-time 15 "$API/v1/accounts/$SENDER")"
+            receiver_account="$(curl -fsS --max-time 15 "$API/v1/accounts/$RECEIVER")"
+
+            status="$(printf '%s' "$tx" | jq -r '.status')"
+            confirmations="$(printf '%s' "$tx" | jq -r '.confirmations')"
+            sender_balance="$(printf '%s' "$sender_account" | jq -r '.balance')"
+            receiver_balance="$(printf '%s' "$receiver_account" | jq -r '.balance')"
+            sender_nonce="$(printf '%s' "$sender_account" | jq -r '.confirmed_nonce')"
+
+            printf 'Verify %s: status=%s confirmations=%s sender=%s receiver=%s sender_nonce=%s\n' \
+              "$attempt" "$status" "$confirmations" "$sender_balance" "$receiver_balance" "$sender_nonce"
+
+            if [ "$status" = confirmed ] \
+              && [ "$confirmations" -ge 1 ] \
+              && [ "$sender_nonce" -ge 1 ] \
+              && [ "$receiver_balance" -ge 100000000 ]; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo 'End-to-end signed transfer verification failed.' >&2
+          exit 1
+
+      - name: Record successful transfer gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api \
+            --method POST \
+            "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=success \
+            -f context=stage-3/signed-transfer \
+            -f description='Signed public-testnet transfer confirmed end to end'
