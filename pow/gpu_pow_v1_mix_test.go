@@ -42,9 +42,9 @@ func TestGPUV1RotateRight32(t *testing.T) {
 }
 
 func TestGPUV1FNV1a(t *testing.T) {
-	const a uint32 = 0x11223344
-	const b uint32 = 0xaabbccdd
-	const prime uint32 = 0x01000193
+	var a uint32 = 0x11223344
+	var b uint32 = 0xaabbccdd
+	var prime uint32 = 0x01000193
 	want := (a ^ b) * prime
 	if got := gpuV1FNV1a(a, b); got != want {
 		t.Fatalf("fnv1a = %08x want %08x", got, want)
