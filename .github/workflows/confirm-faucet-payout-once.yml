@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/confirm-faucet-payout-once.yml'
       - 'cmd/sudharmad/**'
+      - 'p2p/**'
 
 permissions:
   contents: read
