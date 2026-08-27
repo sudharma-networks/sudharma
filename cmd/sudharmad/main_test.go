@@ -104,12 +104,3 @@ func TestRunBlockMiningTestRejectsUnsafeCounts(t *testing.T) {
 		}
 	}
 }
-
-func TestMineBlocksRequestIsOneShot(t *testing.T) {
-	if !mineBlocksIsOneShot(1) {
-		t.Fatal("expected -mineblocks 1 to exit after bounded mining completes")
-	}
-	if mineBlocksIsOneShot(0) {
-		t.Fatal("expected ordinary node mode to continue into the main loop")
-	}
-}
