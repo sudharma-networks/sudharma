@@ -162,29 +162,16 @@ func TestMempoolsSynchronizeAfterExplicitRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	deadline := time.Now().Add(2 * time.Second)
-
-	for time.Now().Before(deadline) {
-		_, aHasB := nodeA.MempoolTransaction(txB.ID)
-		_, bHasA := nodeB.MempoolTransaction(txA.ID)
-
-		if aHasB && bHasA {
-			break
-		}
-
-		time.Sleep(10 * time.Millisecond)
-	}
-
+	// SyncMempoolWithPeer is a sequencing barrier for callers that need the
+	// peer's pending transactions immediately after chain sync, such as the
+	// one-shot transaction-confirming miner. When it returns, both snapshots
+	// must already have been processed.
 	if _, ok := nodeA.MempoolTransaction(txB.ID); !ok {
-		t.Fatal(
-			"node A did not receive node B pending transaction",
-		)
+		t.Fatal("node A did not receive node B pending transaction before sync returned")
 	}
 
 	if _, ok := nodeB.MempoolTransaction(txA.ID); !ok {
-		t.Fatal(
-			"node B did not receive node A pending transaction",
-		)
+		t.Fatal("node B did not receive node A pending transaction before sync returned")
 	}
 
 	if nodeA.MempoolCount() != 2 {
