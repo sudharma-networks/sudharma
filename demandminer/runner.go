@@ -15,7 +15,10 @@ import (
 	"sync"
 )
 
-const maxMinerOutputBytes = 64 << 10
+const (
+	maxMinerOutputBytes   = 64 << 10
+	miningEvidenceWindow = 8 << 10
+)
 
 var (
 	pendingTransactionsPattern = regexp.MustCompile(`(?m)^Pending Transactions:\s*([0-9]+)\s*$`)
@@ -71,10 +74,8 @@ func (r *NativeRunner) MineOne(ctx context.Context) error {
 
 	evidence := make(chan struct{})
 	var evidenceOnce sync.Once
-	output := boundedBuffer{onWrite: func(current string) {
-		if validateMiningOutput(current) == nil {
-			evidenceOnce.Do(func() { close(evidence) })
-		}
+	output := miningOutput{onEvidence: func() {
+		evidenceOnce.Do(func() { close(evidence) })
 	}}
 
 	cmd := r.command(childCtx, r.config.MinerBinary, args...)
@@ -95,7 +96,7 @@ func (r *NativeRunner) MineOne(ctx context.Context) error {
 		if runErr != nil {
 			return fmt.Errorf("miner child failed: %w; output: %s", runErr, output.String())
 		}
-		if err := validateMiningOutput(output.String()); err != nil {
+		if err := output.validationError(); err != nil {
 			return err
 		}
 		return nil
@@ -116,7 +117,7 @@ func (r *NativeRunner) MineOne(ctx context.Context) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := validateMiningOutput(output.String()); err != nil {
+		if err := output.validationError(); err != nil {
 			return err
 		}
 		return nil
@@ -170,37 +171,110 @@ func isImmediateChild(parent, child string) bool {
 	return filepath.Dir(childAbs) == filepath.Clean(parentAbs) && childAbs != parentAbs
 }
 
-type boundedBuffer struct {
-	mu      sync.Mutex
-	buf     bytes.Buffer
-	onWrite func(string)
+type miningOutput struct {
+	mu sync.Mutex
+
+	retained bytes.Buffer
+	tail     []byte
+
+	pendingSeen     bool
+	pendingPositive bool
+	includedSeen    bool
+	includedPositive bool
+
+	onEvidence func()
 }
 
-func (b *boundedBuffer) Write(p []byte) (int, error) {
+func (o *miningOutput) Write(p []byte) (int, error) {
 	original := len(p)
-	b.mu.Lock()
-	remaining := maxMinerOutputBytes - b.buf.Len()
-	if remaining > 0 {
-		if len(p) > remaining {
-			p = p[:remaining]
-		}
-		_, _ = b.buf.Write(p)
-	}
-	current := b.buf.String()
-	onWrite := b.onWrite
-	b.mu.Unlock()
+	o.mu.Lock()
 
-	if onWrite != nil {
-		onWrite(current)
+	remaining := maxMinerOutputBytes - o.retained.Len()
+	if remaining > 0 {
+		chunk := p
+		if len(chunk) > remaining {
+			chunk = chunk[:remaining]
+		}
+		_, _ = o.retained.Write(chunk)
+	}
+
+	o.appendEvidenceTail(p)
+	o.observeEvidence(string(o.tail))
+	complete := o.pendingPositive && o.includedPositive
+	onEvidence := o.onEvidence
+	o.mu.Unlock()
+
+	if complete && onEvidence != nil {
+		onEvidence()
 	}
 	return original, nil
 }
 
-func (b *boundedBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.String()
+func (o *miningOutput) appendEvidenceTail(p []byte) {
+	if len(p) >= miningEvidenceWindow {
+		o.tail = append(o.tail[:0], p[len(p)-miningEvidenceWindow:]...)
+		return
+	}
+	overflow := len(o.tail) + len(p) - miningEvidenceWindow
+	if overflow > 0 {
+		copy(o.tail, o.tail[overflow:])
+		o.tail = o.tail[:len(o.tail)-overflow]
+	}
+	o.tail = append(o.tail, p...)
 }
 
-var _ io.Writer = (*boundedBuffer)(nil)
+func (o *miningOutput) observeEvidence(text string) {
+	for _, match := range pendingTransactionsPattern.FindAllStringSubmatch(text, -1) {
+		if len(match) != 2 {
+			continue
+		}
+		value, err := strconv.ParseInt(match[1], 10, 64)
+		if err != nil {
+			continue
+		}
+		o.pendingSeen = true
+		if value > 0 {
+			o.pendingPositive = true
+		}
+	}
+	for _, match := range includedTransactionsPattern.FindAllStringSubmatch(text, -1) {
+		if len(match) != 2 {
+			continue
+		}
+		value, err := strconv.ParseInt(match[1], 10, 64)
+		if err != nil {
+			continue
+		}
+		o.includedSeen = true
+		if value > 0 {
+			o.includedPositive = true
+		}
+	}
+}
+
+func (o *miningOutput) validationError() error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if !o.pendingSeen {
+		return errors.New("miner output missing Pending Transactions evidence")
+	}
+	if !o.pendingPositive {
+		return errors.New("miner reported no pending transactions")
+	}
+	if !o.includedSeen {
+		return errors.New("miner output missing Transactions evidence")
+	}
+	if !o.includedPositive {
+		return errors.New("miner reported no included transactions")
+	}
+	return nil
+}
+
+func (o *miningOutput) String() string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.retained.String()
+}
+
+var _ io.Writer = (*miningOutput)(nil)
 var _ BlockMiner = (*NativeRunner)(nil)
