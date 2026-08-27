@@ -5,6 +5,12 @@ import (
 	"testing"
 )
 
+func TestGPUV1DatasetParentCount(t *testing.T) {
+	if gpuV1DatasetParents != 512 {
+		t.Fatalf("dataset parents = %d want 512", gpuV1DatasetParents)
+	}
+}
+
 func TestGPUV1DatasetItemDeterministic(t *testing.T) {
 	cache := GPUV1BuildCache(GPUV1EpochSeed(0), 64)
 	a := GPUV1DatasetItem(cache, 0)
