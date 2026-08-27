@@ -63,6 +63,13 @@ func TestNativeRunnerStopsOwnChildAfterBroadcastEvidence(t *testing.T) {
 	}
 }
 
+func TestNativeRunnerDetectsEvidenceAfterRetainedOutputCap(t *testing.T) {
+	runner := testRunner(t, "late-evidence", "5s")
+	if err := runner.MineOne(context.Background()); err != nil {
+		t.Fatalf("MineOne must detect mining evidence even after retained diagnostic output is full: %v", err)
+	}
+}
+
 func TestNativeRunnerRejectsOutputWithoutPendingEvidence(t *testing.T) {
 	runner := testRunner(t, "missing-pending", "5s")
 	if err := runner.MineOne(context.Background()); err == nil || !strings.Contains(err.Error(), "Pending Transactions") {
@@ -144,6 +151,9 @@ func TestNativeRunnerHelperProcess(t *testing.T) {
 	case "long-running-success":
 		_, _ = os.Stdout.WriteString("Pending Transactions: 1\nBlock #1 found | Hash: abc | Transactions: 1 | Reward: 50.00000000 SUDH | Work: 2\n")
 		time.Sleep(10 * time.Second)
+	case "late-evidence":
+		_, _ = os.Stdout.WriteString(strings.Repeat("x", maxMinerOutputBytes*2))
+		_, _ = os.Stdout.WriteString("\nPending Transactions: 1\nBlock #1 found | Hash: abc | Transactions: 1 | Reward: 50.00000000 SUDH | Work: 2\n")
 	case "missing-pending":
 		_, _ = os.Stdout.WriteString("Block #1 found | Hash: abc | Transactions: 1 | Reward: 50.00000000 SUDH | Work: 2\n")
 	case "missing-included":
