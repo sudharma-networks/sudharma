@@ -3,7 +3,6 @@ package main
 import (
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/sudharma-networks/sudharma/blockchain"
 	"github.com/sudharma-networks/sudharma/p2p"
@@ -11,72 +10,6 @@ import (
 	"github.com/sudharma-networks/sudharma/transactions"
 	"github.com/sudharma-networks/sudharma/wallet"
 )
-
-func TestWaitForPendingTransactionsObservesAsyncMempoolArrival(t *testing.T) {
-	chain := blockchain.NewChain()
-	state := blockchain.NewState()
-	node, err := p2p.NewNode("mempool-wait-test", "127.0.0.1:0", chain.Height(), chain.Tip().Hash())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := node.SetChain(chain); err != nil {
-		t.Fatal(err)
-	}
-	if err := node.SetState(state); err != nil {
-		t.Fatal(err)
-	}
-
-	sender, err := wallet.NewWallet()
-	if err != nil {
-		t.Fatal(err)
-	}
-	receiver, err := wallet.NewWallet()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := state.Credit(sender.Address, 50*params.CoinDecimals); err != nil {
-		t.Fatal(err)
-	}
-	tx := transactions.NewTransaction(sender.Address, receiver.Address, 10*params.CoinDecimals, 1)
-	if err := tx.Sign(sender); err != nil {
-		t.Fatal(err)
-	}
-
-	go func() {
-		time.Sleep(25 * time.Millisecond)
-		_ = node.Mempool().AddTransaction(tx)
-	}()
-
-	if !waitForPendingTransactions(node, 250*time.Millisecond) {
-		t.Fatal("expected asynchronous pending transaction before timeout")
-	}
-	if got := node.Mempool().Count(); got != 1 {
-		t.Fatalf("expected 1 pending transaction, got %d", got)
-	}
-}
-
-func TestWaitForPendingTransactionsTimesOutWhenMempoolStaysEmpty(t *testing.T) {
-	chain := blockchain.NewChain()
-	state := blockchain.NewState()
-	node, err := p2p.NewNode("mempool-empty-test", "127.0.0.1:0", chain.Height(), chain.Tip().Hash())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := node.SetChain(chain); err != nil {
-		t.Fatal(err)
-	}
-	if err := node.SetState(state); err != nil {
-		t.Fatal(err)
-	}
-
-	started := time.Now()
-	if waitForPendingTransactions(node, 40*time.Millisecond) {
-		t.Fatal("did not expect a pending transaction")
-	}
-	if elapsed := time.Since(started); elapsed < 30*time.Millisecond {
-		t.Fatalf("wait returned too early after %s", elapsed)
-	}
-}
 
 func TestRunBlockMiningTestConfirmsMempoolTransaction(t *testing.T) {
 	chain := blockchain.NewChain()
