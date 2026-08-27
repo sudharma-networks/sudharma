@@ -24,6 +24,9 @@ jobs:
       - name: Run tracked secret safety test
         run: bash ./scripts/check-tracked-secrets_test.sh
 
+      - name: Verify demand miner CI source
+        run: bash ./scripts/demand-miner-ci_test.sh
+
       - name: Run demand miner deployment safety test
         run: bash ./deployment/testnet/install-demand-miner_test.sh
 
