@@ -55,7 +55,7 @@ jobs:
           baseline="$(curl -fsS --max-time 15 "$RPC_BASE_URL/v1/status")"
           baseline_network="$(printf '%s' "$baseline" | jq -r '.network')"
           baseline_height="$(printf '%s' "$baseline" | jq -r '.height')"
-          test "$baseline_network" = sudharma-testnet-1
+          test "$baseline_network" = sudharma
 
           aws lambda update-function-configuration \
             --function-name "$FUNCTION_NAME" \
@@ -66,7 +66,7 @@ jobs:
           failover="$(curl -fsS --max-time 20 "$RPC_BASE_URL/v1/status")"
           failover_network="$(printf '%s' "$failover" | jq -r '.network')"
           failover_height="$(printf '%s' "$failover" | jq -r '.height')"
-          test "$failover_network" = sudharma-testnet-1
+          test "$failover_network" = sudharma
           test "$failover_height" -ge "$baseline_height"
 
           printf 'Failover passed: network=%s baseline_height=%s seed2_height=%s\n' \
@@ -77,7 +77,7 @@ jobs:
         run: |
           set -euo pipefail
           status="$(curl -fsS --max-time 15 "$RPC_BASE_URL/v1/status")"
-          test "$(printf '%s' "$status" | jq -r '.network')" = sudharma-testnet-1
+          test "$(printf '%s' "$status" | jq -r '.network')" = sudharma
           aws lambda get-function-configuration \
             --function-name "$FUNCTION_NAME" \
             --query 'Environment.Variables.{Seed1:SEED_1_URL,Seed2:SEED_2_URL,Faucet:FAUCET_ENABLED}' \
