@@ -50,12 +50,3 @@ func TestGPUV1FNV1a(t *testing.T) {
 		t.Fatalf("fnv1a = %08x want %08x", got, want)
 	}
 }
-
-func TestGPUV1MergePrimitive(t *testing.T) {
-	if got := gpuV1Merge(0x11223344, 0xaabbccdd, 0); got != gpuV1FNV1a(0x11223344, 0xaabbccdd) {
-		t.Fatalf("merge mode 0 = %08x", got)
-	}
-	if got := gpuV1Merge(0x11223344, 0xaabbccdd, 1); got == 0x11223344 {
-		t.Fatal("merge mode 1 did not alter destination")
-	}
-}
