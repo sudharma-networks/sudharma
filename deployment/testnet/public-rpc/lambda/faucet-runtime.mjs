@@ -77,13 +77,25 @@ function createStore(tableName, timed) {
       }
     },
 
+    async markInitialSubmitted(address, transactionId, at) {
+      await send('dynamodb.mark_initial_submitted', new UpdateCommand({
+        TableName: tableName,
+        Key: { pk: `ADDR#${address}` },
+        UpdateExpression: 'SET initial_status = :submitted, initial_txid = :txid, initial_submitted_at = :at',
+        ConditionExpression: 'initial_status = :reserved OR (initial_status = :paid AND initial_txid = :txid)',
+        ExpressionAttributeValues: {
+          ':submitted': 'submitted', ':reserved': 'reserved', ':paid': 'paid', ':txid': transactionId, ':at': at,
+        },
+      }));
+    },
+
     async completeInitial(address, transactionId, at) {
       await send('dynamodb.complete_initial', new UpdateCommand({
         TableName: tableName,
         Key: { pk: `ADDR#${address}` },
         UpdateExpression: 'SET initial_status = :paid, initial_txid = :txid, initial_paid_at = :at',
-        ConditionExpression: 'initial_status = :reserved',
-        ExpressionAttributeValues: { ':paid': 'paid', ':reserved': 'reserved', ':txid': transactionId, ':at': at },
+        ConditionExpression: 'initial_status = :submitted AND initial_txid = :txid',
+        ExpressionAttributeValues: { ':paid': 'paid', ':submitted': 'submitted', ':txid': transactionId, ':at': at },
       }));
     },
 
