@@ -24,6 +24,9 @@ jobs:
       - name: Run tracked secret safety test
         run: bash ./scripts/check-tracked-secrets_test.sh
 
+      - name: Run demand miner deployment safety test
+        run: bash ./deployment/testnet/install-demand-miner_test.sh
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
