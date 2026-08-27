@@ -3,17 +3,17 @@ package pow
 import "testing"
 
 func TestGPUV1ProgramPeriod(t *testing.T) {
-	if GPUV1ProgramPeriod != 10 {
-		t.Fatalf("program period = %d want 10", GPUV1ProgramPeriod)
+	if GPUV1ProgramPeriod != 3 {
+		t.Fatalf("program period = %d want 3", GPUV1ProgramPeriod)
 	}
 	if got := GPUV1ProgramForHeight(0); got != 0 {
 		t.Fatalf("height 0 program = %d", got)
 	}
-	if got := GPUV1ProgramForHeight(9); got != 0 {
-		t.Fatalf("height 9 program = %d", got)
+	if got := GPUV1ProgramForHeight(2); got != 0 {
+		t.Fatalf("height 2 program = %d", got)
 	}
-	if got := GPUV1ProgramForHeight(10); got != 1 {
-		t.Fatalf("height 10 program = %d", got)
+	if got := GPUV1ProgramForHeight(3); got != 1 {
+		t.Fatalf("height 3 program = %d", got)
 	}
 }
 
@@ -41,8 +41,18 @@ func TestGPUV1RotateRight32(t *testing.T) {
 	}
 }
 
+func TestGPUV1FNV1a(t *testing.T) {
+	const a uint32 = 0x11223344
+	const b uint32 = 0xaabbccdd
+	const prime uint32 = 0x01000193
+	want := (a ^ b) * prime
+	if got := gpuV1FNV1a(a, b); got != want {
+		t.Fatalf("fnv1a = %08x want %08x", got, want)
+	}
+}
+
 func TestGPUV1MergePrimitive(t *testing.T) {
-	if got := gpuV1Merge(0x11223344, 0xaabbccdd, 0); got != gpuV1FNV(0x11223344, 0xaabbccdd) {
+	if got := gpuV1Merge(0x11223344, 0xaabbccdd, 0); got != gpuV1FNV1a(0x11223344, 0xaabbccdd) {
 		t.Fatalf("merge mode 0 = %08x", got)
 	}
 	if got := gpuV1Merge(0x11223344, 0xaabbccdd, 1); got == 0x11223344 {
