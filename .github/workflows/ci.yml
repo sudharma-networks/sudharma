@@ -24,6 +24,9 @@ jobs:
       - name: Run tracked secret safety test
         run: bash ./scripts/check-tracked-secrets_test.sh
 
+      - name: Run tracked secret scan
+        run: bash ./scripts/check-tracked-secrets.sh
+
       - name: Verify demand miner CI source
         run: bash ./scripts/demand-miner-ci_test.sh
 
@@ -38,6 +41,15 @@ jobs:
 
       - name: Run tests
         run: go test ./... -count=1
+
+      - name: Vet repository
+        run: go vet ./...
+
+      - name: Build demand miner and native node
+        run: go build -trimpath ./cmd/sudharma-demand-miner ./cmd/sudharmad
+
+      - name: Run focused demand miner race detector
+        run: go test -race ./demandminer ./cmd/sudharma-demand-miner -count=1
 
       - name: Run local two-node testnet rehearsal
         run: bash ./scripts/testnet-rehearsal.sh
