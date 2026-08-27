@@ -1,12 +1,7 @@
 name: Verify Testnet Signed Transfer Once
 
 on:
-  push:
-    branches:
-      - feature/public-testnet-wallet-v2
-    paths:
-      - '.github/workflows/verify-testnet-signed-transfer-once.yml'
-      - 'cmd/sudharma-wallet/**'
+  workflow_dispatch:
 
 permissions:
   contents: read
