@@ -53,19 +53,47 @@ jobs:
         run: |
           set -euo pipefail
           miner_data="$RUNNER_TEMP/sudharma-faucet-confirmation"
-          timeout --signal=INT --kill-after=20s --preserve-status 8m \
-            "$RUNNER_TEMP/sudharmad" \
-              -nodeid faucet-confirmation-miner \
-              -listen 127.0.0.1:0 \
-              -peer 3.7.253.229:28444 \
-              -datadir "$miner_data" \
-              -mineblocks 1 \
-              -testmineraddress 9ccdc094489874bed888ffe4bdf9b8298f4c5131 \
-            | tee "$RUNNER_TEMP/faucet-confirmation.log"
+          miner_log="$RUNNER_TEMP/faucet-confirmation.log"
 
-          grep -Eq 'Pending Transactions: [1-9][0-9]*' "$RUNNER_TEMP/faucet-confirmation.log"
-          grep -Eq 'Block #[0-9]+ found .* Transactions: [1-9][0-9]*' "$RUNNER_TEMP/faucet-confirmation.log"
-          grep -q 'Remaining Pending Transactions: 0' "$RUNNER_TEMP/faucet-confirmation.log"
+          "$RUNNER_TEMP/sudharmad" \
+            -nodeid faucet-confirmation-miner \
+            -listen 127.0.0.1:0 \
+            -peer 3.7.253.229:28444 \
+            -datadir "$miner_data" \
+            -mineblocks 1 \
+            -testmineraddress 9ccdc094489874bed888ffe4bdf9b8298f4c5131 \
+            > >(tee "$miner_log") 2>&1 &
+          miner_pid=$!
+
+          cleanup() {
+            if kill -0 "$miner_pid" 2>/dev/null; then
+              kill -INT "$miner_pid" 2>/dev/null || true
+              wait "$miner_pid" || true
+            fi
+          }
+          trap cleanup EXIT
+
+          for attempt in $(seq 1 120); do
+            if grep -Eq 'Pending Transactions: [1-9][0-9]*' "$miner_log" 2>/dev/null \
+              && grep -Eq 'Block #[0-9]+ found .* Transactions: [1-9][0-9]*' "$miner_log" 2>/dev/null \
+              && grep -q 'Remaining Pending Transactions: 0' "$miner_log" 2>/dev/null; then
+              cleanup
+              trap - EXIT
+              exit 0
+            fi
+
+            if ! kill -0 "$miner_pid" 2>/dev/null; then
+              wait "$miner_pid" || true
+              echo 'Native miner exited before confirming a pending transaction.' >&2
+              cat "$miner_log" >&2 || true
+              exit 1
+            fi
+            sleep 0.5
+          done
+
+          echo 'Timed out waiting for a transaction-confirming block.' >&2
+          cat "$miner_log" >&2 || true
+          exit 1
 
       - name: Verify payout confirmed through public RPC
         shell: bash
