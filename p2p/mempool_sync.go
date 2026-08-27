@@ -9,9 +9,12 @@ import (
 )
 
 const (
-	mempoolSyncQuietPeriod = 50 * time.Millisecond
-	mempoolSyncMaxWait     = 500 * time.Millisecond
-	mempoolSyncPoll        = 5 * time.Millisecond
+	// Mempool responses are delivered by the asynchronous peer read loop. Give
+	// public-network peers enough quiet time to return a snapshot after chain
+	// synchronization before callers immediately consume the mempool.
+	mempoolSyncQuietPeriod = 500 * time.Millisecond
+	mempoolSyncMaxWait     = 2 * time.Second
+	mempoolSyncPoll        = 10 * time.Millisecond
 )
 
 // syncMempoolToPeer sends a deterministic snapshot of this node's
@@ -81,7 +84,7 @@ func (n *Node) syncMempoolToPeer(
 
 // waitForMempoolSyncSettle gives the asynchronous peer reader enough time to
 // process the requested mempool snapshot before SyncMempoolWithPeer returns.
-// A short quiet period handles an empty peer mempool without a long delay; any
+// A bounded quiet period handles delayed public-network responses while any
 // observed inbound transaction resets the quiet window so a burst can finish.
 func (n *Node) waitForMempoolSyncSettle() {
 	if n == nil {
