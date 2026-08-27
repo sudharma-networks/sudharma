@@ -65,6 +65,7 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.log
+.worktrees/
 
 # Local migration backup
 go.mod.backup-before-step55e7
