@@ -15,7 +15,7 @@ type gpuV1InteropFixture struct {
 		HeaderHex  string `json:"header_hex"`
 		NonceHex   string `json:"nonce_hex"`
 		Height     uint64 `json:"height"`
-		CacheNodes int    `json:"cache_nodes"`
+		CacheNodes uint32 `json:"cache_nodes"`
 		DigestHex  string `json:"digest_hex"`
 	} `json:"vectors"`
 }
@@ -47,7 +47,7 @@ func TestGPUV1InteroperabilityVectorsMatchReference(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: invalid nonce hex: %v", vector.Name, err)
 		}
-		if vector.CacheNodes <= 0 {
+		if vector.CacheNodes == 0 {
 			t.Fatalf("%s: cache_nodes must be positive", vector.Name)
 		}
 		if len(vector.DigestHex) != 64 {
