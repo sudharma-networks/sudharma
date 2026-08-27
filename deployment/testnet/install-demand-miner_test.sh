@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+installer="$repo_root/deployment/testnet/install-demand-miner.sh"
+unit="$repo_root/deployment/testnet/sudharma-demand-miner.service"
+example="$repo_root/deployment/testnet/demand-miner.example.json"
+readme="$repo_root/deployment/testnet/README.md"
+
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+root="$tmp/root"
+fixtures="$tmp/fixtures"
+mkdir -p "$fixtures"
+printf '#!/bin/sh\nexit 0\n' > "$fixtures/sudharma-demand-miner"
+printf '#!/bin/sh\nexit 0\n' > "$fixtures/sudharmad"
+chmod 0755 "$fixtures/sudharma-demand-miner" "$fixtures/sudharmad"
+
+[[ -f "$installer" ]] || { echo "missing installer: $installer" >&2; exit 1; }
+[[ -f "$unit" ]] || { echo "missing service unit: $unit" >&2; exit 1; }
+[[ -f "$example" ]] || { echo "missing example config: $example" >&2; exit 1; }
+
+run_install() {
+  DESTDIR="$root" \
+  DEMAND_MINER_BIN="$fixtures/sudharma-demand-miner" \
+  SUDHARMAD_BIN="$fixtures/sudharmad" \
+  bash "$installer" "$@"
+}
+
+output="$(run_install)"
+run_install >/dev/null
+
+assert_mode() {
+  local want="$1" path="$2" got
+  got="$(stat -c '%a' "$path")"
+  [[ "$got" == "$want" ]] || { echo "mode $path: want $want got $got" >&2; exit 1; }
+}
+
+[[ -f "$root/usr/local/bin/sudharma-demand-miner" ]]
+[[ -f "$root/usr/local/bin/sudharmad" ]]
+[[ -f "$root/etc/sudharma/demand-miner.json" ]]
+[[ -f "$root/etc/systemd/system/sudharma-demand-miner.service" ]]
+[[ -d "$root/var/lib/sudharma-demand-miner" ]]
+assert_mode 755 "$root/usr/local/bin/sudharma-demand-miner"
+assert_mode 755 "$root/usr/local/bin/sudharmad"
+assert_mode 640 "$root/etc/sudharma/demand-miner.json"
+assert_mode 644 "$root/etc/systemd/system/sudharma-demand-miner.service"
+assert_mode 750 "$root/var/lib/sudharma-demand-miner"
+
+grep -Fq '"status_url": "http://127.0.0.1:28545"' "$root/etc/sudharma/demand-miner.json"
+grep -Fq '"data_directory": "/var/lib/sudharma-demand-miner"' "$root/etc/sudharma/demand-miner.json"
+grep -Fq 'User=sudharma-miner' "$root/etc/systemd/system/sudharma-demand-miner.service"
+grep -Fq 'NoNewPrivileges=true' "$root/etc/systemd/system/sudharma-demand-miner.service"
+grep -Fq 'PrivateTmp=true' "$root/etc/systemd/system/sudharma-demand-miner.service"
+grep -Fq 'ProtectSystem=strict' "$root/etc/systemd/system/sudharma-demand-miner.service"
+grep -Fq 'ReadWritePaths=/var/lib/sudharma-demand-miner' "$root/etc/systemd/system/sudharma-demand-miner.service"
+grep -Fq 'ExecStart=/usr/local/bin/sudharma-demand-miner -config /etc/sudharma/demand-miner.json' "$root/etc/systemd/system/sudharma-demand-miner.service"
+
+grep -Fq 'sudharma-miner' <<<"$output"
+if grep -Fq 'systemctl enable --now' <<<"$output"; then
+  echo "default install must not enable service" >&2
+  exit 1
+fi
+if grep -Eq 'systemctl[[:space:]]+enable[[:space:]]+--now' "$installer" && ! grep -Fq -- '--enable' "$installer"; then
+  echo "enable --now must be gated by --enable" >&2
+  exit 1
+fi
+
+rollback="$(awk '/^### Rollback/{flag=1; next} flag && /^### /{exit} flag{print}' "$readme")"
+[[ -n "$rollback" ]] || { echo "missing Rollback section" >&2; exit 1; }
+if grep -Fq '/var/lib/sudharma ' <<<"$rollback" || grep -Fq '/var/lib/sudharma/' <<<"$rollback"; then
+  echo "rollback must never reference node data /var/lib/sudharma" >&2
+  exit 1
+fi
+
+echo "demand miner installer safety checks passed"
