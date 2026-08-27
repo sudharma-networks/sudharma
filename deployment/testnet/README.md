@@ -16,6 +16,10 @@ The container runs as an unprivileged `sudharma` user, drops Linux capabilities 
 - `public-profile.example.json`: public client/seed manifest input; it intentionally fails launch preflight until real public endpoints replace placeholders.
 - `sudharma-testnet.service`: hardened systemd alternative for a native binary installation.
 - `nginx-rpc.example.conf`: HTTPS/rate-limited RPC reverse-proxy starting point.
+- `demand-miner.example.json`: non-secret, testnet-only demand-miner configuration.
+- `sudharma-demand-miner.service`: disabled-by-default hardened supervisor service.
+- `install-demand-miner.sh`: idempotent installer with optional explicit activation.
+- `install-demand-miner_test.sh`: staged installer and hardening safety checks.
 
 ## Preflight
 
@@ -34,6 +38,81 @@ For a public seed node, permit inbound TCP `28444` from the Internet. Permit SSH
 ## Data and backup
 
 Node blockchain/state/mempool data live under `/var/lib/sudharma` (or the configured data directory). Node data is operationally recoverable from peers and is not equivalent to wallet custody material. Treasury/user encrypted wallet files and recovery secrets must be backed up separately and must never be copied into node configuration or container images.
+
+## Demand-based public-testnet miner
+
+The demand miner is deliberately separate from the faucet, public RPC proxy, wallet, and consensus code. It reads loopback node status and requests exactly one native `sudharmad -mineblocks 1` operation only when valid transactions are pending. The example reward address `9ccdc094489874bed888ffe4bdf9b8298f4c5131` is a public address only; it contains no private key, seed, wallet file, signing material, or credential.
+
+**Activation gate:** repository packaging does not mean the miner is ready to run. At the current implementation stage, `sudharmad -mineblocks 1` completes the requested mining action and then continues into the normal long-running node loop. Keep the supervisor disabled until the isolated one-shot lifecycle mismatch is resolved and freshly verified. Do not work around this by weakening child timeouts, killing arbitrary node processes, or altering consensus behavior.
+
+### Install disabled
+
+Build the two binaries from the reviewed branch, create the dedicated service account, and install without activation:
+
+```bash
+sudo useradd --system --home /nonexistent --shell /usr/sbin/nologin sudharma-miner 2>/dev/null || true
+go build -trimpath -o ./sudharma-demand-miner ./cmd/sudharma-demand-miner
+go build -trimpath -o ./sudharmad ./cmd/sudharmad
+sudo DEMAND_MINER_BIN="$PWD/sudharma-demand-miner" SUDHARMAD_BIN="$PWD/sudharmad" \
+  bash ./deployment/testnet/install-demand-miner.sh
+```
+
+Installation is idempotent and preserves an existing `/etc/sudharma/demand-miner.json`. Review that file after installation. Raw status stays on `http://127.0.0.1:28545`; do not point the supervisor at the public HTTPS wallet endpoint.
+
+For a no-host-change rehearsal, use a staging root:
+
+```bash
+DESTDIR="$(mktemp -d)" \
+DEMAND_MINER_BIN="$PWD/sudharma-demand-miner" \
+SUDHARMAD_BIN="$PWD/sudharmad" \
+bash ./deployment/testnet/install-demand-miner.sh
+```
+
+### Observe before activation
+
+Confirm the node is healthy and the service is still disabled:
+
+```bash
+curl --fail --silent http://127.0.0.1:28545/ready
+curl --fail --silent http://127.0.0.1:28545/v1/status
+systemctl is-enabled sudharma-demand-miner.service || true
+```
+
+After the lifecycle gate is closed, normal service observation is:
+
+```bash
+systemctl --no-pager --full status sudharma-demand-miner.service
+journalctl -u sudharma-demand-miner.service -n 100 --no-pager
+curl --fail --silent http://127.0.0.1:28545/v1/status
+```
+
+The supervisor emits structured JSON operational events. It must never log full configuration contents or any wallet secrets.
+
+### Enable gate
+
+Do **not** run the following until the one-shot lifecycle blocker above is resolved and CI is green on the reviewed commit. Activation is an explicit operator action, never an installer default:
+
+```bash
+sudo DEMAND_MINER_BIN="$PWD/sudharma-demand-miner" SUDHARMAD_BIN="$PWD/sudharmad" \
+  bash ./deployment/testnet/install-demand-miner.sh --enable
+```
+
+Only one supervisor host should be active initially. Do not enable a second seed host as a fallback without a separate coordination design and review.
+
+### Rollback
+
+Rollback is limited to the isolated supervisor and its own ephemeral data. It must not touch the public-testnet node state:
+
+```bash
+sudo systemctl disable --now sudharma-demand-miner.service || true
+sudo rm -f /etc/systemd/system/sudharma-demand-miner.service
+sudo rm -f /usr/local/bin/sudharma-demand-miner
+sudo rm -f /etc/sudharma/demand-miner.json
+sudo rm -rf /var/lib/sudharma-demand-miner
+sudo systemctl daemon-reload
+```
+
+The native `sudharmad` binary is shared operational infrastructure and is intentionally not removed by this rollback sequence.
 
 ## Owner boundary
 
