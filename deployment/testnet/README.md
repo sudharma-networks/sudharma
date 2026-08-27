@@ -43,7 +43,9 @@ Node blockchain/state/mempool data live under `/var/lib/sudharma` (or the config
 
 The demand miner is deliberately separate from the faucet, public RPC proxy, wallet, and consensus code. It reads loopback node status and requests exactly one native `sudharmad -mineblocks 1` operation only when valid transactions are pending. The example reward address `9ccdc094489874bed888ffe4bdf9b8298f4c5131` is a public address only; it contains no private key, seed, wallet file, signing material, or credential.
 
-**Activation gate:** repository packaging does not mean the miner is ready to run. At the current implementation stage, `sudharmad -mineblocks 1` completes the requested mining action and then continues into the normal long-running node loop. Keep the supervisor disabled until the isolated one-shot lifecycle mismatch is resolved and freshly verified. Do not work around this by weakening child timeouts, killing arbitrary node processes, or altering consensus behavior.
+The native `sudharmad -mineblocks 1` path continues into the normal long-running node loop after mining. The isolated demand-miner runner handles that lifecycle without changing `sudharmad`: it waits for positive pending-transaction evidence and the post-broadcast `Block #... | Transactions: ...` evidence, then terminates and reaps only the unique ephemeral child process it created. Tests cover the real output format, bounded timeout/cancellation behavior and the controlled one-shot exit.
+
+**Activation gate:** keep the supervisor disabled until an authorized operator can perform the staged live-testnet acceptance checks below the repository boundary. CI verification of the runner and packaging is necessary but does not prove host IAM/SSM authority, service installation on a seed, or live block/transaction behavior. Do not weaken child timeouts, kill arbitrary node processes, broaden IAM, or alter consensus behavior to bypass this gate.
 
 ### Install disabled
 
@@ -78,7 +80,7 @@ curl --fail --silent http://127.0.0.1:28545/v1/status
 systemctl is-enabled sudharma-demand-miner.service || true
 ```
 
-After the lifecycle gate is closed, normal service observation is:
+Normal service observation after authorized staged activation is:
 
 ```bash
 systemctl --no-pager --full status sudharma-demand-miner.service
@@ -90,7 +92,7 @@ The supervisor emits structured JSON operational events. It must never log full 
 
 ### Enable gate
 
-Do **not** run the following until the one-shot lifecycle blocker above is resolved and CI is green on the reviewed commit. Activation is an explicit operator action, never an installer default:
+Do **not** run the following until CI is green on the reviewed commit, the target seed is explicitly identified, existing deployment authority has been verified without broadening IAM, and the staged live-testnet acceptance procedure is ready. Activation is an explicit operator action, never an installer default:
 
 ```bash
 sudo DEMAND_MINER_BIN="$PWD/sudharma-demand-miner" SUDHARMAD_BIN="$PWD/sudharmad" \
