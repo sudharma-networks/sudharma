@@ -33,6 +33,11 @@ node_bin="${SUDHARMAD_BIN:-$repo_root/sudharmad}"
 config_src="$script_dir/demand-miner.example.json"
 unit_src="$script_dir/sudharma-demand-miner.service"
 
+if (( enable )) && [[ -n "$destdir" ]]; then
+  echo "--enable is refused with DESTDIR staging" >&2
+  exit 2
+fi
+
 for path in "$demand_bin" "$node_bin" "$config_src" "$unit_src"; do
   [[ -f "$path" ]] || { echo "required file not found: $path" >&2; exit 1; }
 done
@@ -80,7 +85,6 @@ Review /etc/sudharma/demand-miner.json and the deployment runbook before activat
 EOF
 
 if (( enable )); then
-  [[ -z "$destdir" ]] || { echo "--enable is refused with DESTDIR staging" >&2; exit 2; }
   systemctl daemon-reload
   systemctl enable --now sudharma-demand-miner.service
   systemctl --no-pager --full status sudharma-demand-miner.service
