@@ -102,15 +102,21 @@ func (c *Client) IsCurrent(workID string, generation uint64) bool {
 	return workID != "" && c.workID == workID && c.generation == generation
 }
 
+func (c *Client) isCurrentWork(work Work, generation uint64) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return work.WorkID != "" && c.workID == work.WorkID && c.generation == generation && c.work == work
+}
+
 func (c *Client) SubmitVerified(ctx context.Context, work Work, generation, nonce uint64, verifier Verifier) (SubmitResult, error) {
-	if !c.IsCurrent(work.WorkID, generation) {
-		return SubmitResult{}, errors.New("stale mining work")
+	if !c.isCurrentWork(work, generation) {
+		return SubmitResult{}, errors.New("stale or mutated mining work")
 	}
 	if verifier == nil || !verifier(work, nonce) {
 		return SubmitResult{}, errors.New("candidate failed independent host verification")
 	}
-	if !c.IsCurrent(work.WorkID, generation) {
-		return SubmitResult{}, errors.New("mining work became stale before submission")
+	if !c.isCurrentWork(work, generation) {
+		return SubmitResult{}, errors.New("mining work became stale or mutated before submission")
 	}
 
 	solution := Solution{
