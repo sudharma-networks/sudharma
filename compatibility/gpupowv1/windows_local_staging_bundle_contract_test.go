@@ -58,3 +58,45 @@ func TestWindowsLocalStagingBundleContract(t *testing.T) {
 		t.Fatal("local staging gate must not target seed nodes or the live node service")
 	}
 }
+
+func TestWindowsLocalStagingGateProducesAuditableEvidenceBundle(t *testing.T) {
+	runnerPath := filepath.Join("..", "..", "scripts", "windows", "run-local-staging-gate.ps1")
+	runner, err := os.ReadFile(runnerPath)
+	if err != nil {
+		t.Fatalf("read local staging gate runner: %v", err)
+	}
+	runnerText := string(runner)
+	for _, token := range []string{
+		"khushi-staging-evidence-",
+		"-EvidenceDirectory",
+		"staging-verifier.stdout.log",
+		"staging-verifier.stderr.log",
+		"build-metadata.txt",
+		"SHA256SUMS.txt",
+		"SHA256MANIFEST.txt",
+		"Get-FileHash",
+	} {
+		if !strings.Contains(runnerText, token) {
+			t.Fatalf("local staging gate evidence bundle missing %q", token)
+		}
+	}
+
+	hardwarePath := filepath.Join("..", "..", "scripts", "windows", "test-khushi-miner.ps1")
+	hardware, err := os.ReadFile(hardwarePath)
+	if err != nil {
+		t.Fatalf("read hardware test runner: %v", err)
+	}
+	hardwareText := string(hardware)
+	for _, token := range []string{
+		"EvidenceDirectory",
+		"hardware-test.log",
+		"challenge.json",
+		"solution.json",
+		"submit-result.json",
+		"ConvertTo-Json",
+	} {
+		if !strings.Contains(hardwareText, token) {
+			t.Fatalf("hardware staging evidence capture missing %q", token)
+		}
+	}
+}
