@@ -112,6 +112,17 @@ int print_device_info() {
     return 0;
 }
 
+int run_telemetry() {
+    std::puts("telemetry-columns=name,driver_version,temperature.gpu,power.draw,utilization.gpu,memory.used");
+    const int result = std::system(
+        "nvidia-smi --query-gpu=name,driver_version,temperature.gpu,power.draw,utilization.gpu,memory.used --format=csv,noheader,nounits");
+    if (result != 0) {
+        std::fputs("telemetry=unavailable (nvidia-smi failed)\n", stderr);
+        return 5;
+    }
+    return 0;
+}
+
 int run_vector_self_test() {
     if (print_device_info() != 0) return 2;
 
@@ -213,6 +224,9 @@ int main(int argc, char** argv) {
     if (argc == 2 && std::strcmp(argv[1], "--device-info") == 0) {
         return print_device_info();
     }
+    if (argc == 2 && std::strcmp(argv[1], "--telemetry") == 0) {
+        return run_telemetry();
+    }
     if (argc == 2 && std::strcmp(argv[1], "--vector-self-test") == 0) {
         return run_vector_self_test();
     }
@@ -228,6 +242,6 @@ int main(int argc, char** argv) {
         return 3;
     }
 
-    std::fputs("usage: khushi-miner --device-info | --vector-self-test | --benchmark [seconds] | --mine\n", stderr);
+    std::fputs("usage: khushi-miner --device-info | --telemetry | --vector-self-test | --benchmark [seconds] | --mine\n", stderr);
     return 64;
 }
