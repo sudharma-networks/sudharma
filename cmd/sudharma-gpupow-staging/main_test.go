@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/hex"
 	"testing"
 
@@ -49,5 +50,28 @@ func TestVerifyStagingSolutionUsesIndependentDigest(t *testing.T) {
 	mutated.Staging = false
 	if verifyStagingSolution(mutated, nonce) {
 		t.Fatal("staging verifier accepted a non-staging challenge")
+	}
+}
+
+func TestStagingChallengeProviderProducesFreshChallenge(t *testing.T) {
+	first, firstHeight, firstCacheNodes, firstTarget, err := stagingChallengeProvider()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, secondHeight, secondCacheNodes, secondTarget, err := stagingChallengeProvider()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 32 || len(second) != 32 {
+		t.Fatalf("staging challenge header lengths: got %d and %d want 32", len(first), len(second))
+	}
+	if bytes.Equal(first, second) {
+		t.Fatal("consecutive staging challenges must not reuse the same header")
+	}
+	if firstHeight != stagingHeight || secondHeight != stagingHeight || firstCacheNodes != stagingCacheNodes || secondCacheNodes != stagingCacheNodes {
+		t.Fatal("fresh challenges must preserve the constrained staging height/cache contract")
+	}
+	if !bytes.Equal(firstTarget, secondTarget) || len(firstTarget) != 32 {
+		t.Fatal("fresh challenges must preserve the staging target")
 	}
 }
