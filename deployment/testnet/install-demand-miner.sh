@@ -32,6 +32,7 @@ demand_bin="${DEMAND_MINER_BIN:-$repo_root/sudharma-demand-miner}"
 node_bin="${SUDHARMAD_BIN:-$repo_root/sudharmad}"
 config_src="$script_dir/demand-miner.example.json"
 unit_src="$script_dir/sudharma-demand-miner.service"
+config_dest="$destdir/etc/sudharma/demand-miner.json"
 
 if (( enable )) && [[ -n "$destdir" ]]; then
   echo "--enable is refused with DESTDIR staging" >&2
@@ -43,6 +44,14 @@ for path in "$demand_bin" "$node_bin" "$config_src" "$unit_src"; do
 done
 [[ -x "$demand_bin" ]] || { echo "demand miner binary is not executable: $demand_bin" >&2; exit 1; }
 [[ -x "$node_bin" ]] || { echo "node binary is not executable: $node_bin" >&2; exit 1; }
+
+# Existing configuration is preserved only when it is a regular file. Reject
+# symlinks and other special objects before creating or replacing any assets so
+# chmod/chown cannot escape the intended configuration path.
+if [[ -L "$config_dest" ]] || { [[ -e "$config_dest" ]] && [[ ! -f "$config_dest" ]]; }; then
+  echo "unsafe existing config object: $config_dest" >&2
+  exit 2
+fi
 
 if [[ -z "$destdir" ]]; then
   if ! id -u sudharma-miner >/dev/null 2>&1; then
@@ -65,7 +74,6 @@ install -m 0755 "$demand_bin" "$destdir/usr/local/bin/sudharma-demand-miner"
 install -m 0755 "$node_bin" "$destdir/usr/local/libexec/sudharma-demand-miner/sudharmad"
 install -m 0644 "$unit_src" "$destdir/etc/systemd/system/sudharma-demand-miner.service"
 
-config_dest="$destdir/etc/sudharma/demand-miner.json"
 if [[ ! -e "$config_dest" ]]; then
   install -m 0640 "$config_src" "$config_dest"
 else
