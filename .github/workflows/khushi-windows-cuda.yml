@@ -9,6 +9,7 @@ on:
       - 'compatibility/cuda/**'
       - 'compatibility/gpupowv1/windows_artifact_contract_test.go'
       - 'compatibility/gpupowv1/device_memory_contract_test.go'
+      - 'scripts/windows/test-khushi-miner.ps1'
   workflow_dispatch:
 
 permissions:
@@ -62,6 +63,10 @@ jobs:
           $hash = Get-FileHash -Algorithm SHA256 dist/khushi-miner-nvidia.exe
           "$($hash.Hash.ToLower())  khushi-miner-nvidia.exe" | Set-Content -Encoding ascii dist/SHA256SUMS.txt
           Get-Content dist/SHA256SUMS.txt
+
+      - name: Package Windows hardware test runner
+        shell: pwsh
+        run: Copy-Item scripts/windows/test-khushi-miner.ps1 dist/test-khushi-miner.ps1
 
       - name: Upload generic NVIDIA Windows artifact
         uses: actions/upload-artifact@v4
