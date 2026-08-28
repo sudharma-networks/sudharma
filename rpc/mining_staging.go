@@ -11,15 +11,11 @@ import (
 	"github.com/sudharma-networks/sudharma/pow"
 )
 
-const (
-	miningStagingMaxOutstanding = 16
-	miningStagingChallengeTTL    = 5 * time.Minute
-)
+const miningStagingMaxOutstanding = 16
+const miningStagingChallengeTTL = 5 * time.Minute
 
-var (
-	miningStagingChallengeDomain = []byte("SUDHARMA-GPU-POW-V1-STAGING-CHALLENGE\x00")
-	miningStagingNow             = time.Now
-)
+var miningStagingChallengeDomain = []byte("SUDHARMA-GPU-POW-V1-STAGING-CHALLENGE\x00")
+var miningStagingNow = time.Now
 
 // MiningStagingChallenge is deliberately not a block template. It exists only
 // to prove that a physical GPU search result agrees with a Go verifier before
