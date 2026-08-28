@@ -123,6 +123,20 @@ __global__ void khushi_search_kernel(
     }
 }
 
+// Hardware interoperability kernel. One thread executes the same complete
+// header -> 16-lane program -> reduction -> final digest path used by search,
+// then returns the 32-byte digest for comparison with the locked Go vector.
+__global__ void khushi_vector_kernel(
+    SearchJob job,
+    const SearchCache* cache,
+    std::uint64_t nonce,
+    std::uint8_t* output_digest) {
+    if (blockIdx.x != 0u || threadIdx.x != 0u) return;
+    const auto header = search_header_digest(job, nonce);
+    const auto digest = final_digest_from_header(header, job.program_seed, *cache);
+    for (std::size_t i = 0; i < digest.size(); ++i) output_digest[i] = digest[i];
+}
+
 #endif  // __CUDACC__
 
 }  // namespace sudharma::gpupowv1
