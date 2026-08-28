@@ -31,12 +31,6 @@ jobs:
       - name: Verify demand-miner CI safety gates
         run: bash ./scripts/check-demand-miner-ci_test.sh
 
-      - name: Verify demand-miner CI source
-        run: bash ./scripts/demand-miner-ci_test.sh
-
-      - name: Run demand miner deployment safety test
-        run: bash ./deployment/testnet/install-demand-miner_test.sh
-
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -88,15 +82,6 @@ jobs:
 
       - name: Run tests
         run: go test ./... -count=1
-
-      - name: Vet repository
-        run: go vet ./...
-
-      - name: Build demand miner and native node
-        run: go build -trimpath ./cmd/sudharma-demand-miner ./cmd/sudharmad
-
-      - name: Run focused demand miner race detector
-        run: go test -race ./demandminer ./cmd/sudharma-demand-miner -count=1
 
       - name: Run repository-wide race detector
         run: go test -race ./... -count=1

@@ -126,6 +126,48 @@ func TestSupervisorRejectsWrongIdentity(t *testing.T) {
 	}
 }
 
+func TestSupervisorRejectsMainnetConfigBeforePolling(t *testing.T) {
+	cfg := validConfig()
+	cfg.ExpectedNetwork = "mainnet"
+	status := validStatus(1)
+	status.Network = "mainnet"
+	source := &fakeStatusSource{results: []statusResult{{status: status}}}
+	miner := &fakeMiner{}
+	s := NewSupervisor(cfg, source, miner, &stopSleeper{stopAfter: 1}, &fakeLogger{})
+
+	err := s.Run(context.Background())
+
+	if err == nil || !strings.Contains(err.Error(), "invalid demand miner config") {
+		t.Fatalf("expected invalid config error, got %v", err)
+	}
+	if source.calls != 0 {
+		t.Fatalf("status calls = %d, want 0", source.calls)
+	}
+	if miner.calls != 0 {
+		t.Fatalf("MineOne calls = %d, want 0", miner.calls)
+	}
+}
+
+func TestSupervisorNegativeMempoolUsesFailureBackoff(t *testing.T) {
+	logger := &fakeLogger{}
+	miner := &fakeMiner{}
+	sleeper := &stopSleeper{stopAfter: 1}
+	s := NewSupervisor(validConfig(), &fakeStatusSource{results: []statusResult{{status: validStatus(-1)}}}, miner, sleeper, logger)
+
+	if err := s.Run(context.Background()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run: %v", err)
+	}
+	if miner.calls != 0 {
+		t.Fatalf("MineOne calls = %d, want 0", miner.calls)
+	}
+	if logger.errors != 1 {
+		t.Fatalf("logger errors = %d, want 1", logger.errors)
+	}
+	if got := sleeper.durations; len(got) != 1 || got[0] != 30*time.Second {
+		t.Fatalf("sleep durations = %v, want failure backoff", got)
+	}
+}
+
 func TestSupervisorStatusErrorUsesFailureBackoff(t *testing.T) {
 	logger := &fakeLogger{}
 	sleeper := &stopSleeper{stopAfter: 1}

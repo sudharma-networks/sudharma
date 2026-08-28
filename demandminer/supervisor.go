@@ -45,18 +45,22 @@ func (TimerSleeper) Sleep(ctx context.Context, d time.Duration) error {
 }
 
 type Supervisor struct {
-	config  Config
-	status  StatusSource
-	miner   BlockMiner
-	sleeper Sleeper
-	logger  Logger
+	config    Config
+	configErr error
+	status    StatusSource
+	miner     BlockMiner
+	sleeper   Sleeper
+	logger    Logger
 }
 
 func NewSupervisor(config Config, status StatusSource, miner BlockMiner, sleeper Sleeper, logger Logger) *Supervisor {
-	return &Supervisor{config: config, status: status, miner: miner, sleeper: sleeper, logger: logger}
+	return &Supervisor{config: config, configErr: config.Validate(), status: status, miner: miner, sleeper: sleeper, logger: logger}
 }
 
 func (s *Supervisor) Run(ctx context.Context) error {
+	if s.configErr != nil {
+		return fmt.Errorf("invalid demand miner config: %w", s.configErr)
+	}
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -74,7 +78,15 @@ func (s *Supervisor) Run(ctx context.Context) error {
 			return err
 		}
 
-		if status.Mempool <= 0 {
+		if status.Mempool < 0 {
+			err := fmt.Errorf("invalid negative mempool count: %d", status.Mempool)
+			s.logError("status_invalid", err)
+			if err := s.sleeper.Sleep(ctx, s.config.FailureBackoffDuration()); err != nil {
+				return err
+			}
+			continue
+		}
+		if status.Mempool == 0 {
 			if err := s.sleeper.Sleep(ctx, s.config.PollDuration()); err != nil {
 				return err
 			}
@@ -95,7 +107,7 @@ func (s *Supervisor) Run(ctx context.Context) error {
 }
 
 func (s *Supervisor) validateStatusIdentity(status Status) error {
-	if status.Network != s.config.ExpectedNetwork || status.Coin != s.config.ExpectedCoin || status.Symbol != s.config.ExpectedSymbol {
+	if status.Network != "sudharma" || status.Coin != "Sudharma" || status.Symbol != "SUDH" {
 		return fmt.Errorf("status identity mismatch: network=%q coin=%q symbol=%q", status.Network, status.Coin, status.Symbol)
 	}
 	return nil

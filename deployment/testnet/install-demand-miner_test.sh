@@ -126,6 +126,14 @@ if grep -Fq 'systemctl enable --now' <<<"$output"; then
   echo "default install must not enable service" >&2
   exit 1
 fi
+
+# A real-host install must reload systemd even while leaving the service
+# disabled. Staged runs must not call systemctl.
+grep -Fq 'if [[ -z "$destdir" ]]; then' "$installer"
+if ! awk '/systemctl daemon-reload/{reload=NR} /if \(\( enable \)\)/{enable=NR} END{exit !(reload && enable && reload < enable)}' "$installer"; then
+  echo "real-host disabled install must reload systemd units" >&2
+  exit 1
+fi
 if grep -Eq 'systemctl[[:space:]]+enable[[:space:]]+--now' "$installer" && ! grep -Fq -- '--enable' "$installer"; then
   echo "enable --now must be gated by --enable" >&2
   exit 1

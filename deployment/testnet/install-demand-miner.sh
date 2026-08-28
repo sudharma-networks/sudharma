@@ -84,6 +84,7 @@ fi
 if [[ -z "$destdir" ]]; then
   chown sudharma-miner:sudharma-miner /var/lib/sudharma-demand-miner
   chown root:sudharma-miner /etc/sudharma/demand-miner.json
+  systemctl daemon-reload
 fi
 
 cat <<EOF
@@ -93,7 +94,6 @@ Review /etc/sudharma/demand-miner.json and the deployment runbook before activat
 EOF
 
 if (( enable )); then
-  systemctl daemon-reload
   systemctl enable --now sudharma-demand-miner.service
   systemctl --no-pager --full status sudharma-demand-miner.service
 fi
