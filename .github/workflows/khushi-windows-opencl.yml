@@ -6,9 +6,13 @@ on:
       - feature/gpu-pow-v1
     paths:
       - '.github/workflows/khushi-windows-opencl.yml'
+      - '.github/workflows/khushi-windows-cuda.yml'
+      - '.github/workflows/publish-test-mining-release.yml'
       - 'compatibility/opencl/**'
+      - 'compatibility/cuda/**'
       - 'compatibility/gpupowv1/windows_opencl_artifact_contract_test.go'
       - 'scripts/windows/test-khushi-miner.ps1'
+      - 'docs/test-mining/PUBLIC_TEST_MINING.md'
   workflow_dispatch:
 
 permissions:
