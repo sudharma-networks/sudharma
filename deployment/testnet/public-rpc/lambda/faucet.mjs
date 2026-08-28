@@ -204,7 +204,13 @@ export function createFaucetService({ store, rpc, signer, now = Date.now }) {
       validateAddress(address);
       validateTransactionId(transactionId);
 
-      const state = await store.getAddress(address);
+      let state = await store.getAddress(address);
+      if (state?.initial_status === 'submitted') {
+        const reconciled = await reconcileInitialGrant({ store, rpc, address, state, now });
+        if (reconciled?.status === 'confirmed') {
+          state = { ...state, initial_status: 'paid' };
+        }
+      }
       if (!state || state.initial_status !== 'paid') {
         throw new FaucetError(409, 'request the initial 100 SUDH test grant before joining the challenge');
       }
