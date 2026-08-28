@@ -53,9 +53,14 @@ func TestPublicReleaseRebuildsForLocalStagingVerifierChanges(t *testing.T) {
 		"cmd/sudharma-gpupow-staging/**",
 		"rpc/mining_staging*.go",
 		"scripts/windows/run-local-staging-gate.ps1",
+		"Confirm release revision is branch head",
+		"git ls-remote origin refs/heads/feature/gpu-pow-v1",
+		"release_current=true",
+		"release_current=false",
+		"steps.freshness.outputs.release_current == 'true'",
 	} {
 		if !strings.Contains(text, token) {
-			t.Fatalf("public release workflow missing local-staging rebuild trigger %q", token)
+			t.Fatalf("public release workflow missing local-staging/release-safety token %q", token)
 		}
 	}
 }
