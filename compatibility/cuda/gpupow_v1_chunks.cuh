@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 
@@ -23,6 +25,34 @@ struct DatasetLocation {
     std::uint32_t chunk = 0u;
     std::uint64_t offset = 0u;
 };
+
+template <typename Releaser>
+inline void release_dataset_chunks(
+    std::array<void*, kProductionChunkCount>* chunks, Releaser&& release) {
+    if (chunks == nullptr) return;
+    for (void*& chunk : *chunks) {
+        if (chunk == nullptr) continue;
+        release(chunk);
+        chunk = nullptr;
+    }
+}
+
+template <typename Allocator, typename Releaser>
+inline bool allocate_dataset_chunks(
+    std::array<void*, kProductionChunkCount>* chunks, Allocator&& allocate,
+    Releaser&& release) {
+    if (chunks == nullptr) return false;
+    for (void*& chunk : *chunks) {
+        void* allocated = nullptr;
+        if (!allocate(&allocated, static_cast<std::size_t>(kProductionChunkBytes)) ||
+            allocated == nullptr) {
+            release_dataset_chunks(chunks, release);
+            return false;
+        }
+        chunk = allocated;
+    }
+    return true;
+}
 
 SUDHARMA_CHUNK_HD inline bool dataset_item_location(
     std::uint64_t index, DatasetLocation* output) {
