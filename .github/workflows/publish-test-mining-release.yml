@@ -10,7 +10,10 @@ on:
       - '.github/workflows/khushi-windows-opencl.yml'
       - 'compatibility/cuda/**'
       - 'compatibility/opencl/**'
+      - 'cmd/sudharma-gpupow-staging/**'
+      - 'rpc/mining_staging*.go'
       - 'scripts/windows/test-khushi-miner.ps1'
+      - 'scripts/windows/run-local-staging-gate.ps1'
       - 'docs/gpu-pow-v1-production-memory-vectors.json'
       - 'docs/test-mining/PUBLIC_TEST_MINING.md'
   workflow_dispatch:
@@ -78,19 +81,27 @@ jobs:
           test -f dist/nvidia/khushi-miner-nvidia.exe
           test -f dist/nvidia/khushi-production-vectors-nvidia.exe
           test -f dist/nvidia/gpu-pow-v1-production-memory-vectors.json
+          test -f dist/nvidia/sudharma-gpupow-staging.exe
           test -f dist/nvidia/SHA256SUMS.txt
           test -f dist/nvidia/build-metadata.txt
           test -f dist/nvidia/test-khushi-miner.ps1
+          test -f dist/nvidia/run-local-staging-gate.ps1
           test -f dist/opencl/khushi-miner-opencl.exe
           test -f dist/opencl/khushi-production-vectors-opencl.exe
           test -f dist/opencl/khushi_pow.cl
           test -f dist/opencl/gpupow_v1_production_vectors.cl
           test -f dist/opencl/gpu-pow-v1-production-memory-vectors.json
+          test -f dist/opencl/sudharma-gpupow-staging.exe
           test -f dist/opencl/SHA256SUMS.txt
           test -f dist/opencl/build-metadata.txt
           test -f dist/opencl/test-khushi-miner.ps1
+          test -f dist/opencl/run-local-staging-gate.ps1
           grep -F "source_revision=$GITHUB_SHA" dist/nvidia/build-metadata.txt
           grep -F "source_revision=$GITHUB_SHA" dist/opencl/build-metadata.txt
+          grep -F "staging_verifier_artifact=sudharma-gpupow-staging.exe" dist/nvidia/build-metadata.txt
+          grep -F "staging_verifier_artifact=sudharma-gpupow-staging.exe" dist/opencl/build-metadata.txt
+          grep -F "sudharma-gpupow-staging.exe" dist/nvidia/SHA256SUMS.txt
+          grep -F "sudharma-gpupow-staging.exe" dist/opencl/SHA256SUMS.txt
 
       - name: Package public release assets
         shell: bash
@@ -101,7 +112,23 @@ jobs:
           sha256sum dist/khushi-miner-nvidia-windows.zip dist/khushi-miner-opencl-windows.zip | tee dist/RELEASE-SHA256SUMS.txt
           printf 'source_revision=%s\n' "$GITHUB_SHA" > dist/RELEASE-SOURCE-REVISION.txt
 
+      - name: Confirm release revision is branch head
+        id: freshness
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch_head="$(git ls-remote origin refs/heads/feature/gpu-pow-v1 | awk '{print $1}')"
+          echo "release_revision=$GITHUB_SHA"
+          echo "branch_head=$branch_head"
+          if [[ "$branch_head" == "$GITHUB_SHA" ]]; then
+            echo "release_current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "release_current=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping stale release revision $GITHUB_SHA because branch head is $branch_head"
+          fi
+
       - name: Create or update public prerelease
+        if: steps.freshness.outputs.release_current == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -137,5 +164,6 @@ jobs:
             --clobber
 
       - name: Show public release URL
+        if: steps.freshness.outputs.release_current == 'true'
         shell: bash
         run: gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url
