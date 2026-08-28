@@ -11,6 +11,7 @@ on:
       - 'compatibility/cuda/**'
       - 'compatibility/opencl/**'
       - 'scripts/windows/test-khushi-miner.ps1'
+      - 'docs/gpu-pow-v1-production-memory-vectors.json'
       - 'docs/test-mining/PUBLIC_TEST_MINING.md'
   workflow_dispatch:
 
@@ -75,11 +76,16 @@ jobs:
           gh run download "${{ steps.runs.outputs.cuda_run }}" --repo "$GITHUB_REPOSITORY" --name khushi-miner-nvidia-windows --dir dist/nvidia
           gh run download "${{ steps.runs.outputs.opencl_run }}" --repo "$GITHUB_REPOSITORY" --name khushi-miner-opencl-windows --dir dist/opencl
           test -f dist/nvidia/khushi-miner-nvidia.exe
+          test -f dist/nvidia/khushi-production-vectors-nvidia.exe
+          test -f dist/nvidia/gpu-pow-v1-production-memory-vectors.json
           test -f dist/nvidia/SHA256SUMS.txt
           test -f dist/nvidia/build-metadata.txt
           test -f dist/nvidia/test-khushi-miner.ps1
           test -f dist/opencl/khushi-miner-opencl.exe
+          test -f dist/opencl/khushi-production-vectors-opencl.exe
           test -f dist/opencl/khushi_pow.cl
+          test -f dist/opencl/gpupow_v1_production_vectors.cl
+          test -f dist/opencl/gpu-pow-v1-production-memory-vectors.json
           test -f dist/opencl/SHA256SUMS.txt
           test -f dist/opencl/build-metadata.txt
           test -f dist/opencl/test-khushi-miner.ps1
