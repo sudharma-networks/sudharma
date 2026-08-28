@@ -45,13 +45,15 @@ Write-Host "consensus-activation=disabled"
 $verifier = $null
 try {
     Remove-Item $VerifierStdout, $VerifierStderr -ErrorAction SilentlyContinue
-    $verifier = Start-Process \
-        -FilePath $VerifierPath \
-        -ArgumentList @("-listen", "127.0.0.1:28646") \
-        -PassThru \
-        -WindowStyle Hidden \
-        -RedirectStandardOutput $VerifierStdout \
-        -RedirectStandardError $VerifierStderr
+    $startProcessArgs = @{
+        FilePath = $VerifierPath
+        ArgumentList = @("-listen", "127.0.0.1:28646")
+        PassThru = $true
+        WindowStyle = "Hidden"
+        RedirectStandardOutput = $VerifierStdout
+        RedirectStandardError = $VerifierStderr
+    }
+    $verifier = Start-Process @startProcessArgs
 
     $ready = $false
     for ($attempt = 1; $attempt -le 30; $attempt++) {
@@ -75,12 +77,14 @@ try {
     }
     Write-Host "staging_verifier=ready"
 
-    & $HardwareScript \
-        -MinerPath $MinerPath \
-        -Device $Device \
-        -BenchmarkSeconds $BenchmarkSeconds \
-        -SubmitStagingSolution \
-        -StagingEndpoint $Endpoint
+    $hardwareArgs = @(
+        "-MinerPath", $MinerPath,
+        "-Device", $Device,
+        "-BenchmarkSeconds", $BenchmarkSeconds,
+        "-SubmitStagingSolution",
+        "-StagingEndpoint", $Endpoint
+    )
+    & $HardwareScript @hardwareArgs
     if ($LASTEXITCODE -ne 0) {
         throw "Local hardware staging gate failed with exit code $LASTEXITCODE"
     }
