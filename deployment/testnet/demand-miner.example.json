@@ -8,7 +8,7 @@
   "reward_address": "9ccdc094489874bed888ffe4bdf9b8298f4c5131",
   "miner_binary": "/usr/local/libexec/sudharma-demand-miner/sudharmad",
   "data_directory": "/var/lib/sudharma-demand-miner",
-  "lock_file": "/run/sudharma-demand-miner.lock",
+  "lock_file": "/run/sudharma-demand-miner/lock",
   "poll_every": "10s",
   "cooldown": "30s",
   "failure_backoff": "30s",
