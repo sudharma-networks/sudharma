@@ -11,9 +11,12 @@ Participants can currently:
 - verify the released miner checksum and build provenance;
 - detect supported GPUs;
 - run the canonical GPU vector self-test;
+- run the production memory/chunk-allocation gate;
+- run the frozen production dataset boundary vectors;
 - benchmark Khushi Algorithm on their GPU without submitting blocks;
+- record Windows host, GPU and driver provenance automatically;
 - record hashrate, temperature, power and utilization where supported;
-- publish their hardware results for the project;
+- retain a standardized evidence directory for review;
 - use a separately announced staging endpoint for controlled submission testing when enabled.
 
 Do **not** submit wallet private keys, seed phrases, AWS credentials, API secrets or other secrets with test results.
@@ -30,51 +33,72 @@ Open PowerShell and run:
 nvidia-smi
 cd C:\KhushiMiner
 Set-ExecutionPolicy -Scope Process Bypass
-.\test-khushi-miner.ps1 -MinerPath .\khushi-miner-nvidia.exe -Device 0 -BenchmarkSeconds 60
+$EvidenceDirectory = ".\evidence-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+.\test-khushi-miner.ps1 -MinerPath .\khushi-miner-nvidia.exe -Device 0 -BenchmarkSeconds 60 -EvidenceDirectory $EvidenceDirectory
 ```
 
-Do not add `-AllowMining` during the interoperability test.
+This interoperability command does **not** enable network mining. The miner's unrestricted `--mine` path remains gated.
 
 A successful run should include evidence such as:
 
 ```text
+computer_name=...
+windows_version=...
+video_name=...
+video_vendor=...
+video_driver_version=...
 checksum=ok
-Khushi Algorithm CUDA devices=...
+production-vector-sha256=ok
 vector-self-test=ok
+hardware-production-memory=passed
+hardware-production-vectors=passed
 hashrate_hps=...
-hardware-vector-and-benchmark=passed
+hardware-vector-memory-and-benchmark=passed
+network-submission=not-requested
+hardware_test_log=...\hardware-test.log
 ```
 
-The runner writes a `khushi-hardware-test-*.log` file. Post the result to public issue #24:
-
-https://github.com/sudharma-networks/sudharma/issues/24
+The evidence directory contains `hardware-test.log` plus the released miner checksum and build-provenance files. Keep the whole directory so a hardware result can be audited later.
 
 ## Windows AMD / Intel / other OpenCL GPUs
 
 Download `khushi-miner-opencl-windows.zip` and extract it to a folder such as `C:\KhushiMinerOpenCL`.
 
-Make sure the GPU vendor driver that provides an OpenCL runtime is installed. Then run:
+Install the GPU vendor driver that provides the OpenCL runtime. Then run:
 
 ```powershell
 cd C:\KhushiMinerOpenCL
 Set-ExecutionPolicy -Scope Process Bypass
-.\test-khushi-miner.ps1 -MinerPath .\khushi-miner-opencl.exe -Device 0 -BenchmarkSeconds 60
+$EvidenceDirectory = ".\evidence-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+.\test-khushi-miner.ps1 -MinerPath .\khushi-miner-opencl.exe -Device 0 -BenchmarkSeconds 60 -EvidenceDirectory $EvidenceDirectory
 ```
 
-The OpenCL backend is intended to discover compatible GPU devices dynamically. CPU fallback is prohibited for supported production mining.
+The OpenCL backend discovers compatible GPU devices dynamically. CPU fallback is prohibited for supported production mining.
 
-## What to report
+The Windows `video_adapter_ram_bytes=` value is supplemental host metadata and can be inaccurate on some drivers. The miner's `--list-devices` output and the production-memory self-test are the authoritative hardware gates for the project's 4 GiB minimum dedicated-VRAM policy.
 
-Please post:
+## Evidence directory and what to report
 
-- GPU model and VRAM;
+When `-EvidenceDirectory` is supplied, the runner writes a reproducible evidence bundle containing at least:
+
+- `hardware-test.log` — full transcript, including Windows version/build, machine information, GPU/video-controller information, miner device discovery, vector tests, memory gate and benchmark output;
+- `miner-build-metadata.txt` — source revision and packaged miner build provenance;
+- `miner-SHA256SUMS.txt` — released package checksums used during the test.
+
+For a controlled staging run, the same directory also records `challenge.json`, `solution.json` and `submit-result.json` when those stages are reached.
+
+Please report or attach the evidence directory (compressing it to a ZIP is fine) and identify:
+
+- GPU model and dedicated VRAM reported by the miner;
 - Windows version;
-- NVIDIA driver/CUDA version or OpenCL platform/driver;
+- NVIDIA driver/CUDA version or OpenCL vendor/runtime information available from the installed driver;
 - backend used (`CUDA` or `OpenCL`);
 - canonical vector self-test result;
+- production memory/chunk-allocation result;
+- production dataset boundary-vector result;
 - benchmark duration and hashrate;
 - temperature, power and utilization where available;
-- the generated hardware-test log when possible.
+- whether network submission was `not-requested` or an explicitly controlled staging submission was accepted.
 
 Public result thread:
 
@@ -82,13 +106,24 @@ https://github.com/sudharma-networks/sudharma/issues/24
 
 ## Controlled staging mining
 
-The miner and external work API are being prepared for controlled test submissions. Do not point a miner at arbitrary RPC endpoints and do not expose administrative RPC services to the public internet.
+Controlled staging is separate from unrestricted network mining. Do not point a miner at arbitrary RPC endpoints and do not expose administrative RPC services to the public internet.
 
-When a Sudharma staging mining endpoint is explicitly announced, participants may be asked to run a controlled solution submission. That submission is only considered valid after the candidate independently matches the Go consensus verifier.
+When a Sudharma staging mining endpoint is explicitly announced and approved for testing, the hardware runner can perform the bounded staging flow with both `-SubmitStagingSolution` and `-StagingEndpoint`:
+
+```powershell
+$EvidenceDirectory = ".\staging-evidence-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+.\test-khushi-miner.ps1 -MinerPath .\khushi-miner-nvidia.exe -Device 0 -BenchmarkSeconds 60 -EvidenceDirectory $EvidenceDirectory -SubmitStagingSolution -StagingEndpoint https://APPROVED-STAGING-BASE
+```
+
+Use only the staging base URL supplied by the Sudharma test procedure. For the packaged localhost staging gate, use its `run-local-staging-gate.ps1` wrapper instead of inventing an endpoint.
+
+A controlled submission is considered successful only when the independently implemented Go staging verifier returns `accepted`. The evidence bundle should then contain `submit-result.json` showing that result. No block is created by this isolated staging flow and consensus is not activated.
 
 ## Network activation safety
 
-Seed-1/Seed-2 GPU-PoW consensus activation is intentionally not enabled merely by downloading this release. The release gate requires deterministic Go vectors, GPU interoperability, no CPU production fallback, real GPU-mined Version-2 validation on both seed nodes, and the later mined-funds → faucet → Android wallet end-to-end test.
+Seed-1/Seed-2 GPU-PoW consensus activation is intentionally not enabled merely by downloading or running this release. The activation gate still requires deterministic Go vectors, cross-vendor GPU interoperability, no CPU production fallback, real GPU-mined Version-2 validation on both seed nodes, and the later mined-funds → faucet → Android wallet end-to-end test.
+
+Until those gates are deliberately completed, do not use unrestricted `--mine` and do not treat a benchmark or staging acceptance as authorization to change seed-node consensus.
 
 ## Source
 
