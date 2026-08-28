@@ -64,6 +64,87 @@ SUDHARMA_HD inline std::array<std::uint32_t, kNumRegs> init_lane(std::uint64_t s
     return mix;
 }
 
+SUDHARMA_HD inline std::uint32_t rotl32(std::uint32_t value, std::uint32_t amount) {
+    const std::uint32_t shift = amount & 31u;
+    if (shift == 0u) {
+        return value;
+    }
+    return (value << shift) | (value >> (32u - shift));
+}
+
+SUDHARMA_HD inline std::uint32_t rotr32(std::uint32_t value, std::uint32_t amount) {
+    const std::uint32_t shift = amount & 31u;
+    if (shift == 0u) {
+        return value;
+    }
+    return (value >> shift) | (value << (32u - shift));
+}
+
+SUDHARMA_HD inline std::uint32_t mul_hi32(std::uint32_t a, std::uint32_t b) {
+    return static_cast<std::uint32_t>((static_cast<std::uint64_t>(a) * b) >> 32u);
+}
+
+SUDHARMA_HD inline std::uint32_t clz32(std::uint32_t value) {
+    if (value == 0u) {
+        return 32u;
+    }
+    std::uint32_t count = 0u;
+    for (std::uint32_t bit = 0x80000000u; (value & bit) == 0u; bit >>= 1u) {
+        ++count;
+    }
+    return count;
+}
+
+SUDHARMA_HD inline std::uint32_t popcount32(std::uint32_t value) {
+    std::uint32_t count = 0u;
+    while (value != 0u) {
+        value &= value - 1u;
+        ++count;
+    }
+    return count;
+}
+
+SUDHARMA_HD inline std::uint32_t random_math(std::uint32_t a, std::uint32_t b, std::uint32_t selector) {
+    switch (selector % 11u) {
+        case 0u:
+            return a + b;
+        case 1u:
+            return a * b;
+        case 2u:
+            return mul_hi32(a, b);
+        case 3u:
+            return a < b ? a : b;
+        case 4u:
+            return rotl32(a, b);
+        case 5u:
+            return rotr32(a, b);
+        case 6u:
+            return a & b;
+        case 7u:
+            return a | b;
+        case 8u:
+            return a ^ b;
+        case 9u:
+            return clz32(a) + clz32(b);
+        default:
+            return popcount32(a) + popcount32(b);
+    }
+}
+
+SUDHARMA_HD inline std::uint32_t random_merge(std::uint32_t a, std::uint32_t b, std::uint32_t selector) {
+    const std::uint32_t x = ((selector >> 16u) % 31u) + 1u;
+    switch (selector % 4u) {
+        case 0u:
+            return (a * 33u) + b;
+        case 1u:
+            return (a ^ b) * 33u;
+        case 2u:
+            return rotl32(a, x) ^ b;
+        default:
+            return rotr32(a, x) ^ b;
+    }
+}
+
 inline std::uint32_t rotr(std::uint32_t x, std::uint32_t n) {
     return (x >> n) | (x << (32u - n));
 }
@@ -205,6 +286,22 @@ bool parse_u64_hex(const char* text, std::uint64_t* out) {
     return true;
 }
 
+bool parse_u32_hex(const char* text, std::uint32_t* out) {
+    if (std::strlen(text) != 8u) {
+        return false;
+    }
+    std::vector<std::uint8_t> bytes;
+    if (!decode_hex(text, &bytes) || bytes.size() != 4u) {
+        return false;
+    }
+    std::uint32_t value = 0u;
+    for (std::uint8_t b : bytes) {
+        value = (value << 8u) | b;
+    }
+    *out = value;
+    return true;
+}
+
 bool parse_lane(const char* text, std::uint32_t* out) {
     if (*text == '\0') {
         return false;
@@ -307,6 +404,31 @@ static int run_lane_init(const char* seed_hex, const char* lane_text) {
     return 0;
 }
 
+static int run_mix_op(const char* mode, const char* a_hex, const char* b_hex, const char* selector_hex) {
+    std::uint32_t a = 0u;
+    std::uint32_t b = 0u;
+    std::uint32_t selector = 0u;
+    if (!sudharma::gpupowv1::parse_u32_hex(a_hex, &a) ||
+        !sudharma::gpupowv1::parse_u32_hex(b_hex, &b) ||
+        !sudharma::gpupowv1::parse_u32_hex(selector_hex, &selector)) {
+        std::fputs("invalid mix operand hex\n", stderr);
+        return 65;
+    }
+
+    std::uint32_t result = 0u;
+    if (std::strcmp(mode, "math") == 0) {
+        result = sudharma::gpupowv1::random_math(a, b, selector);
+    } else if (std::strcmp(mode, "merge") == 0) {
+        result = sudharma::gpupowv1::random_merge(a, b, selector);
+    } else {
+        std::fputs("invalid mix operation\n", stderr);
+        return 65;
+    }
+
+    std::printf("mix-result=%08x\n", result);
+    return 0;
+}
+
 int main(int argc, char** argv) {
     if (argc == 2 && std::strcmp(argv[1], "--self-test") == 0) {
         return run_self_test();
@@ -320,6 +442,10 @@ int main(int argc, char** argv) {
         return run_lane_init(argv[2], argv[3]);
     }
 
+    if (argc == 6 && std::strcmp(argv[1], "--mix-op") == 0) {
+        return run_mix_op(argv[2], argv[3], argv[4], argv[5]);
+    }
+
     if (argc == 2 && std::strcmp(argv[1], "--mine") == 0) {
 #ifndef __CUDACC__
         std::fputs("CUDA backend required; CPU fallback prohibited\n", stderr);
@@ -330,6 +456,6 @@ int main(int argc, char** argv) {
 #endif
     }
 
-    std::fputs("usage: sudharma-gpupow-cuda --self-test | --header-seed HEADER_HEX NONCE_HEX | --lane-init SEED_HEX LANE | --mine\n", stderr);
+    std::fputs("usage: sudharma-gpupow-cuda --self-test | --header-seed HEADER_HEX NONCE_HEX | --lane-init SEED_HEX LANE | --mix-op math|merge A_HEX B_HEX SELECTOR_HEX | --mine\n", stderr);
     return 64;
 }
