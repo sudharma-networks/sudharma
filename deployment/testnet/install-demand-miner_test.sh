@@ -58,12 +58,20 @@ shared_node_after="$(sha256sum "$root/usr/local/bin/sudharmad" | awk '{print $1}
 grep -Fq '"status_url": "http://127.0.0.1:28545"' "$root/etc/sudharma/demand-miner.json"
 grep -Fq '"miner_binary": "/usr/local/libexec/sudharma-demand-miner/sudharmad"' "$root/etc/sudharma/demand-miner.json"
 grep -Fq '"data_directory": "/var/lib/sudharma-demand-miner"' "$root/etc/sudharma/demand-miner.json"
+grep -Fq '"lock_file": "/run/sudharma-demand-miner/lock"' "$root/etc/sudharma/demand-miner.json"
 grep -Fq 'User=sudharma-miner' "$root/etc/systemd/system/sudharma-demand-miner.service"
 grep -Fq 'NoNewPrivileges=true' "$root/etc/systemd/system/sudharma-demand-miner.service"
 grep -Fq 'PrivateTmp=true' "$root/etc/systemd/system/sudharma-demand-miner.service"
 grep -Fq 'ProtectSystem=strict' "$root/etc/systemd/system/sudharma-demand-miner.service"
+grep -Fq 'RuntimeDirectory=sudharma-demand-miner' "$root/etc/systemd/system/sudharma-demand-miner.service"
+grep -Fq 'RuntimeDirectoryMode=0750' "$root/etc/systemd/system/sudharma-demand-miner.service"
 grep -Fq 'ReadWritePaths=/var/lib/sudharma-demand-miner' "$root/etc/systemd/system/sudharma-demand-miner.service"
+grep -Fq 'ReadWritePaths=/run/sudharma-demand-miner' "$root/etc/systemd/system/sudharma-demand-miner.service"
 grep -Fq 'ExecStart=/usr/local/bin/sudharma-demand-miner -config /etc/sudharma/demand-miner.json' "$root/etc/systemd/system/sudharma-demand-miner.service"
+if grep -Fq 'ExecStartPre=' "$root/etc/systemd/system/sudharma-demand-miner.service"; then
+  echo "service must not replace the lock inode during startup" >&2
+  exit 1
+fi
 
 grep -Fq 'sudharma-miner' <<<"$output"
 if grep -Fq 'systemctl enable --now' <<<"$output"; then
