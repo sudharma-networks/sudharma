@@ -12,7 +12,9 @@ on:
       - 'compatibility/opencl/**'
       - 'compatibility/gpupowv1/windows_artifact_contract_test.go'
       - 'compatibility/gpupowv1/device_memory_contract_test.go'
+      - 'compatibility/gpupowv1/cuda_production_vector_cli_contract_test.go'
       - 'scripts/windows/test-khushi-miner.ps1'
+      - 'docs/gpu-pow-v1-production-memory-vectors.json'
       - 'docs/test-mining/PUBLIC_TEST_MINING.md'
   workflow_dispatch:
 
@@ -38,22 +40,24 @@ jobs:
         shell: pwsh
         run: nvcc -V
 
-      - name: Build Khushi Algorithm NVIDIA miner
+      - name: Build Khushi Algorithm NVIDIA miner and production vector gate
         shell: cmd
         run: |
           call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           where cl.exe
           if not exist dist mkdir dist
           nvcc -std=c++17 --expt-relaxed-constexpr -O3 -lineinfo -Xcompiler "/EHsc" -gencode=arch=compute_61,code=sm_61 -gencode=arch=compute_75,code=sm_75 -gencode=arch=compute_86,code=sm_86 -gencode=arch=compute_89,code=compute_89 compatibility\cuda\khushi_miner.cu -o dist\khushi-miner-nvidia.exe
+          nvcc -std=c++17 --expt-relaxed-constexpr -O3 -lineinfo -Xcompiler "/EHsc" -gencode=arch=compute_61,code=sm_61 -gencode=arch=compute_75,code=sm_75 -gencode=arch=compute_86,code=sm_86 -gencode=arch=compute_89,code=compute_89 compatibility\cuda\khushi_production_vectors.cu -o dist\khushi-production-vectors-nvidia.exe
 
-      - name: Package CUDA runtime
+      - name: Package CUDA runtime and frozen production vectors
         shell: pwsh
         run: |
           $runtime = Get-ChildItem -Path "$env:CUDA_PATH\bin" -Filter "cudart64_*.dll" | Select-Object -First 1
           if (-not $runtime) { throw "CUDA runtime DLL not found under CUDA_PATH" }
           Copy-Item $runtime.FullName -Destination dist
+          Copy-Item docs/gpu-pow-v1-production-memory-vectors.json -Destination dist
 
-      - name: Record provenance and checksum
+      - name: Record provenance and checksums
         shell: pwsh
         run: |
           @(
@@ -61,11 +65,23 @@ jobs:
             "protocol_id=sudharma-gpupow-v1",
             "source_revision=$env:GITHUB_SHA",
             "cuda_arches=sm_61,sm_75,sm_86,compute_89",
-            "artifact=khushi-miner-nvidia.exe"
+            "artifact=khushi-miner-nvidia.exe",
+            "production_vector_artifact=khushi-production-vectors-nvidia.exe",
+            "production_dataset_bytes=2147483648",
+            "production_cache_bytes=16777216",
+            "production_chunk_bytes=268435456",
+            "production_chunk_count=8",
+            "minimum_dedicated_vram_bytes=4294967296"
           ) | Set-Content -Encoding ascii dist/build-metadata.txt
           nvcc -V 2>&1 | Add-Content -Encoding ascii dist/build-metadata.txt
-          $hash = Get-FileHash -Algorithm SHA256 dist/khushi-miner-nvidia.exe
-          "$($hash.Hash.ToLower())  khushi-miner-nvidia.exe" | Set-Content -Encoding ascii dist/SHA256SUMS.txt
+          $miner = Get-FileHash -Algorithm SHA256 dist/khushi-miner-nvidia.exe
+          $vectors = Get-FileHash -Algorithm SHA256 dist/khushi-production-vectors-nvidia.exe
+          $fixture = Get-FileHash -Algorithm SHA256 dist/gpu-pow-v1-production-memory-vectors.json
+          @(
+            "$($miner.Hash.ToLower())  khushi-miner-nvidia.exe",
+            "$($vectors.Hash.ToLower())  khushi-production-vectors-nvidia.exe",
+            "$($fixture.Hash.ToLower())  gpu-pow-v1-production-memory-vectors.json"
+          ) | Set-Content -Encoding ascii dist/SHA256SUMS.txt
           Get-Content dist/SHA256SUMS.txt
 
       - name: Package Windows hardware test runner
