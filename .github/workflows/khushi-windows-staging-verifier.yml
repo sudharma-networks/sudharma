@@ -1,0 +1,77 @@
+name: Khushi Staging Verifier Windows
+
+on:
+  push:
+    branches:
+      - feature/gpu-pow-v1
+    paths:
+      - '.github/workflows/khushi-windows-staging-verifier.yml'
+      - 'cmd/sudharma-gpupow-staging/**'
+      - 'rpc/mining_staging*.go'
+      - 'compatibility/gpupowv1/**'
+      - 'scripts/windows/run-local-staging-gate.ps1'
+      - 'scripts/windows/test-khushi-miner.ps1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-staging-verifier:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test staging verifier and contracts
+        shell: pwsh
+        run: go test ./cmd/sudharma-gpupow-staging ./rpc ./compatibility/gpupowv1 -count=1
+
+      - name: Build Windows staging-only verifier
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $env:CGO_ENABLED = '0'
+          $env:GOOS = 'windows'
+          $env:GOARCH = 'amd64'
+          go build -trimpath -ldflags='-s -w' -o dist/sudharma-gpupow-staging.exe ./cmd/sudharma-gpupow-staging
+
+      - name: Record provenance and checksum
+        shell: pwsh
+        run: |
+          @(
+            'algorithm=Khushi Algorithm',
+            'protocol_id=sudharma-gpupow-v1',
+            'purpose=isolated non-consensus local staging hardware verifier',
+            "source_revision=$env:GITHUB_SHA",
+            'platform=windows-amd64',
+            'listen_default=127.0.0.1:28646',
+            'consensus_activation=disabled',
+            'block_creation=none',
+            'staging_height=0',
+            'staging_cache_nodes=8'
+          ) | Set-Content -Encoding ascii dist/build-metadata.txt
+          $hash = Get-FileHash -Algorithm SHA256 dist/sudharma-gpupow-staging.exe
+          "$($hash.Hash.ToLower())  sudharma-gpupow-staging.exe" | Set-Content -Encoding ascii dist/SHA256SUMS.txt
+          Get-Content dist/SHA256SUMS.txt
+
+      - name: Package local staging gate scripts
+        shell: pwsh
+        run: |
+          Copy-Item scripts/windows/run-local-staging-gate.ps1 dist/run-local-staging-gate.ps1
+          Copy-Item scripts/windows/test-khushi-miner.ps1 dist/test-khushi-miner.ps1
+
+      - name: Upload Windows local staging verifier artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: khushi-staging-verifier-windows-amd64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
