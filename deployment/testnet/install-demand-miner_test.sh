@@ -29,6 +29,22 @@ run_install() {
   bash "$installer" "$@"
 }
 
+if run_install --enable >/dev/null 2>&1; then
+  echo "--enable with DESTDIR must be refused" >&2
+  exit 1
+fi
+for forbidden in \
+  "$root/usr/local/bin/sudharma-demand-miner" \
+  "$root/usr/local/libexec/sudharma-demand-miner/sudharmad" \
+  "$root/etc/sudharma/demand-miner.json" \
+  "$root/etc/systemd/system/sudharma-demand-miner.service" \
+  "$root/var/lib/sudharma-demand-miner"; do
+  if [[ -e "$forbidden" ]]; then
+    echo "refused DESTDIR --enable must not mutate staging root: $forbidden" >&2
+    exit 1
+  fi
+done
+
 output="$(run_install)"
 run_install >/dev/null
 
