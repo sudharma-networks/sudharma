@@ -178,6 +178,36 @@ func TestClientCountsAcceptedRejectedAndStaleSubmitResults(t *testing.T) {
 	}
 }
 
+func TestClientRejectsUnknownSubmitStatus(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/mining/work", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(Work{
+			WorkID: "unknown-status-work", Algorithm: "sudharma-gpupow-v1", Version: 2,
+			Height: 100, Difficulty: 2, Target: "000f", HeaderPrefix: "5566", RewardAddress: "SUDH-status",
+		})
+	})
+	mux.HandleFunc("/v1/mining/submit", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(SubmitResult{Status: "future-status"})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	client, err := NewClient(srv.URL, srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	work, generation, err := client.Poll(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.SubmitVerified(context.Background(), work, generation, 1, func(Work, uint64) bool { return true }); err == nil {
+		t.Fatal("unknown mining submit status must be rejected")
+	}
+	if stats := client.Stats(); stats != (Stats{}) {
+		t.Fatalf("unknown submit status must not change counters: %+v", stats)
+	}
+}
+
 func TestClientNeverSubmitsWithoutVerifierApproval(t *testing.T) {
 	var submits atomic.Int32
 	mux := http.NewServeMux()
