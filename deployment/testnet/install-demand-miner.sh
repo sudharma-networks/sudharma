@@ -12,7 +12,7 @@ not supported with DESTDIR staging.
 Environment overrides:
   DESTDIR           staging root (default: real host root)
   DEMAND_MINER_BIN  built sudharma-demand-miner binary
-  SUDHARMAD_BIN     built sudharmad binary
+  SUDHARMAD_BIN     built sudharmad binary copied to the miner-only libexec path
 EOF
 }
 
@@ -52,11 +52,12 @@ EOF
 fi
 
 install -d -m 0755 "$destdir/usr/local/bin"
+install -d -m 0755 "$destdir/usr/local/libexec/sudharma-demand-miner"
 install -d -m 0755 "$destdir/etc/sudharma"
 install -d -m 0755 "$destdir/etc/systemd/system"
 install -d -m 0750 "$destdir/var/lib/sudharma-demand-miner"
 install -m 0755 "$demand_bin" "$destdir/usr/local/bin/sudharma-demand-miner"
-install -m 0755 "$node_bin" "$destdir/usr/local/bin/sudharmad"
+install -m 0755 "$node_bin" "$destdir/usr/local/libexec/sudharma-demand-miner/sudharmad"
 install -m 0644 "$unit_src" "$destdir/etc/systemd/system/sudharma-demand-miner.service"
 
 config_dest="$destdir/etc/sudharma/demand-miner.json"
