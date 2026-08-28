@@ -8,13 +8,22 @@
 #include <cstring>
 #include <limits>
 
+#include "gpupow_v1_chunks.cuh"
 #include "gpupow_v1_search.cuh"
 
 namespace {
 
 using sudharma::gpupowv1::SearchCache;
 using sudharma::gpupowv1::SearchJob;
+using sudharma::gpupowv1::allocate_dataset_chunks;
+using sudharma::gpupowv1::kMinimumDedicatedVRAMBytes;
+using sudharma::gpupowv1::kProductionCacheBytes;
+using sudharma::gpupowv1::kProductionChunkCount;
+using sudharma::gpupowv1::kProductionDatasetBytes;
+using sudharma::gpupowv1::kProductionRequiredVRAMBytes;
+using sudharma::gpupowv1::kProductionRuntimeReserveBytes;
 using sudharma::gpupowv1::kSearchNoNonce;
+using sudharma::gpupowv1::release_dataset_chunks;
 
 constexpr char kProgramZeroSeedHex[] =
     "613684e3f3b42773073fb9c99e71f2933eed301d450866fe9a5a5c0530a769bd";
@@ -177,6 +186,88 @@ int memory_preflight(std::size_t epoch_bytes, std::size_t runtime_bytes) {
                      static_cast<unsigned long long>(available_vram_bytes));
         return 2;
     }
+    return 0;
+}
+
+int production_memory_preflight() {
+    std::size_t available_vram_bytes = 0u;
+    std::size_t total_vram_bytes = 0u;
+    if (cuda_error("cudaMemGetInfo(production)", cudaMemGetInfo(&available_vram_bytes, &total_vram_bytes)) != 0) return 1;
+
+    std::printf(
+        "production-memory-policy dataset_bytes=%llu cache_bytes=%llu runtime_reserve_bytes=%llu required_vram_bytes=%llu minimum_dedicated_vram_bytes=%llu available_vram_bytes=%llu total_vram_bytes=%llu\n",
+        static_cast<unsigned long long>(kProductionDatasetBytes),
+        static_cast<unsigned long long>(kProductionCacheBytes),
+        static_cast<unsigned long long>(kProductionRuntimeReserveBytes),
+        static_cast<unsigned long long>(kProductionRequiredVRAMBytes),
+        static_cast<unsigned long long>(kMinimumDedicatedVRAMBytes),
+        static_cast<unsigned long long>(available_vram_bytes),
+        static_cast<unsigned long long>(total_vram_bytes));
+
+    if (total_vram_bytes < kMinimumDedicatedVRAMBytes ||
+        available_vram_bytes < kProductionRequiredVRAMBytes) {
+        std::fprintf(
+            stderr,
+            "insufficient production GPU memory: minimum_dedicated_vram_bytes=%llu required_vram_bytes=%llu available_vram_bytes=%llu total_vram_bytes=%llu\n",
+            static_cast<unsigned long long>(kMinimumDedicatedVRAMBytes),
+            static_cast<unsigned long long>(kProductionRequiredVRAMBytes),
+            static_cast<unsigned long long>(available_vram_bytes),
+            static_cast<unsigned long long>(total_vram_bytes));
+        return 2;
+    }
+    return 0;
+}
+
+int run_production_memory_self_test() {
+    if (select_device(selected_device) != 0) return 2;
+    if (production_memory_preflight() != 0) return 2;
+
+    void* device_cache = nullptr;
+    if (cuda_error(
+            "cudaMalloc(production cache)",
+            cudaMalloc(&device_cache, static_cast<std::size_t>(kProductionCacheBytes))) != 0) {
+        return 1;
+    }
+
+    std::array<void*, kProductionChunkCount> dataset_chunks{};
+    auto release = [](void* value) {
+        if (value != nullptr) cudaFree(value);
+    };
+    auto allocate = [](void** output, std::size_t bytes) {
+        return cuda_error(
+                   "cudaMalloc(production dataset chunk)",
+                   cudaMalloc(output, bytes)) == 0;
+    };
+
+    if (!allocate_dataset_chunks(&dataset_chunks, allocate, release)) {
+        cudaFree(device_cache);
+        std::fputs("production-memory-self-test=failed dataset allocation\n", stderr);
+        return 3;
+    }
+
+    std::size_t remaining_vram_bytes = 0u;
+    std::size_t total_vram_bytes = 0u;
+    if (cuda_error(
+            "cudaMemGetInfo(production allocated)",
+            cudaMemGetInfo(&remaining_vram_bytes, &total_vram_bytes)) != 0) {
+        release_dataset_chunks(&dataset_chunks, release);
+        cudaFree(device_cache);
+        return 1;
+    }
+    if (remaining_vram_bytes < kProductionRuntimeReserveBytes) {
+        std::fprintf(
+            stderr,
+            "production-memory-self-test=failed runtime reserve remaining_vram_bytes=%llu required_reserve_bytes=%llu\n",
+            static_cast<unsigned long long>(remaining_vram_bytes),
+            static_cast<unsigned long long>(kProductionRuntimeReserveBytes));
+        release_dataset_chunks(&dataset_chunks, release);
+        cudaFree(device_cache);
+        return 3;
+    }
+
+    release_dataset_chunks(&dataset_chunks, release);
+    cudaFree(device_cache);
+    std::puts("production-memory-self-test=ok");
     return 0;
 }
 
@@ -390,7 +481,7 @@ bool parse_u32(const char* text, std::uint32_t* value) {
 
 void usage() {
     std::fputs(
-        "usage: khushi-miner [--device N] --list-devices | --device-info | --telemetry | --vector-self-test | --benchmark [seconds] | --staging-search --header-prefix-hex HEX --target-hex HEX --height N --cache-nodes N | --mine\n",
+        "usage: khushi-miner [--device N] --list-devices | --device-info | --telemetry | --vector-self-test | --production-memory-self-test | --benchmark [seconds] | --staging-search --header-prefix-hex HEX --target-hex HEX --height N --cache-nodes N | --mine\n",
         stderr);
 }
 
@@ -419,6 +510,9 @@ int main(int argc, char** argv) {
     }
     if (std::strcmp(argv[arg], "--vector-self-test") == 0 && arg + 1 == argc) {
         return run_vector_self_test();
+    }
+    if (std::strcmp(argv[arg], "--production-memory-self-test") == 0 && arg + 1 == argc) {
+        return run_production_memory_self_test();
     }
     if (std::strcmp(argv[arg], "--benchmark") == 0 && (arg + 1 == argc || arg + 2 == argc)) {
         std::uint32_t seconds = 10u;
