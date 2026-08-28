@@ -1,5 +1,6 @@
 param(
     [string]$MinerPath = ".\khushi-miner-nvidia.exe",
+    [string]$ProductionVectorPath = "",
     [int]$Device = 0,
     [int]$BenchmarkSeconds = 60,
     [string]$StagingEndpoint = "",
@@ -40,6 +41,32 @@ $MinerName = Split-Path -Leaf $MinerPath
 $ChecksumPath = Join-Path $MinerDir "SHA256SUMS.txt"
 $MetadataPath = Join-Path $MinerDir "build-metadata.txt"
 
+if ([string]::IsNullOrWhiteSpace($ProductionVectorPath)) {
+    if ($MinerName -match "opencl") {
+        $productionVectorCandidates = @(
+            "khushi-production-vectors-opencl.exe",
+            "khushi-production-vectors-nvidia.exe"
+        )
+    } else {
+        $productionVectorCandidates = @(
+            "khushi-production-vectors-nvidia.exe",
+            "khushi-production-vectors-opencl.exe"
+        )
+    }
+    foreach ($candidate in $productionVectorCandidates) {
+        $candidatePath = Join-Path $MinerDir $candidate
+        if (Test-Path $candidatePath) {
+            $ProductionVectorPath = $candidatePath
+            break
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($ProductionVectorPath)) {
+        throw "Production vector executable not found beside miner"
+    }
+}
+$ProductionVectorPath = (Resolve-Path $ProductionVectorPath).Path
+$ProductionVectorName = Split-Path -Leaf $ProductionVectorPath
+
 $ResolvedEvidenceDirectory = ""
 if (-not [string]::IsNullOrWhiteSpace($EvidenceDirectory)) {
     $ResolvedEvidenceDirectory = (New-Item -ItemType Directory -Force -Path $EvidenceDirectory).FullName
@@ -52,6 +79,7 @@ Start-Transcript -Path $LogPath | Out-Null
 try {
     Write-Host "Khushi Algorithm hardware interoperability test"
     Write-Host "miner=$MinerPath"
+    Write-Host "production_vector_executable=$ProductionVectorPath"
     Write-Host "device=$Device"
     Write-Host "benchmark_seconds=$BenchmarkSeconds"
     if (-not [string]::IsNullOrWhiteSpace($ResolvedEvidenceDirectory)) {
@@ -66,6 +94,16 @@ try {
     Write-Host "actual_sha256=$actual"
     if ($expected -ne $actual) { throw "SHA256 checksum mismatch; refusing to execute miner" }
     Write-Host "checksum=ok"
+
+    $productionVectorChecksumLine = Get-Content $ChecksumPath | Where-Object { $_ -match [regex]::Escape($ProductionVectorName) } | Select-Object -First 1
+    if (-not $productionVectorChecksumLine) { throw "No checksum entry for $ProductionVectorName in SHA256SUMS.txt" }
+    $productionVectorExpected = (($productionVectorChecksumLine -split '\s+')[0]).ToLowerInvariant()
+    $productionVectorActual = (Get-FileHash -Algorithm SHA256 $ProductionVectorPath).Hash.ToLowerInvariant()
+    Write-Host "production_vector_expected_sha256=$productionVectorExpected"
+    Write-Host "production_vector_actual_sha256=$productionVectorActual"
+    if ($productionVectorExpected -ne $productionVectorActual) { throw "Production vector SHA256 checksum mismatch; refusing to execute vector gate" }
+    Write-Host "production-vector-sha256=ok"
+
     if (Test-Path $MetadataPath) { Write-Host "`n=== Build metadata ==="; Get-Content $MetadataPath }
     if (-not [string]::IsNullOrWhiteSpace($ResolvedEvidenceDirectory)) {
         Copy-Item $ChecksumPath (Join-Path $ResolvedEvidenceDirectory "miner-SHA256SUMS.txt") -Force
@@ -78,6 +116,8 @@ try {
     Invoke-KhushiStep "Canonical hardware vector (--vector-self-test)" { & $MinerPath --device $Device --vector-self-test }
     Invoke-KhushiStep "Production memory/chunk allocation (--production-memory-self-test)" { & $MinerPath --device $Device --production-memory-self-test }
     Write-Host "hardware-production-memory=passed"
+    Invoke-KhushiStep "Production dataset boundary vectors" { & $ProductionVectorPath --device $Device }
+    Write-Host "hardware-production-vectors=passed"
     Invoke-KhushiStep "GPU benchmark (--benchmark)" { & $MinerPath --device $Device --benchmark $BenchmarkSeconds }
     if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) { Invoke-KhushiStep "GPU telemetry" { & $MinerPath --device $Device --telemetry } }
     Write-Host "`nhardware-vector-memory-and-benchmark=passed"
