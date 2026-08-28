@@ -8,6 +8,7 @@ on:
       - '.github/workflows/khushi-windows-opencl.yml'
       - 'compatibility/opencl/**'
       - 'compatibility/gpupowv1/windows_opencl_artifact_contract_test.go'
+      - 'scripts/windows/test-khushi-miner.ps1'
   workflow_dispatch:
 
 permissions:
@@ -54,6 +55,10 @@ jobs:
             "$($kernel.Hash.ToLower())  khushi_pow.cl"
           ) | Set-Content -Encoding ascii dist/SHA256SUMS.txt
           Get-Content dist/SHA256SUMS.txt
+
+      - name: Package Windows hardware test runner
+        shell: pwsh
+        run: Copy-Item scripts/windows/test-khushi-miner.ps1 dist/test-khushi-miner.ps1
 
       - name: Upload generic Windows OpenCL artifact
         uses: actions/upload-artifact@v4
