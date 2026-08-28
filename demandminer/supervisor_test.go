@@ -43,13 +43,13 @@ func (s *scriptedStatusSource) Calls() int {
 }
 
 type fakeMiner struct {
-	mu          sync.Mutex
-	calls       int
-	active      int
-	maxActive   int
-	results     []error
-	start       chan struct{}
-	block       <-chan struct{}
+	mu        sync.Mutex
+	calls     int
+	active    int
+	maxActive int
+	results   []error
+	start     chan struct{}
+	block     <-chan struct{}
 }
 
 func (m *fakeMiner) MineOne(ctx context.Context) error {
@@ -208,7 +208,7 @@ func TestSupervisorPositiveMempoolMinesOneBlockThenCoolsDown(t *testing.T) {
 
 func TestSupervisorWrongIdentityFailsClosed(t *testing.T) {
 	for _, test := range []struct {
-		name string
+		name   string
 		mutate func(*Status)
 	}{
 		{name: "network", mutate: func(status *Status) { status.Network = "mainnet" }},
@@ -385,7 +385,7 @@ func TestSupervisorCancellationAfterStatusDoesNotStartMiner(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	miner := &fakeMiner{}
 	source := &scriptedStatusSource{
-		results: []statusResult{{status: matchingStatus(1)}},
+		results:  []statusResult{{status: matchingStatus(1)}},
 		callHook: cancel,
 	}
 	supervisor := newTestSupervisor(supervisorConfig(), source, miner, &recordingSleeper{}, nil)

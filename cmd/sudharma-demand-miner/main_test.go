@@ -89,8 +89,8 @@ func TestRunPassesCancellationToSupervisor(t *testing.T) {
 	defer cancel()
 	supervisor := &waitingSupervisor{started: make(chan struct{})}
 	deps := commandDependencies{
-		loadConfig: func(string) (demandminer.Config, error) { return commandConfig(t), nil },
-		newRPCClient: func(string) (rpcStatusClient, error) { return fakeRPCStatusClient{}, nil },
+		loadConfig:      func(string) (demandminer.Config, error) { return commandConfig(t), nil },
+		newRPCClient:    func(string) (rpcStatusClient, error) { return fakeRPCStatusClient{}, nil },
 		newNativeRunner: func(demandminer.Config) demandminer.BlockMiner { return fakeBlockMiner{} },
 		newSupervisor: func(demandminer.Config, demandminer.StatusSource, demandminer.BlockMiner, demandminer.Sleeper, demandminer.Logger) supervisorRunner {
 			return supervisor
@@ -122,8 +122,8 @@ func TestRunEmitsSafeJSONLogs(t *testing.T) {
 	cfg := commandConfig(t)
 	cfg.SeedAddress = "do-not-log-seed"
 	deps := commandDependencies{
-		loadConfig: func(string) (demandminer.Config, error) { return cfg, nil },
-		newRPCClient: func(string) (rpcStatusClient, error) { return fakeRPCStatusClient{}, nil },
+		loadConfig:      func(string) (demandminer.Config, error) { return cfg, nil },
+		newRPCClient:    func(string) (rpcStatusClient, error) { return fakeRPCStatusClient{}, nil },
 		newNativeRunner: func(demandminer.Config) demandminer.BlockMiner { return fakeBlockMiner{} },
 		newSupervisor: func(demandminer.Config, demandminer.StatusSource, demandminer.BlockMiner, demandminer.Sleeper, demandminer.Logger) supervisorRunner {
 			return completedSupervisor{err: context.Canceled}

@@ -10,7 +10,9 @@ func TestLaunchManifestRequiresPublicReadyProfile(t *testing.T) {
 
 	profile.Seeds = []string{"seed1.sudharma.net:28444", "seed2.sudharma.net:28444"}
 	manifest, err := NewLaunchManifest(profile)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	if manifest.ProtocolNetworkID != ProtocolNetworkID || manifest.GenesisHash != GenesisHash() {
 		t.Fatalf("manifest identity mismatch: %+v", manifest)
 	}
