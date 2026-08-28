@@ -24,7 +24,7 @@ func TestGPUV1RTX2060HardwareFixtureMatchesGoOracle(t *testing.T) {
 		t.Fatalf("program seed mismatch: got %s want %s", got, wantProgramSeed)
 	}
 
-	cache := GPUV1BuildCache(GPUV1EpochSeed(0), len(wantCache))
+	cache := GPUV1BuildCache(GPUV1EpochSeed(0), uint32(len(wantCache)))
 	if len(cache) != len(wantCache) {
 		t.Fatalf("cache length mismatch: got %d want %d", len(cache), len(wantCache))
 	}
