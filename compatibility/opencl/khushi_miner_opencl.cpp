@@ -196,7 +196,8 @@ bool hex_bytes(const char* text, std::vector<unsigned char>* out) {
         if (c >= 'A' && c <= 'F') return c - 'A' + 10;
         return -1;
     };
-    out->clear(); out->reserve(n / 2u);
+    out->clear();
+    out->reserve(n / 2u);
     for (std::size_t i = 0; i < n; i += 2u) {
         int a = nibble(text[i]), b = nibble(text[i + 1u]);
         if (a < 0 || b < 0) return false;
@@ -205,12 +206,30 @@ bool hex_bytes(const char* text, std::vector<unsigned char>* out) {
     return true;
 }
 
+bool parse_u64(const char* text, cl_ulong* out) {
+    if (text == nullptr || *text == '\0') return false;
+    char* end = nullptr;
+    const unsigned long long value = std::strtoull(text, &end, 10);
+    if (end == text || *end != '\0') return false;
+    *out = static_cast<cl_ulong>(value);
+    return true;
+}
+
+bool parse_u32(const char* text, cl_uint* out) {
+    cl_ulong value = 0;
+    if (!parse_u64(text, &value) || value > std::numeric_limits<cl_uint>::max()) return false;
+    *out = static_cast<cl_uint>(value);
+    return true;
+}
+
 std::string kernel_source() {
     const char* paths[] = {"compatibility/opencl/khushi_pow.cl", "khushi_pow.cl"};
     for (const char* path : paths) {
         std::ifstream in(path, std::ios::binary);
         if (!in) continue;
-        std::ostringstream ss; ss << in.rdbuf(); return ss.str();
+        std::ostringstream ss;
+        ss << in.rdbuf();
+        return ss.str();
     }
     std::fputs("cannot locate khushi_pow.cl\n", stderr);
     std::exit(1);
@@ -251,86 +270,300 @@ Runtime make_runtime() {
     Runtime rt;
     rt.device = chosen.device;
     cl_int rc = 0;
-    rt.context = clCreateContext(nullptr, 1, &rt.device, nullptr, nullptr, &rc); check(rc, "clCreateContext");
-    rt.queue = clCreateCommandQueue(rt.context, rt.device, 0, &rc); check(rc, "clCreateCommandQueue");
-    std::string source = kernel_source(); const char* src = source.c_str(); std::size_t size = source.size();
-    rt.program = clCreateProgramWithSource(rt.context, 1, &src, &size, &rc); check(rc, "clCreateProgramWithSource");
+    rt.context = clCreateContext(nullptr, 1, &rt.device, nullptr, nullptr, &rc);
+    check(rc, "clCreateContext");
+    rt.queue = clCreateCommandQueue(rt.context, rt.device, 0, &rc);
+    check(rc, "clCreateCommandQueue");
+    std::string source = kernel_source();
+    const char* src = source.c_str();
+    std::size_t size = source.size();
+    rt.program = clCreateProgramWithSource(rt.context, 1, &src, &size, &rc);
+    check(rc, "clCreateProgramWithSource");
     rc = clBuildProgram(rt.program, 1, &rt.device, "-cl-std=CL1.2", nullptr, nullptr);
     if (rc != CL_SUCCESS) {
-        std::size_t log_size = 0; clGetProgramBuildInfo(rt.program, rt.device, CL_PROGRAM_BUILD_LOG, 0, nullptr, &log_size);
-        std::vector<char> log(log_size + 1u); clGetProgramBuildInfo(rt.program, rt.device, CL_PROGRAM_BUILD_LOG, log_size, log.data(), nullptr);
-        std::fprintf(stderr, "OpenCL build failed:\n%s\n", log.data()); std::exit(1);
+        std::size_t log_size = 0;
+        clGetProgramBuildInfo(rt.program, rt.device, CL_PROGRAM_BUILD_LOG, 0, nullptr, &log_size);
+        std::vector<char> log(log_size + 1u);
+        clGetProgramBuildInfo(rt.program, rt.device, CL_PROGRAM_BUILD_LOG, log_size, log.data(), nullptr);
+        std::fprintf(stderr, "OpenCL build failed:\n%s\n", log.data());
+        std::exit(1);
     }
     return rt;
 }
 
 std::vector<unsigned char> vector_cache() {
-    std::vector<unsigned char> cache; cache.reserve(512u);
-    for (const char* node : kCacheHex) { std::vector<unsigned char> bytes; hex_bytes(node, &bytes); cache.insert(cache.end(), bytes.begin(), bytes.end()); }
+    std::vector<unsigned char> cache;
+    cache.reserve(512u);
+    for (const char* node : kCacheHex) {
+        std::vector<unsigned char> bytes;
+        if (!hex_bytes(node, &bytes)) {
+            std::fputs("invalid embedded cache fixture\n", stderr);
+            std::exit(1);
+        }
+        cache.insert(cache.end(), bytes.begin(), bytes.end());
+    }
     return cache;
 }
 
 int vector_self_test() {
     Runtime rt = make_runtime();
     cl_int rc = 0;
-    cl_kernel kernel = clCreateKernel(rt.program, "khushi_vector", &rc); check(rc, "clCreateKernel(khushi_vector)");
-    std::vector<unsigned char> seed, expected; hex_bytes(kProgramSeed, &seed); hex_bytes(kExpectedDigest, &expected);
-    auto cache = vector_cache(); unsigned char dummy_header = 0; cl_uint header_len = 0, cache_nodes = 8; cl_ulong nonce = 0;
-    cl_mem h = clCreateBuffer(rt.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, 1, &dummy_header, &rc); check(rc,"header buffer");
-    cl_mem s = clCreateBuffer(rt.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, seed.size(), seed.data(), &rc); check(rc,"seed buffer");
-    cl_mem c = clCreateBuffer(rt.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, cache.size(), cache.data(), &rc); check(rc,"cache buffer");
-    cl_mem o = clCreateBuffer(rt.context, CL_MEM_WRITE_ONLY, 32, nullptr, &rc); check(rc,"output buffer");
-    check(clSetKernelArg(kernel,0,sizeof(h),&h),"arg0"); check(clSetKernelArg(kernel,1,sizeof(header_len),&header_len),"arg1");
-    check(clSetKernelArg(kernel,2,sizeof(nonce),&nonce),"arg2"); check(clSetKernelArg(kernel,3,sizeof(s),&s),"arg3");
-    check(clSetKernelArg(kernel,4,sizeof(c),&c),"arg4"); check(clSetKernelArg(kernel,5,sizeof(cache_nodes),&cache_nodes),"arg5"); check(clSetKernelArg(kernel,6,sizeof(o),&o),"arg6");
-    std::size_t global = 1; check(clEnqueueNDRangeKernel(rt.queue,kernel,1,nullptr,&global,nullptr,0,nullptr,nullptr),"vector enqueue"); check(clFinish(rt.queue),"vector finish");
-    std::vector<unsigned char> got(32); check(clEnqueueReadBuffer(rt.queue,o,CL_TRUE,0,got.size(),got.data(),0,nullptr,nullptr),"vector read");
-    std::fputs("vector-digest=",stdout); for (auto b : got) std::printf("%02x",b); std::fputc('\n',stdout);
-    clReleaseMemObject(o);clReleaseMemObject(c);clReleaseMemObject(s);clReleaseMemObject(h);clReleaseKernel(kernel);
-    if (got != expected) { std::fprintf(stderr,"vector-self-test=failed expected=%s\n",kExpectedDigest); return 4; }
-    std::puts("vector-self-test=ok"); return 0;
+    cl_kernel kernel = clCreateKernel(rt.program, "khushi_vector", &rc);
+    check(rc, "clCreateKernel(khushi_vector)");
+    std::vector<unsigned char> seed, expected;
+    if (!hex_bytes(kProgramSeed, &seed) || !hex_bytes(kExpectedDigest, &expected)) return 1;
+    auto cache = vector_cache();
+    unsigned char dummy_header = 0;
+    cl_uint header_len = 0, cache_nodes = 8;
+    cl_ulong nonce = 0;
+    cl_mem h = clCreateBuffer(rt.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, 1, &dummy_header, &rc);
+    check(rc, "header buffer");
+    cl_mem s = clCreateBuffer(rt.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, seed.size(), seed.data(), &rc);
+    check(rc, "seed buffer");
+    cl_mem c = clCreateBuffer(rt.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, cache.size(), cache.data(), &rc);
+    check(rc, "cache buffer");
+    cl_mem o = clCreateBuffer(rt.context, CL_MEM_WRITE_ONLY, 32, nullptr, &rc);
+    check(rc, "output buffer");
+    check(clSetKernelArg(kernel, 0, sizeof(h), &h), "arg0");
+    check(clSetKernelArg(kernel, 1, sizeof(header_len), &header_len), "arg1");
+    check(clSetKernelArg(kernel, 2, sizeof(nonce), &nonce), "arg2");
+    check(clSetKernelArg(kernel, 3, sizeof(s), &s), "arg3");
+    check(clSetKernelArg(kernel, 4, sizeof(c), &c), "arg4");
+    check(clSetKernelArg(kernel, 5, sizeof(cache_nodes), &cache_nodes), "arg5");
+    check(clSetKernelArg(kernel, 6, sizeof(o), &o), "arg6");
+    std::size_t global = 1;
+    check(clEnqueueNDRangeKernel(rt.queue, kernel, 1, nullptr, &global, nullptr, 0, nullptr, nullptr), "vector enqueue");
+    check(clFinish(rt.queue), "vector finish");
+    std::vector<unsigned char> got(32);
+    check(clEnqueueReadBuffer(rt.queue, o, CL_TRUE, 0, got.size(), got.data(), 0, nullptr, nullptr), "vector read");
+    std::fputs("vector-digest=", stdout);
+    for (auto b : got) std::printf("%02x", b);
+    std::fputc('\n', stdout);
+    clReleaseMemObject(o);
+    clReleaseMemObject(c);
+    clReleaseMemObject(s);
+    clReleaseMemObject(h);
+    clReleaseKernel(kernel);
+    if (got != expected) {
+        std::fprintf(stderr, "vector-self-test=failed expected=%s\n", kExpectedDigest);
+        return 4;
+    }
+    std::puts("vector-self-test=ok");
+    return 0;
 }
 
 int benchmark(unsigned seconds) {
     if (seconds == 0) seconds = 10;
-    Runtime rt = make_runtime(); cl_int rc=0; cl_kernel kernel=clCreateKernel(rt.program,"khushi_search",&rc); check(rc,"clCreateKernel(khushi_search)");
-    const char header_text[]="khushi-algorithm-generic-opencl-benchmark";
-    cl_uint header_len=sizeof(header_text)-1u,cache_nodes=8,generation=1,found_flag=0,hashes=0;
-    cl_ulong nonce_start=0,nonce_count=1,found=~(cl_ulong)0;
-    std::vector<unsigned char> seed(32),cache(512),target(32,0);
-    for(std::size_t i=0;i<seed.size();++i)seed[i]=(unsigned char)((i*17u+3u)&0xffu);
-    for(std::size_t i=0;i<cache.size();++i)cache[i]=(unsigned char)((i*29u+11u)&0xffu);
-    cl_mem h=clCreateBuffer(rt.context,CL_MEM_READ_ONLY|CL_MEM_COPY_HOST_PTR,header_len,(void*)header_text,&rc);check(rc,"bench header");
-    cl_mem s=clCreateBuffer(rt.context,CL_MEM_READ_ONLY|CL_MEM_COPY_HOST_PTR,32,seed.data(),&rc);check(rc,"bench seed");
-    cl_mem c=clCreateBuffer(rt.context,CL_MEM_READ_ONLY|CL_MEM_COPY_HOST_PTR,cache.size(),cache.data(),&rc);check(rc,"bench cache");
-    cl_mem t=clCreateBuffer(rt.context,CL_MEM_READ_ONLY|CL_MEM_COPY_HOST_PTR,32,target.data(),&rc);check(rc,"bench target");
-    cl_mem g=clCreateBuffer(rt.context,CL_MEM_READ_WRITE|CL_MEM_COPY_HOST_PTR,sizeof(generation),&generation,&rc);check(rc,"bench generation");
-    cl_mem ff=clCreateBuffer(rt.context,CL_MEM_READ_WRITE|CL_MEM_COPY_HOST_PTR,sizeof(found_flag),&found_flag,&rc);check(rc,"bench found flag");
-    cl_mem f=clCreateBuffer(rt.context,CL_MEM_READ_WRITE|CL_MEM_COPY_HOST_PTR,sizeof(found),&found,&rc);check(rc,"bench found");
-    cl_mem hd=clCreateBuffer(rt.context,CL_MEM_READ_WRITE|CL_MEM_COPY_HOST_PTR,sizeof(hashes),&hashes,&rc);check(rc,"bench hashes");
-    auto start=std::chrono::steady_clock::now(),deadline=start+std::chrono::seconds(seconds);
-    do{
-        hashes=0;found_flag=0;found=~(cl_ulong)0;
-        check(clEnqueueWriteBuffer(rt.queue,hd,CL_TRUE,0,sizeof(hashes),&hashes,0,nullptr,nullptr),"hash reset");
-        check(clEnqueueWriteBuffer(rt.queue,ff,CL_TRUE,0,sizeof(found_flag),&found_flag,0,nullptr,nullptr),"found flag reset");
-        check(clEnqueueWriteBuffer(rt.queue,f,CL_TRUE,0,sizeof(found),&found,0,nullptr,nullptr),"found nonce reset");
-        int a=0;
-        check(clSetKernelArg(kernel,a++,sizeof(h),&h),"a0");check(clSetKernelArg(kernel,a++,sizeof(header_len),&header_len),"a1");
-        check(clSetKernelArg(kernel,a++,sizeof(s),&s),"a2");check(clSetKernelArg(kernel,a++,sizeof(c),&c),"a3");
-        check(clSetKernelArg(kernel,a++,sizeof(cache_nodes),&cache_nodes),"a4");check(clSetKernelArg(kernel,a++,sizeof(t),&t),"a5");
-        check(clSetKernelArg(kernel,a++,sizeof(nonce_start),&nonce_start),"a6");check(clSetKernelArg(kernel,a++,sizeof(nonce_count),&nonce_count),"a7");
-        check(clSetKernelArg(kernel,a++,sizeof(g),&g),"a8");check(clSetKernelArg(kernel,a++,sizeof(generation),&generation),"a9");
-        check(clSetKernelArg(kernel,a++,sizeof(ff),&ff),"a10");check(clSetKernelArg(kernel,a++,sizeof(f),&f),"a11");
-        check(clSetKernelArg(kernel,a++,sizeof(hd),&hd),"a12");
-        std::size_t one=1;check(clEnqueueNDRangeKernel(rt.queue,kernel,1,nullptr,&one,nullptr,0,nullptr,nullptr),"bench enqueue");check(clFinish(rt.queue),"bench finish");++nonce_start;
-    }while(std::chrono::steady_clock::now()<deadline);
-    auto end=std::chrono::steady_clock::now();double elapsed=std::chrono::duration<double>(end-start).count();double rate=elapsed>0?static_cast<double>(nonce_start)/elapsed:0;
-    std::printf("Khushi Algorithm benchmark backend=opencl device=%d seconds=%.3f hashes=%llu hashrate_hps=%.6f\n",selected_device,elapsed,(unsigned long long)nonce_start,rate);
-    clReleaseMemObject(hd);clReleaseMemObject(f);clReleaseMemObject(ff);clReleaseMemObject(g);clReleaseMemObject(t);clReleaseMemObject(c);clReleaseMemObject(s);clReleaseMemObject(h);clReleaseKernel(kernel);return 0;
+    Runtime rt = make_runtime();
+    cl_int rc = 0;
+    cl_kernel kernel = clCreateKernel(rt.program, "khushi_search", &rc);
+    check(rc, "clCreateKernel(khushi_search)");
+    const char header_text[] = "khushi-algorithm-generic-opencl-benchmark";
+    cl_uint header_len = sizeof(header_text) - 1u, cache_nodes = 8, generation = 1, found_flag = 0, hashes = 0;
+    cl_ulong nonce_start = 0, nonce_count = 1, found = ~(cl_ulong)0;
+    std::vector<unsigned char> seed(32), cache(512), target(32, 0);
+    for (std::size_t i = 0; i < seed.size(); ++i) seed[i] = (unsigned char)((i * 17u + 3u) & 0xffu);
+    for (std::size_t i = 0; i < cache.size(); ++i) cache[i] = (unsigned char)((i * 29u + 11u) & 0xffu);
+    cl_mem h = clCreateBuffer(rt.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, header_len, (void*)header_text, &rc);
+    check(rc, "bench header");
+    cl_mem s = clCreateBuffer(rt.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, 32, seed.data(), &rc);
+    check(rc, "bench seed");
+    cl_mem c = clCreateBuffer(rt.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, cache.size(), cache.data(), &rc);
+    check(rc, "bench cache");
+    cl_mem t = clCreateBuffer(rt.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, 32, target.data(), &rc);
+    check(rc, "bench target");
+    cl_mem g = clCreateBuffer(rt.context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(generation), &generation, &rc);
+    check(rc, "bench generation");
+    cl_mem ff = clCreateBuffer(rt.context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(found_flag), &found_flag, &rc);
+    check(rc, "bench found flag");
+    cl_mem f = clCreateBuffer(rt.context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(found), &found, &rc);
+    check(rc, "bench found");
+    cl_mem hd = clCreateBuffer(rt.context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(hashes), &hashes, &rc);
+    check(rc, "bench hashes");
+    auto start = std::chrono::steady_clock::now(), deadline = start + std::chrono::seconds(seconds);
+    do {
+        hashes = 0;
+        found_flag = 0;
+        found = ~(cl_ulong)0;
+        check(clEnqueueWriteBuffer(rt.queue, hd, CL_TRUE, 0, sizeof(hashes), &hashes, 0, nullptr, nullptr), "hash reset");
+        check(clEnqueueWriteBuffer(rt.queue, ff, CL_TRUE, 0, sizeof(found_flag), &found_flag, 0, nullptr, nullptr), "found flag reset");
+        check(clEnqueueWriteBuffer(rt.queue, f, CL_TRUE, 0, sizeof(found), &found, 0, nullptr, nullptr), "found nonce reset");
+        int a = 0;
+        check(clSetKernelArg(kernel, a++, sizeof(h), &h), "a0");
+        check(clSetKernelArg(kernel, a++, sizeof(header_len), &header_len), "a1");
+        check(clSetKernelArg(kernel, a++, sizeof(s), &s), "a2");
+        check(clSetKernelArg(kernel, a++, sizeof(c), &c), "a3");
+        check(clSetKernelArg(kernel, a++, sizeof(cache_nodes), &cache_nodes), "a4");
+        check(clSetKernelArg(kernel, a++, sizeof(t), &t), "a5");
+        check(clSetKernelArg(kernel, a++, sizeof(nonce_start), &nonce_start), "a6");
+        check(clSetKernelArg(kernel, a++, sizeof(nonce_count), &nonce_count), "a7");
+        check(clSetKernelArg(kernel, a++, sizeof(g), &g), "a8");
+        check(clSetKernelArg(kernel, a++, sizeof(generation), &generation), "a9");
+        check(clSetKernelArg(kernel, a++, sizeof(ff), &ff), "a10");
+        check(clSetKernelArg(kernel, a++, sizeof(f), &f), "a11");
+        check(clSetKernelArg(kernel, a++, sizeof(hd), &hd), "a12");
+        std::size_t one = 1;
+        check(clEnqueueNDRangeKernel(rt.queue, kernel, 1, nullptr, &one, nullptr, 0, nullptr, nullptr), "bench enqueue");
+        check(clFinish(rt.queue), "bench finish");
+        ++nonce_start;
+    } while (std::chrono::steady_clock::now() < deadline);
+    auto end = std::chrono::steady_clock::now();
+    double elapsed = std::chrono::duration<double>(end - start).count();
+    double rate = elapsed > 0 ? static_cast<double>(nonce_start) / elapsed : 0;
+    std::printf("Khushi Algorithm benchmark backend=opencl device=%d seconds=%.3f hashes=%llu hashrate_hps=%.6f\n",
+                selected_device, elapsed, (unsigned long long)nonce_start, rate);
+    clReleaseMemObject(hd);
+    clReleaseMemObject(f);
+    clReleaseMemObject(ff);
+    clReleaseMemObject(g);
+    clReleaseMemObject(t);
+    clReleaseMemObject(c);
+    clReleaseMemObject(s);
+    clReleaseMemObject(h);
+    clReleaseKernel(kernel);
+    return 0;
 }
 
-void usage(){std::fputs("usage: khushi-miner-opencl [--device N] --list-devices | --vector-self-test | --production-memory-self-test | --benchmark [seconds] | --mine\n",stderr);}
+int staging_search(const char* header_hex, const char* target_hex, cl_ulong height, cl_uint cache_nodes) {
+    if (height != 0u || cache_nodes != 8u) {
+        std::fputs("staging search only supports height=0 cache_nodes=8\n", stderr);
+        return 64;
+    }
 
-} // namespace
+    std::vector<unsigned char> header, target, seed;
+    if (!hex_bytes(header_hex, &header) || header.empty() || header.size() > 256u) {
+        std::fputs("invalid --header-prefix-hex value\n", stderr);
+        return 64;
+    }
+    if (!hex_bytes(target_hex, &target) || target.size() != 32u) {
+        std::fputs("invalid --target-hex value\n", stderr);
+        return 64;
+    }
+    if (!hex_bytes(kProgramSeed, &seed) || seed.size() != 32u) {
+        std::fputs("invalid staging program seed fixture\n", stderr);
+        return 1;
+    }
 
-int main(int argc,char** argv){int arg=1;if(argc>=3&&std::strcmp(argv[1],"--device")==0){selected_device=std::atoi(argv[2]);arg=3;}if(arg>=argc){usage();return 64;}if(std::strcmp(argv[arg],"--list-devices")==0)return list_devices();if(std::strcmp(argv[arg],"--vector-self-test")==0)return vector_self_test();if(std::strcmp(argv[arg],"--production-memory-self-test")==0)return production_memory_self_test();if(std::strcmp(argv[arg],"--benchmark")==0){unsigned seconds=(arg+1<argc)?(unsigned)std::strtoul(argv[arg+1],nullptr,10):10u;return benchmark(seconds);}if(std::strcmp(argv[arg],"--mine")==0){std::fputs("Khushi Algorithm OpenCL network mining remains interoperability-gated; CPU fallback prohibited\n",stderr);return 3;}usage();return 64;}
+    Runtime rt = make_runtime();
+    auto cache = vector_cache();
+    cl_int rc = 0;
+    cl_kernel kernel = clCreateKernel(rt.program, "khushi_search", &rc);
+    check(rc, "clCreateKernel(khushi_search staging)");
+
+    const cl_uint header_len = static_cast<cl_uint>(header.size());
+    const cl_uint generation = 1u;
+    cl_uint found_flag = 0u;
+    cl_uint hashes = 0u;
+    const cl_ulong no_nonce = ~(cl_ulong)0;
+    cl_ulong found = no_nonce;
+
+    cl_mem h = clCreateBuffer(rt.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, header.size(), header.data(), &rc);
+    check(rc, "staging header");
+    cl_mem s = clCreateBuffer(rt.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, seed.size(), seed.data(), &rc);
+    check(rc, "staging seed");
+    cl_mem c = clCreateBuffer(rt.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, cache.size(), cache.data(), &rc);
+    check(rc, "staging cache");
+    cl_mem t = clCreateBuffer(rt.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, target.size(), target.data(), &rc);
+    check(rc, "staging target");
+    cl_mem g = clCreateBuffer(rt.context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(generation), (void*)&generation, &rc);
+    check(rc, "staging generation");
+    cl_mem ff = clCreateBuffer(rt.context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(found_flag), &found_flag, &rc);
+    check(rc, "staging found flag");
+    cl_mem f = clCreateBuffer(rt.context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(found), &found, &rc);
+    check(rc, "staging found nonce");
+    cl_mem hd = clCreateBuffer(rt.context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(hashes), &hashes, &rc);
+    check(rc, "staging hashes");
+
+    const cl_ulong max_nonces = 65536;
+    const cl_ulong nonces_per_launch = 64u;
+    for (cl_ulong nonce_start = 0u; nonce_start < max_nonces && found == no_nonce; nonce_start += nonces_per_launch) {
+        cl_ulong nonce_count = nonces_per_launch;
+        if (nonce_start + nonce_count > max_nonces) nonce_count = max_nonces - nonce_start;
+
+        int a = 0;
+        check(clSetKernelArg(kernel, a++, sizeof(h), &h), "staging a0");
+        check(clSetKernelArg(kernel, a++, sizeof(header_len), &header_len), "staging a1");
+        check(clSetKernelArg(kernel, a++, sizeof(s), &s), "staging a2");
+        check(clSetKernelArg(kernel, a++, sizeof(c), &c), "staging a3");
+        check(clSetKernelArg(kernel, a++, sizeof(cache_nodes), &cache_nodes), "staging a4");
+        check(clSetKernelArg(kernel, a++, sizeof(t), &t), "staging a5");
+        check(clSetKernelArg(kernel, a++, sizeof(nonce_start), &nonce_start), "staging a6");
+        check(clSetKernelArg(kernel, a++, sizeof(nonce_count), &nonce_count), "staging a7");
+        check(clSetKernelArg(kernel, a++, sizeof(g), &g), "staging a8");
+        check(clSetKernelArg(kernel, a++, sizeof(generation), &generation), "staging a9");
+        check(clSetKernelArg(kernel, a++, sizeof(ff), &ff), "staging a10");
+        check(clSetKernelArg(kernel, a++, sizeof(f), &f), "staging a11");
+        check(clSetKernelArg(kernel, a++, sizeof(hd), &hd), "staging a12");
+
+        const std::size_t global = static_cast<std::size_t>(nonce_count);
+        check(clEnqueueNDRangeKernel(rt.queue, kernel, 1, nullptr, &global, nullptr, 0, nullptr, nullptr), "staging enqueue");
+        check(clFinish(rt.queue), "staging finish");
+        check(clEnqueueReadBuffer(rt.queue, f, CL_TRUE, 0, sizeof(found), &found, 0, nullptr, nullptr), "staging nonce read");
+    }
+
+    check(clEnqueueReadBuffer(rt.queue, hd, CL_TRUE, 0, sizeof(hashes), &hashes, 0, nullptr, nullptr), "staging hashes read");
+
+    clReleaseMemObject(hd);
+    clReleaseMemObject(f);
+    clReleaseMemObject(ff);
+    clReleaseMemObject(g);
+    clReleaseMemObject(t);
+    clReleaseMemObject(c);
+    clReleaseMemObject(s);
+    clReleaseMemObject(h);
+    clReleaseKernel(kernel);
+
+    if (found == no_nonce) {
+        std::printf("staging-search=not-found hashes=%u\n", static_cast<unsigned>(hashes));
+        return 4;
+    }
+    std::printf("staging-solution-nonce=%llu hashes=%u\n",
+                static_cast<unsigned long long>(found), static_cast<unsigned>(hashes));
+    return 0;
+}
+
+void usage() {
+    std::fputs(
+        "usage: khushi-miner-opencl [--device N] --list-devices | --vector-self-test | --production-memory-self-test | --benchmark [seconds] | --staging-search --header-prefix-hex HEX --target-hex HEX --height N --cache-nodes N | --mine\n",
+        stderr);
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+    int arg = 1;
+    if (argc >= 3 && std::strcmp(argv[1], "--device") == 0) {
+        selected_device = std::atoi(argv[2]);
+        arg = 3;
+    }
+    if (arg >= argc) {
+        usage();
+        return 64;
+    }
+    if (std::strcmp(argv[arg], "--list-devices") == 0 && arg + 1 == argc) return list_devices();
+    if (std::strcmp(argv[arg], "--vector-self-test") == 0 && arg + 1 == argc) return vector_self_test();
+    if (std::strcmp(argv[arg], "--production-memory-self-test") == 0 && arg + 1 == argc) return production_memory_self_test();
+    if (std::strcmp(argv[arg], "--benchmark") == 0 && (arg + 1 == argc || arg + 2 == argc)) {
+        unsigned seconds = (arg + 2 == argc) ? (unsigned)std::strtoul(argv[arg + 1], nullptr, 10) : 10u;
+        return benchmark(seconds);
+    }
+    if (std::strcmp(argv[arg], "--staging-search") == 0 && arg + 9 == argc &&
+        std::strcmp(argv[arg + 1], "--header-prefix-hex") == 0 &&
+        std::strcmp(argv[arg + 3], "--target-hex") == 0 &&
+        std::strcmp(argv[arg + 5], "--height") == 0 &&
+        std::strcmp(argv[arg + 7], "--cache-nodes") == 0) {
+        cl_ulong height = 0;
+        cl_uint cache_nodes = 0;
+        if (!parse_u64(argv[arg + 6], &height) || !parse_u32(argv[arg + 8], &cache_nodes)) {
+            std::fputs("invalid staging height or cache node count\n", stderr);
+            return 64;
+        }
+        return staging_search(argv[arg + 2], argv[arg + 4], height, cache_nodes);
+    }
+    if (std::strcmp(argv[arg], "--mine") == 0) {
+        std::fputs("Khushi Algorithm OpenCL network mining remains interoperability-gated; CPU fallback prohibited\n", stderr);
+        return 3;
+    }
+    usage();
+    return 64;
+}
