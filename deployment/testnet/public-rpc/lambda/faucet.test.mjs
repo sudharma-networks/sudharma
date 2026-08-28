@@ -117,6 +117,58 @@ test('challenge requires confirmed exact 25 SUDH payment and returns 50 SUDH', a
   assert.equal(calls.find((x) => x[0] === 'submit')[1].Amount, 50 * COIN);
 });
 
+test('challenge automatically reconciles a confirmed initial grant before validating the 25 SUDH payment', async () => {
+  const signer = createSigner('0'.repeat(63) + '1');
+  const INITIAL_TX_ID = 'd'.repeat(64);
+  const CHALLENGE_TX_ID = 'e'.repeat(64);
+  const calls = [];
+  let state = {
+    initial_status: 'submitted',
+    initial_txid: INITIAL_TX_ID,
+    rounds: 0,
+    last_round_at: null,
+  };
+  const store = {
+    async getAddress() { return { ...state }; },
+    async completeInitial(address, txid, at) {
+      calls.push(['completeInitial', address, txid, at]);
+      state = { ...state, initial_status: 'paid' };
+    },
+    async reserveChallenge(address, txid, round) {
+      calls.push(['reserveChallenge', address, txid, round]);
+      return true;
+    },
+    async completeChallenge(address, txid, payoutTxId, at) {
+      calls.push(['completeChallenge', address, txid, payoutTxId, at]);
+    },
+    async acquirePayoutLock() { return true; },
+    async releasePayoutLock() {},
+  };
+  const rpc = {
+    async transaction(txid) {
+      if (txid === INITIAL_TX_ID) {
+        return { status: 'confirmed', confirmations: 1 };
+      }
+      assert.equal(txid, CHALLENGE_TX_ID);
+      return {
+        status: 'confirmed',
+        confirmations: 1,
+        transaction: { From: ADDRESS_A, To: signer.address, Amount: 25 * COIN },
+      };
+    },
+    async account(address) { return { address, balance: 10_000 * COIN, next_nonce: 8 }; },
+    async submit(tx) { calls.push(['submit', tx]); return { accepted: true, transaction_id: tx.ID }; },
+  };
+  const service = createFaucetService({ store, rpc, signer, now: () => 1_700_000_000_000 });
+
+  const result = await service.claimChallenge(ADDRESS_A, CHALLENGE_TX_ID);
+
+  assert.equal(result.reward_sudh, 50);
+  assert.equal(result.round, 1);
+  assert.ok(calls.some((x) => x[0] === 'completeInitial' && x[2] === INITIAL_TX_ID));
+  assert.ok(calls.some((x) => x[0] === 'reserveChallenge' && x[2] === CHALLENGE_TX_ID));
+});
+
 test('challenge rejects early cooldown and sixth round', async () => {
   const signer = createSigner('0'.repeat(63) + '1');
   const baseStore = {
