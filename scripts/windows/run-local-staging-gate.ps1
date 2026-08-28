@@ -13,10 +13,14 @@ $MinerPath = (Resolve-Path $MinerPath).Path
 $BundleDir = Split-Path -Parent $VerifierPath
 $VerifierName = Split-Path -Leaf $VerifierPath
 $ChecksumPath = Join-Path $BundleDir "SHA256SUMS.txt"
+$MetadataPath = Join-Path $BundleDir "build-metadata.txt"
 $HardwareScript = Join-Path $BundleDir "test-khushi-miner.ps1"
 $Endpoint = "http://127.0.0.1:28646"
-$VerifierStdout = Join-Path $BundleDir "staging-verifier.stdout.log"
-$VerifierStderr = Join-Path $BundleDir "staging-verifier.stderr.log"
+$EvidenceDir = Join-Path $BundleDir ("khushi-staging-evidence-{0}" -f (Get-Date -Format "yyyyMMdd-HHmmssfff"))
+$EvidenceDir = (New-Item -ItemType Directory -Force -Path $EvidenceDir).FullName
+$VerifierStdout = Join-Path $EvidenceDir "staging-verifier.stdout.log"
+$VerifierStderr = Join-Path $EvidenceDir "staging-verifier.stderr.log"
+$ManifestPath = Join-Path $EvidenceDir "SHA256MANIFEST.txt"
 
 if (-not (Test-Path $ChecksumPath)) {
     throw "SHA256SUMS.txt not found beside verifier: $ChecksumPath"
@@ -41,10 +45,10 @@ Write-Host "staging_endpoint=$Endpoint"
 Write-Host "staging_binding=localhost-only"
 Write-Host "seed-services=untouched"
 Write-Host "consensus-activation=disabled"
+Write-Host "evidence_directory=$EvidenceDir"
 
 $verifier = $null
 try {
-    Remove-Item $VerifierStdout, $VerifierStderr -ErrorAction SilentlyContinue
     $startProcessArgs = @{
         FilePath = $VerifierPath
         ArgumentList = @("-listen", "127.0.0.1:28646")
@@ -82,7 +86,8 @@ try {
         "-Device", $Device,
         "-BenchmarkSeconds", $BenchmarkSeconds,
         "-SubmitStagingSolution",
-        "-StagingEndpoint", $Endpoint
+        "-StagingEndpoint", $Endpoint,
+        "-EvidenceDirectory", $EvidenceDir
     )
     & $HardwareScript @hardwareArgs
     if ($LASTEXITCODE -ne 0) {
@@ -98,6 +103,32 @@ finally {
         $verifier.WaitForExit()
     }
     Write-Host "staging_verifier=stopped"
+
+    Copy-Item $ChecksumPath (Join-Path $EvidenceDir "verifier-SHA256SUMS.txt") -Force
+    if (Test-Path $MetadataPath) {
+        Copy-Item $MetadataPath (Join-Path $EvidenceDir "verifier-build-metadata.txt") -Force
+    }
+
+    @(
+        "gate=khushi-local-staging-interoperability",
+        "protocol_id=sudharma-gpupow-v1",
+        "endpoint=$Endpoint",
+        "verifier_sha256=$actual",
+        "consensus_activation=disabled",
+        "block_creation=none",
+        "seed_services=untouched"
+    ) | Set-Content -Encoding ascii (Join-Path $EvidenceDir "gate-metadata.txt")
+
+    $manifestLines = Get-ChildItem -Path $EvidenceDir -File |
+        Where-Object { $_.Name -ne "SHA256MANIFEST.txt" } |
+        Sort-Object Name |
+        ForEach-Object {
+            $hash = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+        }
+    $manifestLines | Set-Content -Encoding ascii $ManifestPath
+
     if (Test-Path $VerifierStdout) { Write-Host "staging_verifier_stdout=$VerifierStdout" }
     if (Test-Path $VerifierStderr) { Write-Host "staging_verifier_stderr=$VerifierStderr" }
+    Write-Host "evidence_manifest=$ManifestPath"
 }
