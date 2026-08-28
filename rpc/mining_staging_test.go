@@ -68,6 +68,29 @@ func TestMiningStagingSubmitRejectsMutationAndUsesVerifier(t *testing.T) {
 	}
 }
 
+func TestMiningStagingKeepsIndependentOutstandingChallenges(t *testing.T) {
+	service := NewMiningStagingService(func(challenge MiningStagingChallenge, nonce uint64) bool {
+		return nonce == 7
+	})
+	target := bytes.Repeat([]byte{0xff}, 32)
+
+	first, err := service.Issue([]byte("hardware-gate-first"), 0, 8, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.Issue([]byte("hardware-gate-second"), 0, 8, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := service.Submit(MiningStagingSolution{Challenge: first, Nonce: 7}); got.Status != MiningSubmitAccepted {
+		t.Fatalf("first outstanding challenge status: got %q want %q", got.Status, MiningSubmitAccepted)
+	}
+	if got := service.Submit(MiningStagingSolution{Challenge: second, Nonce: 7}); got.Status != MiningSubmitAccepted {
+		t.Fatalf("second outstanding challenge status: got %q want %q", got.Status, MiningSubmitAccepted)
+	}
+}
+
 func TestMiningStagingChallengeDoesNotSelectProductionCachePolicy(t *testing.T) {
 	service := NewMiningStagingService(func(MiningStagingChallenge, uint64) bool { return false })
 	if _, err := service.Issue([]byte("hardware-gate"), 0, 0, bytes.Repeat([]byte{0xff}, 32)); err == nil {
