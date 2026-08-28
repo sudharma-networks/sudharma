@@ -14,9 +14,21 @@ The miner uses one shared work/template, DAG/cache, nonce-range, stale-work and 
 
 The office RTX 2060 is the first physical interoperability device only; no RTX-2060-specific consensus or search behavior may be encoded.
 
+The public compatibility target is discrete GPUs with at least 4 GiB of
+dedicated VRAM. NVIDIA devices use CUDA, while AMD and other vendors use an
+OpenCL 1.2-or-newer GPU runtime. NVIDIA devices may also use the OpenCL
+artifact when their driver exposes a compatible runtime. A GPU brand, model,
+or advertised memory label is never a consensus input.
+
 ## Memory eligibility
 
 Device eligibility is derived from the actual epoch DAG/cache allocation plus runtime buffers and a safety reserve. The miner reports `required_vram_bytes` and `available_vram_bytes` and refuses a device that cannot satisfy the allocation. Documentation may advertise 4 GB-class compatibility only after the frozen production DAG configuration fits within the real usable allocation on such a device.
+
+“4 GiB supported” means that the frozen allocation must fit on a conforming
+4 GiB device under both backends. Runtime preflight remains mandatory:
+driver-reserved memory, unsupported CUDA/OpenCL capabilities, or an allocation
+failure must produce an explicit refusal. Cards with more than 4 GiB follow
+exactly the same work and verification contract.
 
 ## Shared mining contract
 

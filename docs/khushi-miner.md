@@ -4,13 +4,26 @@ Khushi Algorithm is the human-facing name for Sudharma's GPU-oriented proof-of-w
 
 ## GPU backends
 
-The miner is designed for general-purpose discrete GPUs rather than one model. NVIDIA devices use the CUDA backend and AMD or other compatible GPU devices use the OpenCL backend. The office RTX 2060 is the first available physical validation device, not a hard-coded requirement. Device selection is by runtime index and capability discovery.
+The miner is designed for general-purpose discrete GPUs rather than one model.
+The compatibility target is 4 GiB or more of dedicated VRAM. NVIDIA devices
+use the CUDA backend; AMD and other compatible GPU devices use an OpenCL
+1.2-or-newer backend. NVIDIA may also use OpenCL when its installed driver
+provides a compatible runtime. The office RTX 2060 is the first available
+physical validation device, not a hard-coded requirement. Device selection is
+by runtime index and capability discovery.
 
 There is no supported CPU mining mode. CPU fallback is explicitly prohibited: a missing or unsupported GPU must fail clearly instead of silently moving proof-of-work onto the CPU.
 
 ## Memory eligibility
 
-GPU memory eligibility is dynamic. The miner must compare available VRAM with the actual epoch cache/DAG allocation, runtime buffers, and a safety reserve. Do not interpret the office test as a promise that every nominal 4 GB card is usable. A public minimum-VRAM claim is valid only after the production cache/DAG sizing and lifecycle are frozen and the resulting allocation is measured.
+GPU memory eligibility is dynamic. The miner must compare available VRAM with
+the actual epoch cache/DAG allocation, runtime buffers, and a safety reserve.
+The production sizing must fit within measured usable memory on supported 4 GiB
+CUDA and OpenCL cards before the compatibility target is declared validated.
+A nominal 4 GB/4 GiB label alone is insufficient when the installed driver
+lacks the required runtime, reserves too much memory, or the actual allocation
+fails. Devices above 4 GiB use the same algorithm and receive no consensus
+advantage.
 
 ## Hardware interoperability gate
 

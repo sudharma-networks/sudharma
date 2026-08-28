@@ -18,6 +18,9 @@
 - GPU eligibility is derived from actual required allocation, not a hard-coded GPU model.
 - No Seed-1/Seed-2 consensus activation before interoperability and deployment gates pass.
 - Office RTX 2060 is the first physical test device, not a hard-coded target.
+- Product compatibility target is vendor-neutral discrete GPUs with at least
+  4 GiB dedicated VRAM: CUDA for NVIDIA and OpenCL 1.2+ for AMD/other vendors.
+- A 4 GiB label does not bypass capability or usable-allocation preflight.
 - Returned GPU solutions must be independently re-verified before submission.
 
 ---
@@ -55,6 +58,8 @@
 - [ ] Write failing tests proving eligibility is derived from allocation requirements and not from the text `RTX 2060` or a fixed `4GB` model rule.
 - [ ] Verify RED.
 - [ ] Implement overflow-safe required-memory calculation, CUDA device enumeration and allocation preflight.
+- [ ] Freeze production epoch/cache sizing below the measured usable-memory
+      ceiling of supported 4 GiB CUDA and OpenCL devices, including reserve.
 - [ ] Add `--list-devices` and `--device N` parsing.
 - [ ] Verify GREEN and full regression suite.
 - [ ] Commit.
@@ -92,6 +97,8 @@
 - [ ] Port canonical 32-bit/KISS99/FNV/rotation/merge/dataset/final-digest primitives to OpenCL C without changing vectors.
 - [ ] Implement OpenCL search kernel and host dispatch contract.
 - [ ] Add vendor-neutral device selection and memory diagnostics.
+- [ ] Run the unchanged canonical-vector and bounded-benchmark gates on at
+      least one AMD OpenCL GPU with 4 GiB or more before claiming AMD support.
 - [ ] Verify source/vector contract tests and full Go regression suite.
 - [ ] Commit.
 
