@@ -6,6 +6,7 @@ on:
       - feature/gpu-pow-v1
     paths:
       - 'compatibility/opencl/**'
+      - 'compatibility/gpupowv1/opencl_*'
       - 'scripts/test-gpupow-opencl.sh'
       - '.github/workflows/gpu-pow-v1-opencl-ci.yml'
 
@@ -15,18 +16,29 @@ permissions:
 jobs:
   opencl:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install CPU OpenCL runtime
+      - name: Install CPU OpenCL runtime and compiler headers
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
+            clang \
+            g++ \
+            opencl-headers \
             ocl-icd-opencl-dev \
             pocl-opencl-icd \
             pkg-config
 
-      - name: Run OpenCL compatibility gate
+      - name: Run legacy OpenCL compatibility gate
         run: bash scripts/test-gpupow-opencl.sh
+
+      - name: Syntax-check Khushi OpenCL kernel
+        run: clang -x cl -cl-std=CL1.2 -fsyntax-only compatibility/opencl/khushi_pow.cl
+
+      - name: Compile Khushi OpenCL host miner
+        run: |
+          g++ -std=c++17 -O2 compatibility/opencl/khushi_miner_opencl.cpp -lOpenCL -o /tmp/khushi-miner-opencl
+          test -x /tmp/khushi-miner-opencl
