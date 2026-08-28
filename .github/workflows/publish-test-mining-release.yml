@@ -6,6 +6,11 @@ on:
       - feature/gpu-pow-v1
     paths:
       - '.github/workflows/publish-test-mining-release.yml'
+      - '.github/workflows/khushi-windows-cuda.yml'
+      - '.github/workflows/khushi-windows-opencl.yml'
+      - 'compatibility/cuda/**'
+      - 'compatibility/opencl/**'
+      - 'scripts/windows/test-khushi-miner.ps1'
       - 'docs/test-mining/PUBLIC_TEST_MINING.md'
   workflow_dispatch:
 
@@ -24,17 +29,41 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Resolve latest successful Windows miner builds
+      - name: Resolve same-revision successful Windows miner builds
         id: runs
         shell: bash
         run: |
           set -euo pipefail
-          cuda_run="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow khushi-windows-cuda.yml --branch feature/gpu-pow-v1 --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
-          opencl_run="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow khushi-windows-opencl.yml --branch feature/gpu-pow-v1 --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
-          test -n "$cuda_run"
-          test -n "$opencl_run"
+
+          resolve_run() {
+            local workflow="$1"
+            local run_id=""
+            for _ in $(seq 1 60); do
+              run_id="$(
+                gh run list \
+                  --repo "$GITHUB_REPOSITORY" \
+                  --workflow "$workflow" \
+                  --branch feature/gpu-pow-v1 \
+                  --limit 20 \
+                  --json databaseId,headSha,conclusion \
+                | jq -r --arg sha "$GITHUB_SHA" '.[] | select(.headSha == $sha and .conclusion == "success") | .databaseId' \
+                | head -n 1
+              )"
+              if [[ -n "$run_id" ]]; then
+                printf '%s\n' "$run_id"
+                return 0
+              fi
+              sleep 10
+            done
+            echo "No successful $workflow run found for release revision $GITHUB_SHA" >&2
+            return 1
+          }
+
+          cuda_run="$(resolve_run khushi-windows-cuda.yml)"
+          opencl_run="$(resolve_run khushi-windows-opencl.yml)"
           echo "cuda_run=$cuda_run" >> "$GITHUB_OUTPUT"
           echo "opencl_run=$opencl_run" >> "$GITHUB_OUTPUT"
+          echo "release_revision=$GITHUB_SHA"
           echo "NVIDIA CUDA run: $cuda_run"
           echo "OpenCL run: $opencl_run"
 
@@ -54,6 +83,8 @@ jobs:
           test -f dist/opencl/SHA256SUMS.txt
           test -f dist/opencl/build-metadata.txt
           test -f dist/opencl/test-khushi-miner.ps1
+          grep -F "source_revision=$GITHUB_SHA" dist/nvidia/build-metadata.txt
+          grep -F "source_revision=$GITHUB_SHA" dist/opencl/build-metadata.txt
 
       - name: Package public release assets
         shell: bash
@@ -62,6 +93,7 @@ jobs:
           (cd dist/nvidia && zip -9 -r ../khushi-miner-nvidia-windows.zip .)
           (cd dist/opencl && zip -9 -r ../khushi-miner-opencl-windows.zip .)
           sha256sum dist/khushi-miner-nvidia-windows.zip dist/khushi-miner-opencl-windows.zip | tee dist/RELEASE-SHA256SUMS.txt
+          printf 'source_revision=%s\n' "$GITHUB_SHA" > dist/RELEASE-SOURCE-REVISION.txt
 
       - name: Create or update public prerelease
         shell: bash
@@ -83,6 +115,7 @@ jobs:
             dist/khushi-miner-nvidia-windows.zip \
             dist/khushi-miner-opencl-windows.zip \
             dist/RELEASE-SHA256SUMS.txt \
+            dist/RELEASE-SOURCE-REVISION.txt \
             --clobber
 
       - name: Show public release URL
