@@ -34,6 +34,68 @@ int main() {
     sudharma::gpupowv1::DatasetLocation invalid{};
     return sudharma::gpupowv1::dataset_item_location(33554432ull, &invalid) ? 3 : 0;
 }
+
+func TestCUDAProductionDatasetChunkAllocationCleanup(t *testing.T) {
+	compiler, err := exec.LookPath("g++")
+	if err != nil {
+		t.Skip("g++ is not available")
+	}
+
+	temp := t.TempDir()
+	source := filepath.Join(temp, "allocation.cpp")
+	binary := filepath.Join(temp, "allocation")
+	program := `
+#include <array>
+#include <cstddef>
+#include "gpupow_v1_chunks.cuh"
+
+int main() {
+    using namespace sudharma::gpupowv1;
+    std::array<void*, kProductionChunkCount> chunks{};
+    unsigned allocations = 0;
+    unsigned releases = 0;
+    auto fail_fourth = [&](void** output, std::size_t bytes) {
+        if (bytes != kProductionChunkBytes) return false;
+        ++allocations;
+        if (allocations == 4u) return false;
+        *output = reinterpret_cast<void*>(static_cast<std::uintptr_t>(allocations));
+        return true;
+    };
+    auto release = [&](void* value) {
+        if (value != nullptr) ++releases;
+    };
+    if (allocate_dataset_chunks(&chunks, fail_fourth, release)) return 2;
+    if (allocations != 4u || releases != 3u) return 3;
+    for (void* chunk : chunks) if (chunk != nullptr) return 4;
+
+    allocations = 0;
+    releases = 0;
+    auto succeed = [&](void** output, std::size_t bytes) {
+        if (bytes != kProductionChunkBytes) return false;
+        ++allocations;
+        *output = reinterpret_cast<void*>(static_cast<std::uintptr_t>(allocations));
+        return true;
+    };
+    if (!allocate_dataset_chunks(&chunks, succeed, release)) return 5;
+    if (allocations != kProductionChunkCount || releases != 0u) return 6;
+    release_dataset_chunks(&chunks, release);
+    if (releases != kProductionChunkCount) return 7;
+    for (void* chunk : chunks) if (chunk != nullptr) return 8;
+    return 0;
+}
+`
+	if err := os.WriteFile(source, []byte(program), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	include := filepath.Join("..", "cuda")
+	cmd := exec.Command(compiler, "-std=c++17", "-O2", "-I", include, source, "-o", binary)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("compile CUDA chunk allocation contract: %v\n%s", err, out)
+	}
+	if out, err := exec.Command(binary).CombinedOutput(); err != nil {
+		t.Fatalf("run CUDA chunk allocation contract: %v\n%s", err, out)
+	}
+}
 `
 	if err := os.WriteFile(source, []byte(program), 0o600); err != nil {
 		t.Fatal(err)
