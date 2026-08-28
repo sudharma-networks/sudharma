@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -18,13 +19,10 @@ const (
 	stagingCacheNodes uint32 = 8
 )
 
-var (
-	stagingHeader = []byte("physical-gpu-staging-gate")
-	stagingTarget = [32]byte{0x0f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
-)
+var stagingTarget = [32]byte{0x0f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 
 func digestAtOrBelowTarget(digest [32]byte, target []byte) bool {
 	if len(target) != len(digest) {
@@ -65,7 +63,10 @@ func verifyStagingSolution(challenge rpc.MiningStagingChallenge, nonce uint64) b
 }
 
 func stagingChallengeProvider() ([]byte, uint64, uint32, []byte, error) {
-	header := append([]byte(nil), stagingHeader...)
+	header := make([]byte, 32)
+	if _, err := rand.Read(header); err != nil {
+		return nil, 0, 0, nil, fmt.Errorf("generate staging challenge: %w", err)
+	}
 	target := append([]byte(nil), stagingTarget[:]...)
 	return header, stagingHeight, stagingCacheNodes, target, nil
 }
