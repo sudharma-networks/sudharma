@@ -1,0 +1,74 @@
+name: One-shot wallet-v2 gofmt
+
+on:
+  push:
+    branches:
+      - feature/public-testnet-wallet-v2
+    paths:
+      - '.github/workflows/one-shot-wallet-v2-gofmt.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/public-testnet-wallet-v2
+          fetch-depth: 1
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Format exactly the CI-reported Go files
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(
+            cmd/sudharma-demand-miner/main_test.go
+            cmd/sudharma-rpcd/main.go
+            cmd/sudharma-testnet-info/main.go
+            consensus/work.go
+            demandminer/config.go
+            demandminer/config_test.go
+            demandminer/supervisor_test.go
+            operations/config_strict_test.go
+            p2p/block_broadcast_test.go
+            p2p/peer_adversarial_lifecycle_test.go
+            p2p/transaction_block_broadcast_test.go
+            rpc/client.go
+            rpc/operations_test.go
+            rpc/server.go
+            testnet/manifest_test.go
+            testnet/rehearsal_integration_test.go
+          )
+          gofmt -w "${files[@]}"
+          git diff --check
+          remaining="$(gofmt -l "${files[@]}")"
+          test -z "$remaining" || {
+            printf 'Still unformatted:\n%s\n' "$remaining" >&2
+            exit 1
+          }
+          git diff --stat
+
+      - name: Commit formatting only
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo 'No formatting changes required.'
+            exit 0
+          fi
+          git config user.name 'sudharma-network'
+          git config user.email 'vkw143download@gmail.com'
+          git add -- '*.go'
+          if ! git diff --cached --quiet -- '*.go'; then
+            git commit -m 'style(testnet): gofmt wallet-v2 Go sources'
+            git push origin HEAD:feature/public-testnet-wallet-v2
+          fi
