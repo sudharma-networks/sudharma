@@ -76,9 +76,11 @@ try {
     if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) { Invoke-KhushiStep "NVIDIA driver/GPU report (nvidia-smi)" { nvidia-smi } }
     Invoke-KhushiStep "GPU discovery (--list-devices)" { & $MinerPath --list-devices }
     Invoke-KhushiStep "Canonical hardware vector (--vector-self-test)" { & $MinerPath --device $Device --vector-self-test }
+    Invoke-KhushiStep "Production memory/chunk allocation (--production-memory-self-test)" { & $MinerPath --device $Device --production-memory-self-test }
+    Write-Host "hardware-production-memory=passed"
     Invoke-KhushiStep "GPU benchmark (--benchmark)" { & $MinerPath --device $Device --benchmark $BenchmarkSeconds }
     if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) { Invoke-KhushiStep "GPU telemetry" { & $MinerPath --device $Device --telemetry } }
-    Write-Host "`nhardware-vector-and-benchmark=passed"
+    Write-Host "`nhardware-vector-memory-and-benchmark=passed"
     Write-Host "This result is evidence for the hardware interoperability gate; it does not activate network mining or consensus."
     Write-Host "Live --mine remains gated; controlled staging uses the isolated staging challenge API instead."
 
