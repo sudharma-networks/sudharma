@@ -2,7 +2,8 @@ param(
     [string]$MinerPath = ".\khushi-miner-nvidia.exe",
     [int]$Device = 0,
     [int]$BenchmarkSeconds = 60,
-    [switch]$AllowMining
+    [string]$StagingEndpoint = "",
+    [switch]$SubmitStagingSolution
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,6 +14,23 @@ function Invoke-KhushiStep {
     Write-Host "`n=== $Name ==="
     & $Command
     if ($LASTEXITCODE -ne 0) { throw "$Name failed with exit code $LASTEXITCODE" }
+}
+
+if ($SubmitStagingSolution -and [string]::IsNullOrWhiteSpace($StagingEndpoint)) {
+    throw "SubmitStagingSolution requires -StagingEndpoint"
+}
+
+if (-not [string]::IsNullOrWhiteSpace($StagingEndpoint)) {
+    $stagingUri = $null
+    if (-not [Uri]::TryCreate($StagingEndpoint, [UriKind]::Absolute, [ref]$stagingUri)) {
+        throw "StagingEndpoint must be an absolute HTTP(S) base URL"
+    }
+    if ($stagingUri.Scheme -notin @("http", "https") -or [string]::IsNullOrWhiteSpace($stagingUri.Host)) {
+        throw "StagingEndpoint must be an absolute HTTP(S) base URL"
+    }
+    if ($stagingUri.AbsolutePath -ne "/" -or -not [string]::IsNullOrWhiteSpace($stagingUri.Query) -or -not [string]::IsNullOrWhiteSpace($stagingUri.Fragment)) {
+        throw "StagingEndpoint must not include a path, query, or fragment"
+    }
 }
 
 $MinerPath = (Resolve-Path $MinerPath).Path
@@ -45,13 +63,26 @@ try {
     if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) { Invoke-KhushiStep "GPU telemetry" { & $MinerPath --device $Device --telemetry } }
     Write-Host "`nhardware-vector-and-benchmark=passed"
     Write-Host "This result is evidence for the hardware interoperability gate; it does not activate network mining or consensus."
-    if ($AllowMining) {
-        Write-Host "`nAllowMining was explicitly supplied. Invoking the miner's gated --mine path."
+
+    if ($SubmitStagingSolution) {
+        $normalizedEndpoint = $StagingEndpoint.TrimEnd("/")
+        $env:SUDHARMA_MINING_ENDPOINT = $normalizedEndpoint
+        Write-Host "`nnetwork-submission=explicitly-requested"
+        Write-Host "staging_endpoint=$normalizedEndpoint"
+        Write-Host "Invoking the miner's gated --mine path only after an explicit staging endpoint was supplied."
         & $MinerPath --device $Device --mine
-        if ($LASTEXITCODE -ne 0) { Write-Host "mine_path_exit_code=$LASTEXITCODE"; Write-Host "A gated refusal is expected until production cache/DAG policy and staged network mining are enabled." }
+        $mineExitCode = $LASTEXITCODE
+        if ($mineExitCode -eq 3) {
+            Write-Host "staging-submit=gated"
+            Write-Host "The current CUDA artifact still refuses network mining until the remaining hardware interoperability gate is satisfied."
+        } elseif ($mineExitCode -ne 0) {
+            throw "staging submission path failed with exit code $mineExitCode"
+        } else {
+            Write-Host "staging-submit=completed"
+        }
     } else {
-        Write-Host "network-mining=not-requested"
-        Write-Host "To exercise the gated --mine command only after authorization, rerun with -AllowMining."
+        Write-Host "network-submission=not-requested"
+        Write-Host "Benchmark/self-test mode is the default. Controlled submission requires both -SubmitStagingSolution and -StagingEndpoint."
     }
 }
 finally {
