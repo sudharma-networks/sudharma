@@ -18,6 +18,41 @@ function Invoke-KhushiStep {
     if ($LASTEXITCODE -ne 0) { throw "$Name failed with exit code $LASTEXITCODE" }
 }
 
+function Write-KhushiHostEvidence {
+    Write-Host "`n=== Windows host / GPU provenance ==="
+    Write-Host "computer_name=$([Environment]::MachineName)"
+    Write-Host "powershell_version=$($PSVersionTable.PSVersion.ToString())"
+
+    try {
+        $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop
+        Write-Host "windows_caption=$($os.Caption)"
+        Write-Host "windows_version=$($os.Version)"
+        Write-Host "windows_build=$($os.BuildNumber)"
+    } catch {
+        Write-Warning "Unable to read Win32_OperatingSystem: $($_.Exception.Message)"
+    }
+
+    try {
+        $system = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop
+        Write-Host "system_manufacturer=$($system.Manufacturer)"
+        Write-Host "system_model=$($system.Model)"
+    } catch {
+        Write-Warning "Unable to read Win32_ComputerSystem: $($_.Exception.Message)"
+    }
+
+    try {
+        $videoControllers = @(Get-CimInstance -ClassName Win32_VideoController -ErrorAction Stop)
+        foreach ($video in $videoControllers) {
+            Write-Host "video_name=$($video.Name)"
+            Write-Host "video_vendor=$($video.AdapterCompatibility)"
+            Write-Host "video_driver_version=$($video.DriverVersion)"
+            Write-Host "video_adapter_ram_bytes=$($video.AdapterRAM)"
+        }
+    } catch {
+        Write-Warning "Unable to read Win32_VideoController: $($_.Exception.Message)"
+    }
+}
+
 if ($SubmitStagingSolution -and [string]::IsNullOrWhiteSpace($StagingEndpoint)) {
     throw "SubmitStagingSolution requires -StagingEndpoint"
 }
@@ -85,6 +120,9 @@ try {
     if (-not [string]::IsNullOrWhiteSpace($ResolvedEvidenceDirectory)) {
         Write-Host "evidence_directory=$ResolvedEvidenceDirectory"
     }
+
+    Write-KhushiHostEvidence
+
     if (-not (Test-Path $ChecksumPath)) { throw "SHA256SUMS.txt not found beside miner: $ChecksumPath" }
     $checksumLine = Get-Content $ChecksumPath | Where-Object { $_ -match [regex]::Escape($MinerName) } | Select-Object -First 1
     if (-not $checksumLine) { throw "No checksum entry for $MinerName in SHA256SUMS.txt" }
