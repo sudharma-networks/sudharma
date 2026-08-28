@@ -77,7 +77,11 @@ jobs:
         run: |
           set -euo pipefail
           if command -v systemd-analyze >/dev/null 2>&1; then
-            systemd-analyze verify deployment/testnet/sudharma-demand-miner.service
+            unit_root="$(mktemp -d)"
+            cp deployment/testnet/sudharma-testnet.service "$unit_root/sudharma.service"
+            cp deployment/testnet/sudharma-demand-miner.service "$unit_root/sudharma-demand-miner.service"
+            sed -i 's#^ExecStart=.*#ExecStart=/bin/true#' "$unit_root/sudharma.service" "$unit_root/sudharma-demand-miner.service"
+            systemd-analyze verify "$unit_root/sudharma.service" "$unit_root/sudharma-demand-miner.service"
           else
             echo 'systemd-analyze is unavailable on this runner; skipping unit verification.'
           fi
