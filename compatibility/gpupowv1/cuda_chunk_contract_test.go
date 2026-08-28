@@ -48,7 +48,7 @@ int main() {
 		t.Fatalf("run CUDA chunk contract: %v\n%s", err, out)
 	}
 	want := "0:0:0\n4194303:0:268435392\n4194304:1:0\n33554431:7:268435392"
-	if got := strings.TrimSpace(string(out)); got != want {
+	if got := strings.TrimSpace(strings.ReplaceAll(string(out), "\r\n", "\n")); got != want {
 		t.Fatalf("CUDA chunk mapping mismatch:\ngot:\n%s\nwant:\n%s", got, want)
 	}
 }
