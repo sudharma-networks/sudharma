@@ -106,7 +106,11 @@ jobs:
         run: |
           set -euo pipefail
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" \
+              -f sha="$GITHUB_SHA" \
+              -F force=true >/dev/null
             gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
               --title "Sudharma Public Test Mining — Khushi Algorithm v0.1" \
               --notes-file docs/test-mining/PUBLIC_TEST_MINING.md \
               --prerelease
@@ -117,6 +121,14 @@ jobs:
               --notes-file docs/test-mining/PUBLIC_TEST_MINING.md \
               --prerelease
           fi
+
+          release_tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)"
+          echo "release_tag_sha=$release_tag_sha"
+          if [[ "$release_tag_sha" != "$GITHUB_SHA" ]]; then
+            echo "release tag does not match artifact source revision: tag=$release_tag_sha source=$GITHUB_SHA" >&2
+            exit 1
+          fi
+
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" \
             dist/khushi-miner-nvidia-windows.zip \
             dist/khushi-miner-opencl-windows.zip \
