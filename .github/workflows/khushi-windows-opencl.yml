@@ -1,0 +1,64 @@
+name: Khushi Windows OpenCL
+
+on:
+  push:
+    branches:
+      - feature/gpu-pow-v1
+    paths:
+      - '.github/workflows/khushi-windows-opencl.yml'
+      - 'compatibility/opencl/**'
+      - 'compatibility/gpupowv1/windows_opencl_artifact_contract_test.go'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-opencl:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install OpenCL headers and loader import library
+        shell: pwsh
+        run: |
+          vcpkg install opencl:x64-windows
+
+      - name: Build generic Khushi OpenCL miner
+        shell: cmd
+        run: |
+          call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          where cl.exe
+          if not exist dist mkdir dist
+          cl /nologo /std:c++17 /O2 /EHsc /DCL_TARGET_OPENCL_VERSION=120 /I"C:\vcpkg\installed\x64-windows\include" compatibility\opencl\khushi_miner_opencl.cpp /link /LIBPATH:"C:\vcpkg\installed\x64-windows\lib" OpenCL.lib /OUT:dist\khushi-miner-opencl.exe
+          copy /Y compatibility\opencl\khushi_pow.cl dist\khushi_pow.cl
+
+      - name: Record provenance and checksums
+        shell: pwsh
+        run: |
+          @(
+            "algorithm=Khushi Algorithm",
+            "protocol_id=sudharma-gpupow-v1",
+            "source_revision=$env:GITHUB_SHA",
+            "backend=OpenCL 1.2",
+            "artifact=khushi-miner-opencl.exe",
+            "kernel=khushi_pow.cl",
+            "gpu_policy=GPU devices only; CPU fallback prohibited"
+          ) | Set-Content -Encoding ascii dist/build-metadata.txt
+          $exe = Get-FileHash -Algorithm SHA256 dist/khushi-miner-opencl.exe
+          $kernel = Get-FileHash -Algorithm SHA256 dist/khushi_pow.cl
+          @(
+            "$($exe.Hash.ToLower())  khushi-miner-opencl.exe",
+            "$($kernel.Hash.ToLower())  khushi_pow.cl"
+          ) | Set-Content -Encoding ascii dist/SHA256SUMS.txt
+          Get-Content dist/SHA256SUMS.txt
+
+      - name: Upload generic Windows OpenCL artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: khushi-miner-opencl-windows
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
