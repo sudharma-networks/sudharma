@@ -108,6 +108,40 @@ func TestClientRejectsReusedWorkIDWithMutatedTemplate(t *testing.T) {
 	}
 }
 
+func TestClientRejectsMutatedCurrentWorkOnSubmit(t *testing.T) {
+	var submits atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/mining/work", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(Work{
+			WorkID: "bound-work", Algorithm: "sudharma-gpupow-v1", Version: 2,
+			Height: 88, Difficulty: 4, Target: "0007", HeaderPrefix: "1122", RewardAddress: "SUDH-bound",
+		})
+	})
+	mux.HandleFunc("/v1/mining/submit", func(w http.ResponseWriter, r *http.Request) {
+		submits.Add(1)
+		_ = json.NewEncoder(w).Encode(SubmitResult{Status: "accepted"})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	client, err := NewClient(srv.URL, srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	work, generation, err := client.Poll(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutated := work
+	mutated.RewardAddress = "SUDH-attacker"
+	if _, err := client.SubmitVerified(context.Background(), mutated, generation, 9, func(Work, uint64) bool { return true }); err == nil {
+		t.Fatal("mutated current work template must not be submitted")
+	}
+	if submits.Load() != 0 {
+		t.Fatalf("mutated work reached submit endpoint: %d", submits.Load())
+	}
+}
+
 func TestClientNeverSubmitsWithoutVerifierApproval(t *testing.T) {
 	var submits atomic.Int32
 	mux := http.NewServeMux()
