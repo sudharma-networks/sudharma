@@ -38,3 +38,44 @@ Node blockchain/state/mempool data live under `/var/lib/sudharma` (or the config
 ## Owner boundary
 
 Actual server purchase, hosting account authorization, DNS ownership, TLS issuance and firewall changes require an authorized operator/owner. The repository stops short of embedding those credentials. Once the two real server addresses and chosen domain/DNS access exist, the templates can be instantiated and the public testnet can be launched and monitored.
+
+## Demand miner (one host only)
+
+The demand miner is an optional service for one selected public-testnet host. It observes the node's loopback-only status endpoint and invokes the bounded native miner only when work is pending. The example configuration uses `http://127.0.0.1:28545`; do not expose that raw status/RPC endpoint to the Internet.
+
+Build both binaries, then install them with the service disabled:
+
+```bash
+go build -trimpath -o sudharma-demand-miner ./cmd/sudharma-demand-miner
+go build -trimpath -o sudharmad ./cmd/sudharmad
+sudo bash deployment/testnet/install-demand-miner.sh
+```
+
+Before enabling it, dry-observe the node and validate that its public-testnet identity is visible locally:
+
+```bash
+curl --fail --silent http://127.0.0.1:28545/v1/status
+```
+
+When the local status is correct, opt in explicitly:
+
+```bash
+sudo bash deployment/testnet/install-demand-miner.sh --enable
+# Equivalent after a disabled install:
+sudo systemctl enable --now sudharma-demand-miner.service
+```
+
+Inspect service state and logs with:
+
+```bash
+systemctl status sudharma-demand-miner.service
+journalctl -u sudharma-demand-miner.service --since today
+```
+
+To stop/remove the service assets, preserving both the demand-miner data directory and the node data directory:
+
+```bash
+sudo bash deployment/testnet/install-demand-miner.sh --rollback
+```
+
+The configured reward address is public and contains no key material, wallet password, seed phrase, or other credential. Do not add private wallet material to the configuration or service environment.

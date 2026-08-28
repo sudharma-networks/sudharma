@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -10,6 +11,42 @@ import (
 	"github.com/sudharma-networks/sudharma/transactions"
 	"github.com/sudharma-networks/sudharma/wallet"
 )
+
+func TestRunBlockMiningModeExitsAfterBoundedMining(t *testing.T) {
+	calls := 0
+	exitNodeLoop, err := runBlockMiningMode(1, func() error {
+		calls++
+		return nil
+	})
+
+	if err != nil {
+		t.Fatalf("runBlockMiningMode: %v", err)
+	}
+	if !exitNodeLoop {
+		t.Fatal("bounded block-mining mode did not request node-loop exit")
+	}
+	if calls != 1 {
+		t.Fatalf("bounded miner calls = %d, want 1", calls)
+	}
+}
+
+func TestRunBlockMiningModeContinuesNormalNode(t *testing.T) {
+	called := false
+	exitNodeLoop, err := runBlockMiningMode(0, func() error {
+		called = true
+		return errors.New("must not run")
+	})
+
+	if err != nil {
+		t.Fatalf("runBlockMiningMode: %v", err)
+	}
+	if exitNodeLoop {
+		t.Fatal("normal node mode unexpectedly requested node-loop exit")
+	}
+	if called {
+		t.Fatal("normal node mode unexpectedly ran bounded mining")
+	}
+}
 
 func TestRunBlockMiningTestConfirmsMempoolTransaction(t *testing.T) {
 	chain := blockchain.NewChain()

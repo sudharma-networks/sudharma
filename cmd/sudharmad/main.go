@@ -972,16 +972,17 @@ func main() {
 	// TRANSACTION-CONFIRMING DEVELOPMENT MINING
 	// =================================================
 
-	if *mineBlocks > 0 {
-		if *testMinerAddress == "" {
-			fmt.Println(
-				"-testmineraddress is required when -mineblocks is used",
-			)
-			return
-		}
+	if *mineBlocks > 0 && *testMinerAddress == "" {
+		fmt.Println(
+			"-testmineraddress is required when -mineblocks is used",
+		)
+		return
+	}
 
-		if err :=
-			runBlockMiningTest(
+	exitNodeLoop, err := runBlockMiningMode(
+		*mineBlocks,
+		func() error {
+			return runBlockMiningTest(
 				chain,
 				nodeState,
 				networkNode,
@@ -989,15 +990,19 @@ func main() {
 				statePath,
 				*testMinerAddress,
 				*mineBlocks,
-			); err != nil {
-
-			fmt.Println(
-				"Block mining test failed:",
-				err,
 			)
+		},
+	)
+	if err != nil {
+		fmt.Println(
+			"Block mining test failed:",
+			err,
+		)
 
-			return
-		}
+		return
+	}
+	if exitNodeLoop {
+		return
 	}
 
 	// =================================================
@@ -2101,6 +2106,18 @@ func runEmptyBlockMiningTest(
 	)
 
 	return nil
+}
+
+// runBlockMiningMode runs positive -mineblocks requests as one-shot work and
+// reports whether main must exit instead of entering the normal node loop.
+func runBlockMiningMode(count uint64, mine func() error) (exitNodeLoop bool, err error) {
+	if count == 0 {
+		return false, nil
+	}
+	if mine == nil {
+		return true, fmt.Errorf("block mining function is required")
+	}
+	return true, mine()
 }
 
 // runBlockMiningTest mines and broadcasts a bounded number of development
