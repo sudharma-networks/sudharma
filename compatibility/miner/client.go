@@ -52,6 +52,7 @@ type Client struct {
 
 	mu         sync.RWMutex
 	workID     string
+	work       Work
 	generation uint64
 }
 
@@ -83,13 +84,16 @@ func (c *Client) Poll(ctx context.Context) (Work, uint64, error) {
 	}
 
 	c.mu.Lock()
+	defer c.mu.Unlock()
+	if work.WorkID == c.workID && c.workID != "" && work != c.work {
+		return Work{}, 0, errors.New("mining work_id reused with mutated immutable template")
+	}
 	if work.WorkID != c.workID {
 		c.generation++
 		c.workID = work.WorkID
+		c.work = work
 	}
-	generation := c.generation
-	c.mu.Unlock()
-	return work, generation, nil
+	return work, c.generation, nil
 }
 
 func (c *Client) IsCurrent(workID string, generation uint64) bool {
