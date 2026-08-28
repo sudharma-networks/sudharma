@@ -31,3 +31,24 @@ func TestPublicReleaseTracksHardwareGateAndSameRevisionArtifacts(t *testing.T) {
 		t.Fatal("public release must not select an arbitrary latest successful miner build without binding it to the release commit")
 	}
 }
+
+func TestPublicReleaseTagTracksArtifactSourceRevision(t *testing.T) {
+	workflowPath := filepath.Join("..", "..", ".github", "workflows", "publish-test-mining-release.yml")
+	workflow, err := os.ReadFile(workflowPath)
+	if err != nil {
+		t.Fatalf("read public release workflow: %v", err)
+	}
+	text := string(workflow)
+
+	for _, token := range []string{
+		"git/refs/tags/$TAG",
+		"sha=\"$GITHUB_SHA\"",
+		"force=true",
+		"release_tag_sha",
+		"release tag does not match artifact source revision",
+	} {
+		if !strings.Contains(text, token) {
+			t.Fatalf("public release workflow missing tag/source revision alignment token %q", token)
+		}
+	}
+}
