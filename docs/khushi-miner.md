@@ -21,7 +21,7 @@ A GPU is eligible for controlled mining only after all of the following hold:
 3. The canonical hardware vector self-test produces exactly the locked Go reference digest.
 4. A fixed-duration benchmark runs on the selected GPU and reports hashrate.
 5. Available telemetry is captured. NVIDIA uses `nvidia-smi`; AMD/OpenCL telemetry depends on the vendor runtime/tooling.
-6. A controlled staging solution is host-verified and accepted by the constrained mining submission endpoint.
+6. A controlled staging solution is independently accepted by the isolated Go staging verifier.
 
 The hardware interoperability gate does not itself activate Version 2 on Seed-1/Seed-2. Network activation remains a separate staged deployment gate.
 
@@ -50,15 +50,22 @@ The RTX 2060 test is successful only when the canonical vector says `vector-self
 
 ### Controlled staging submission gate
 
-Do not point the hardware test at Seed-1, Seed-2, or any production/public consensus endpoint. A controlled solution attempt requires both the explicit `-SubmitStagingSolution` switch and a pathless HTTP(S) mining base URL supplied through `-StagingEndpoint`, for example:
+Do not point the hardware test at Seed-1, Seed-2, or any live consensus/mining endpoint. A controlled solution attempt requires both the explicit `-SubmitStagingSolution` switch and a pathless HTTP(S) base URL for the isolated `sudharma-gpupow-staging` verifier, supplied through `-StagingEndpoint`, for example:
 
 ```powershell
 .\scripts\windows\test-khushi-miner.ps1 -MinerPath "C:\path\to\artifact\khushi-miner-nvidia.exe" -Device 0 -BenchmarkSeconds 60 -SubmitStagingSolution -StagingEndpoint "https://staging-mining.example"
 ```
 
-Supplying only `-SubmitStagingSolution` is rejected. The staging URL must be an absolute `http` or `https` base URL with no path, query, or fragment, matching the constrained `/v1/mining/work` and `/v1/mining/submit` client boundary.
+Supplying only `-SubmitStagingSolution` is rejected. The staging URL must be an absolute `http` or `https` base URL with no path, query, or fragment. The script talks only to the staging-specific endpoints:
 
-The current CUDA artifact still deliberately gates `--mine`; therefore an exit through its gated refusal is expected until the physical hardware interoperability requirements and the remaining staged-mining integration are satisfied. The PowerShell flag records explicit authorization and the staging endpoint but does not bypass the miner gate or activate consensus. Any future successful staging submission must still be independently re-verified by the host/Go verifier before it counts as interoperability evidence.
+- `GET /v1/mining/staging/challenge`
+- `POST /v1/mining/staging/submit`
+
+After validating that the challenge is explicitly `staging=true`, algorithm `sudharma-gpupow-v1`, height `0`, and cache node count `8`, the script invokes the CUDA miner's dedicated `--staging-search` mode. That mode searches the supplied non-consensus challenge and prints `staging-solution-nonce=...` when it finds a candidate. The script then posts the exact challenge plus nonce back to the isolated staging verifier and requires status `accepted`.
+
+A successful staging response proves that a physical GPU nonce agrees with the independent Go staging verifier. It creates no block, changes no balance, selects no production cache/DAG policy, and does not activate consensus. Normal `--mine` remains deliberately gated throughout Stage B.
+
+The staging verifier currently keeps a bounded set of outstanding challenges so parallel challenge requests do not invalidate one another. Challenges are single-use, expire after the configured short staging TTL, and replay/mutated submissions are rejected.
 
 ## AMD and OpenCL testing
 
@@ -68,6 +75,6 @@ OpenCL source and CI compilation are not a substitute for a real AMD hardware ru
 
 ## Network mining status
 
-The current artifacts remain hardware-test and benchmark artifacts. Their `--mine` path is deliberately gated until physical interoperability evidence is supplied and the controlled staging path is approved. The Windows test script defaults to no network submission and requires both `-SubmitStagingSolution` and `-StagingEndpoint` before it will even invoke that gated path.
+The current artifacts remain hardware-test and controlled-staging artifacts. Their normal `--mine` path remains deliberately gated. Benchmark/self-test is the default, while controlled staging requires both `-SubmitStagingSolution` and a dedicated staging-verifier base URL.
 
 No production CPU fallback, arbitrary minting, balance edits, or automatic Seed-1/Seed-2 activation are permitted. Legitimate rewards must arise only from blocks independently validated under the consensus rules.
