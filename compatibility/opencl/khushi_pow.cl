@@ -1,5 +1,3 @@
-#pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
-
 #define SUDHARMA_GPU_POW_V1_REFERENCE_HEADER 1
 #define SUDHARMA_GPU_POW_V1_FINAL 1
 #define KHUSHI_NUM_REGS 32
@@ -12,7 +10,6 @@
 #define KHUSHI_FNV_OFFSET 0x811c9dc5u
 #define KHUSHI_FNV_PRIME 0x01000193u
 #define KHUSHI_MAX_HEADER 256u
-#define KHUSHI_NO_NONCE ((ulong)~(ulong)0)
 
 typedef struct {
     uint z;
@@ -116,7 +113,6 @@ inline void khushi_dataset_item(__global const uchar* cache, uint cache_nodes, u
     uchar hashed[64];
     khushi_keccak512_64(out, hashed);
     for (uint i = 0; i < 64u; ++i) out[i] = hashed[i];
-
     for (uint parent = 0; parent < KHUSHI_DATASET_PARENTS; ++parent) {
         uint mix_word = khushi_le32_private(out + (parent % 16u) * 4u);
         uint selector = khushi_fnv1(index ^ parent, mix_word);
@@ -268,6 +264,6 @@ __kernel void khushi_vector(__global const uchar* header,uint header_len,ulong n
     if(get_global_id(0)!=0u||header_len>KHUSHI_MAX_HEADER||cache_nodes==0u)return;uchar seed[32];for(uint i=0;i<32u;++i)seed[i]=program_seed_global[i];uchar hd[32],fd[32];khushi_header_digest(header,header_len,nonce,hd);khushi_final_digest(hd,seed,cache,cache_nodes,fd);for(uint i=0;i<32u;++i)output[i]=fd[i];
 }
 
-__kernel void khushi_search(__global const uchar* header,uint header_len,__global const uchar* program_seed_global,__global const uchar* cache,uint cache_nodes,__global const uchar* target,ulong nonce_start,ulong nonce_count,volatile __global uint* stale_generation,uint expected_generation,volatile __global ulong* found_nonce,volatile __global uint* hashes_done){
-    ulong gid=(ulong)get_global_id(0);if(gid>=nonce_count||header_len>KHUSHI_MAX_HEADER||cache_nodes==0u)return;if(*stale_generation!=expected_generation)return;ulong nonce=nonce_start+gid;if(nonce<nonce_start)return;uchar seed[32];for(uint i=0;i<32u;++i)seed[i]=program_seed_global[i];uchar hd[32],fd[32];khushi_header_digest(header,header_len,nonce,hd);khushi_final_digest(hd,seed,cache,cache_nodes,fd);if(*stale_generation!=expected_generation)return;atomic_inc(hashes_done);if(khushi_meets_target(fd,target)){volatile __global ulong* slot=found_nonce;ulong observed=*slot;while(nonce<observed){ulong prior=atomic_cmpxchg(slot,observed,nonce);if(prior==observed)break;observed=prior;}}
+__kernel void khushi_search(__global const uchar* header,uint header_len,__global const uchar* program_seed_global,__global const uchar* cache,uint cache_nodes,__global const uchar* target,ulong nonce_start,ulong nonce_count,volatile __global uint* stale_generation,uint expected_generation,volatile __global uint* found_flag,volatile __global ulong* found_nonce,volatile __global uint* hashes_done){
+    ulong gid=(ulong)get_global_id(0);if(gid>=nonce_count||header_len>KHUSHI_MAX_HEADER||cache_nodes==0u)return;if(*stale_generation!=expected_generation)return;ulong nonce=nonce_start+gid;if(nonce<nonce_start)return;uchar seed[32];for(uint i=0;i<32u;++i)seed[i]=program_seed_global[i];uchar hd[32],fd[32];khushi_header_digest(header,header_len,nonce,hd);khushi_final_digest(hd,seed,cache,cache_nodes,fd);if(*stale_generation!=expected_generation)return;atomic_inc(hashes_done);if(khushi_meets_target(fd,target)){if(atomic_cmpxchg(found_flag, 0u, 1u)==0u){*found_nonce = nonce;}}
 }
