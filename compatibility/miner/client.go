@@ -44,6 +44,12 @@ type SubmitResult struct {
 	Status string `json:"status"`
 }
 
+type Stats struct {
+	Accepted uint64
+	Rejected uint64
+	Stale    uint64
+}
+
 type Verifier func(work Work, nonce uint64) bool
 
 type Client struct {
@@ -54,6 +60,7 @@ type Client struct {
 	workID     string
 	work       Work
 	generation uint64
+	stats      Stats
 }
 
 func NewClient(baseURL string, httpClient *http.Client) (*Client, error) {
@@ -108,6 +115,25 @@ func (c *Client) isCurrentWork(work Work, generation uint64) bool {
 	return work.WorkID != "" && c.workID == work.WorkID && c.generation == generation && c.work == work
 }
 
+func (c *Client) Stats() Stats {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.stats
+}
+
+func (c *Client) recordSubmitStatus(status string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	switch status {
+	case "accepted":
+		c.stats.Accepted++
+	case "stale":
+		c.stats.Stale++
+	case "invalid", "mutated":
+		c.stats.Rejected++
+	}
+}
+
 func (c *Client) SubmitVerified(ctx context.Context, work Work, generation, nonce uint64, verifier Verifier) (SubmitResult, error) {
 	if !c.isCurrentWork(work, generation) {
 		return SubmitResult{}, errors.New("stale or mutated mining work")
@@ -131,6 +157,7 @@ func (c *Client) SubmitVerified(ctx context.Context, work Work, generation, nonc
 	if strings.TrimSpace(result.Status) == "" {
 		return SubmitResult{}, errors.New("mining submit response missing status")
 	}
+	c.recordSubmitStatus(result.Status)
 	return result, nil
 }
 
