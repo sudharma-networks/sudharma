@@ -11,9 +11,15 @@ on:
       - 'compatibility/opencl/**'
       - 'compatibility/cuda/**'
       - 'compatibility/gpupowv1/windows_opencl_artifact_contract_test.go'
+      - 'compatibility/gpupowv1/windows_self_contained_staging_release_contract_test.go'
+      - 'cmd/sudharma-gpupow-staging/**'
+      - 'rpc/mining_staging*.go'
       - 'scripts/windows/test-khushi-miner.ps1'
+      - 'scripts/windows/run-local-staging-gate.ps1'
       - 'docs/gpu-pow-v1-production-memory-vectors.json'
       - 'docs/test-mining/PUBLIC_TEST_MINING.md'
+      - 'go.mod'
+      - 'go.sum'
   workflow_dispatch:
 
 permissions:
@@ -26,6 +32,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
 
       - name: Install OpenCL headers and loader import library
         shell: pwsh
@@ -44,6 +56,14 @@ jobs:
           copy /Y compatibility\opencl\gpupow_v1_production_vectors.cl dist\gpupow_v1_production_vectors.cl
           copy /Y docs\gpu-pow-v1-production-memory-vectors.json dist\gpu-pow-v1-production-memory-vectors.json
 
+      - name: Build same-revision local staging verifier
+        shell: pwsh
+        run: |
+          $env:CGO_ENABLED = '0'
+          $env:GOOS = 'windows'
+          $env:GOARCH = 'amd64'
+          go build -trimpath -ldflags='-s -w' -o dist/sudharma-gpupow-staging.exe ./cmd/sudharma-gpupow-staging
+
       - name: Record provenance and checksums
         shell: pwsh
         run: |
@@ -54,6 +74,10 @@ jobs:
             "backend=OpenCL 1.2",
             "artifact=khushi-miner-opencl.exe",
             "production_vector_artifact=khushi-production-vectors-opencl.exe",
+            "staging_verifier_artifact=sudharma-gpupow-staging.exe",
+            "staging_endpoint_default=127.0.0.1:28646",
+            "staging_consensus_activation=disabled",
+            "staging_block_creation=none",
             "kernel=khushi_pow.cl",
             "production_vector_kernel=gpupow_v1_production_vectors.cl",
             "production_vectors=docs/gpu-pow-v1-production-memory-vectors.json",
@@ -61,21 +85,25 @@ jobs:
           ) | Set-Content -Encoding ascii dist/build-metadata.txt
           $miner = Get-FileHash -Algorithm SHA256 dist/khushi-miner-opencl.exe
           $vectors = Get-FileHash -Algorithm SHA256 dist/khushi-production-vectors-opencl.exe
+          $verifier = Get-FileHash -Algorithm SHA256 dist/sudharma-gpupow-staging.exe
           $kernel = Get-FileHash -Algorithm SHA256 dist/khushi_pow.cl
           $vectorKernel = Get-FileHash -Algorithm SHA256 dist/gpupow_v1_production_vectors.cl
           $fixture = Get-FileHash -Algorithm SHA256 dist/gpu-pow-v1-production-memory-vectors.json
           @(
             "$($miner.Hash.ToLower())  khushi-miner-opencl.exe",
             "$($vectors.Hash.ToLower())  khushi-production-vectors-opencl.exe",
+            "$($verifier.Hash.ToLower())  sudharma-gpupow-staging.exe",
             "$($kernel.Hash.ToLower())  khushi_pow.cl",
             "$($vectorKernel.Hash.ToLower())  gpupow_v1_production_vectors.cl",
             "$($fixture.Hash.ToLower())  gpu-pow-v1-production-memory-vectors.json"
           ) | Set-Content -Encoding ascii dist/SHA256SUMS.txt
           Get-Content dist/SHA256SUMS.txt
 
-      - name: Package Windows hardware test runner
+      - name: Package Windows hardware and local staging runners
         shell: pwsh
-        run: Copy-Item scripts/windows/test-khushi-miner.ps1 dist/test-khushi-miner.ps1
+        run: |
+          Copy-Item scripts/windows/test-khushi-miner.ps1 dist/test-khushi-miner.ps1
+          Copy-Item scripts/windows/run-local-staging-gate.ps1 dist/run-local-staging-gate.ps1
 
       - name: Upload generic Windows OpenCL artifact
         uses: actions/upload-artifact@v4
