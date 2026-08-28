@@ -117,6 +117,46 @@ SUDHARMA_GPUPOW_HD inline void put_word64(std::array<std::uint8_t, 64>* node,
     (*node)[offset + 3u] = static_cast<std::uint8_t>(value >> 24u);
 }
 
+SUDHARMA_GPUPOW_HD inline std::uint32_t word64_raw(const std::uint8_t* node,
+                                                   std::uint32_t word_index) {
+    const std::size_t offset = static_cast<std::size_t>(word_index & 15u) * 4u;
+    return static_cast<std::uint32_t>(node[offset]) |
+           (static_cast<std::uint32_t>(node[offset + 1u]) << 8u) |
+           (static_cast<std::uint32_t>(node[offset + 2u]) << 16u) |
+           (static_cast<std::uint32_t>(node[offset + 3u]) << 24u);
+}
+
+SUDHARMA_GPUPOW_HD inline std::array<std::uint8_t, 64> dataset_item_from_cache(
+    const std::uint8_t* cache,
+    std::uint32_t cache_nodes,
+    std::uint32_t index) {
+    std::array<std::uint8_t, 64> mix{};
+    if (cache == nullptr || cache_nodes == 0u) return mix;
+
+    const std::size_t base =
+        static_cast<std::size_t>(index % cache_nodes) * mix.size();
+    for (std::size_t i = 0; i < mix.size(); ++i) mix[i] = cache[base + i];
+    put_word64(&mix, 0u, word64(mix, 0u) ^ index);
+    mix = keccak512_64(mix);
+
+    for (std::uint32_t parent = 0; parent < kDatasetParents; ++parent) {
+        const std::uint32_t selector =
+            dataset_fnv1(index ^ parent, word64(mix, parent % 16u));
+        const std::size_t parent_base =
+            static_cast<std::size_t>(selector % cache_nodes) * mix.size();
+        for (std::uint32_t word = 0; word < 16u; ++word) {
+            put_word64(
+                &mix,
+                word,
+                dataset_fnv1(
+                    word64(mix, word),
+                    word64_raw(cache + parent_base, word)));
+        }
+    }
+
+    return keccak512_64(mix);
+}
+
 template <std::size_t CacheNodes>
 SUDHARMA_GPUPOW_HD inline std::array<std::uint8_t, 64> dataset_item(
     const std::array<std::array<std::uint8_t, 64>, CacheNodes>& cache,
