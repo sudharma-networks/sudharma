@@ -81,7 +81,8 @@ int main(int argc, char** argv) {
 		t.Fatalf("run CUDA production vector contract: %v\n%s", err, out)
 	}
 
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	normalizedOutput := strings.ReplaceAll(string(out), "\r\n", "\n")
+	lines := strings.Split(strings.TrimSpace(normalizedOutput), "\n")
 	if len(lines) != len(fixture.Vectors) {
 		t.Fatalf("CUDA vector line count=%d want %d\n%s", len(lines), len(fixture.Vectors), out)
 	}
