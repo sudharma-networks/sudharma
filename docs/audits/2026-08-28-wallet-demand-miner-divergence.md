@@ -47,3 +47,11 @@ This reconciliation does not deploy or enable the demand miner on Seed-1 or Seed
 - Local Go verification: blocked because the Work runtime has no `go` executable.
 - Exact error: `/bin/bash: line 1: go: command not found`.
 - Required Go, race, build, rehearsal, container, and formatting checks must therefore be confirmed by GitHub Actions at the exact candidate SHA.
+- Demand-miner CI safety assertions: PASS via `bash scripts/check-demand-miner-ci_test.sh`.
+- Demand-miner branch CI-source assertions: PASS via `bash scripts/demand-miner-ci_test.sh`.
+- Staged installer safety suite: PASS via `bash deployment/testnet/install-demand-miner_test.sh`.
+- Lambda dependencies were installed transiently with `npm install --ignore-scripts --no-audit --no-fund`; the generated dependency directory and untracked lockfile were removed from the worktree afterward.
+- Lambda suite: 29 tests passed, 0 failed via `npm test`. This includes initial-grant reconciliation, exact confirmed 25 Test SUDH challenge payment, exact 50 Test SUDH reward, replay/cooldown/round guards, uncertain submission, upstream failover, request bounds, and secret-safe logs.
+- Android local verification: blocked because `mobile/android/gradlew` is not tracked and no system `gradle` executable is installed. Java is available. Android unit, lint, and APK build gates must run through the exact-head `Android Wallet` GitHub workflow.
+- Faucet reconciliation ancestry: both RED `0b19679` and GREEN `fc8ad51` remain ancestors of the integrated candidate.
+- GPU/Khushi diff boundary: no changes under `pow`, `params`, `compatibility/cuda`, or `compatibility/opencl` relative to the canonical base.
