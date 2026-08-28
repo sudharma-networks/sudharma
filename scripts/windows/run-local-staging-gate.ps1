@@ -1,6 +1,6 @@
 param(
     [string]$VerifierPath = ".\sudharma-gpupow-staging.exe",
-    [string]$MinerPath = ".\khushi-miner-nvidia.exe",
+    [string]$MinerPath = "",
     [int]$Device = 0,
     [int]$BenchmarkSeconds = 60
 )
@@ -9,8 +9,25 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $VerifierPath = (Resolve-Path $VerifierPath).Path
-$MinerPath = (Resolve-Path $MinerPath).Path
 $BundleDir = Split-Path -Parent $VerifierPath
+
+if ([string]::IsNullOrWhiteSpace($MinerPath)) {
+    $packagedMinerCandidates = @(
+        @(
+            (Join-Path $BundleDir "khushi-miner-nvidia.exe"),
+            (Join-Path $BundleDir "khushi-miner-opencl.exe")
+        ) | Where-Object { Test-Path $_ }
+    )
+    if ($packagedMinerCandidates.Count -eq 0) {
+        throw "No packaged Khushi miner found beside the staging verifier. Expected khushi-miner-nvidia.exe or khushi-miner-opencl.exe"
+    }
+    if ($packagedMinerCandidates.Count -gt 1) {
+        throw "Multiple packaged Khushi miners found beside the staging verifier; specify -MinerPath explicitly"
+    }
+    $MinerPath = $packagedMinerCandidates[0]
+}
+
+$MinerPath = (Resolve-Path $MinerPath).Path
 $VerifierName = Split-Path -Leaf $VerifierPath
 $ChecksumPath = Join-Path $BundleDir "SHA256SUMS.txt"
 $MetadataPath = Join-Path $BundleDir "build-metadata.txt"
@@ -41,6 +58,7 @@ if ($expected -ne $actual) {
     throw "Staging verifier SHA256 mismatch; refusing to execute"
 }
 Write-Host "staging_verifier_checksum=ok"
+Write-Host "selected_miner=$MinerPath"
 Write-Host "staging_endpoint=$Endpoint"
 Write-Host "staging_binding=localhost-only"
 Write-Host "seed-services=untouched"
