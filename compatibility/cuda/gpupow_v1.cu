@@ -15,6 +15,7 @@ namespace sudharma::gpupowv1 {
 
 constexpr std::uint32_t kFNVOffsetBasis = 0x811c9dc5u;
 constexpr std::uint32_t kFNVPrime = 0x01000193u;
+constexpr std::size_t kNumRegs = 32u;
 constexpr char kHeaderDomain[] = "SUDHARMA-GPU-POW-V1-REFERENCE-HEADER";
 
 SUDHARMA_HD inline std::uint32_t fnv1a(std::uint32_t a, std::uint32_t b) {
@@ -44,6 +45,23 @@ SUDHARMA_HD inline KISS99 new_kiss99(std::uint32_t seed_lo, std::uint32_t seed_h
     const std::uint32_t jsr = fnv1a(w, seed_lo);
     const std::uint32_t jcong = fnv1a(jsr, seed_hi);
     return KISS99{z, w, jsr, jcong};
+}
+
+SUDHARMA_HD inline std::array<std::uint32_t, kNumRegs> init_lane(std::uint64_t seed, std::uint32_t lane) {
+    const std::uint32_t seed_lo = static_cast<std::uint32_t>(seed);
+    const std::uint32_t seed_hi = static_cast<std::uint32_t>(seed >> 32u);
+    KISS99 rng{
+        fnv1a(kFNVOffsetBasis, seed_lo),
+        fnv1a(kFNVOffsetBasis, seed_hi),
+        fnv1a(kFNVOffsetBasis, lane),
+        fnv1a(kFNVOffsetBasis, lane),
+    };
+
+    std::array<std::uint32_t, kNumRegs> mix{};
+    for (std::size_t i = 0; i < mix.size(); ++i) {
+        mix[i] = rng.next();
+    }
+    return mix;
 }
 
 inline std::uint32_t rotr(std::uint32_t x, std::uint32_t n) {
@@ -187,6 +205,24 @@ bool parse_u64_hex(const char* text, std::uint64_t* out) {
     return true;
 }
 
+bool parse_lane(const char* text, std::uint32_t* out) {
+    if (*text == '\0') {
+        return false;
+    }
+    std::uint32_t value = 0;
+    for (const char* p = text; *p != '\0'; ++p) {
+        if (*p < '0' || *p > '9') {
+            return false;
+        }
+        value = value * 10u + static_cast<std::uint32_t>(*p - '0');
+        if (value >= 16u) {
+            return false;
+        }
+    }
+    *out = value;
+    return true;
+}
+
 std::array<std::uint8_t, 32> header_digest(const std::vector<std::uint8_t>& header, std::uint64_t nonce) {
     std::vector<std::uint8_t> input;
     input.reserve(sizeof(kHeaderDomain) + header.size() + 8u);
@@ -250,6 +286,27 @@ static int run_header_seed(const char* header_hex, const char* nonce_hex) {
     return 0;
 }
 
+static int run_lane_init(const char* seed_hex, const char* lane_text) {
+    std::uint64_t seed = 0;
+    std::uint32_t lane = 0;
+    if (!sudharma::gpupowv1::parse_u64_hex(seed_hex, &seed) ||
+        !sudharma::gpupowv1::parse_lane(lane_text, &lane)) {
+        std::fputs("invalid seed or lane\n", stderr);
+        return 65;
+    }
+
+    const auto mix = sudharma::gpupowv1::init_lane(seed, lane);
+    std::fputs("lane-mix=", stdout);
+    for (std::size_t i = 0; i < mix.size(); ++i) {
+        if (i != 0u) {
+            std::fputc(',', stdout);
+        }
+        std::printf("%08x", mix[i]);
+    }
+    std::fputc('\n', stdout);
+    return 0;
+}
+
 int main(int argc, char** argv) {
     if (argc == 2 && std::strcmp(argv[1], "--self-test") == 0) {
         return run_self_test();
@@ -257,6 +314,10 @@ int main(int argc, char** argv) {
 
     if (argc == 4 && std::strcmp(argv[1], "--header-seed") == 0) {
         return run_header_seed(argv[2], argv[3]);
+    }
+
+    if (argc == 4 && std::strcmp(argv[1], "--lane-init") == 0) {
+        return run_lane_init(argv[2], argv[3]);
     }
 
     if (argc == 2 && std::strcmp(argv[1], "--mine") == 0) {
@@ -269,6 +330,6 @@ int main(int argc, char** argv) {
 #endif
     }
 
-    std::fputs("usage: sudharma-gpupow-cuda --self-test | --header-seed HEADER_HEX NONCE_HEX | --mine\n", stderr);
+    std::fputs("usage: sudharma-gpupow-cuda --self-test | --header-seed HEADER_HEX NONCE_HEX | --lane-init SEED_HEX LANE | --mine\n", stderr);
     return 64;
 }
