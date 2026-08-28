@@ -8,7 +8,8 @@ Requires=sudharma.service
 Type=simple
 User=sudharma-miner
 Group=sudharma-miner
-ExecStartPre=+/usr/bin/install -o sudharma-miner -g sudharma-miner -m 0600 /dev/null /run/sudharma-demand-miner.lock
+RuntimeDirectory=sudharma-demand-miner
+RuntimeDirectoryMode=0750
 ExecStart=/usr/local/bin/sudharma-demand-miner -config /etc/sudharma/demand-miner.json
 Restart=on-failure
 RestartSec=30s
@@ -33,7 +34,7 @@ CapabilityBoundingSet=
 AmbientCapabilities=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 ReadWritePaths=/var/lib/sudharma-demand-miner
-ReadWritePaths=/run/sudharma-demand-miner.lock
+ReadWritePaths=/run/sudharma-demand-miner
 
 [Install]
 WantedBy=multi-user.target
