@@ -333,7 +333,7 @@ int run_staging_search(const char* header_hex, const char* target_hex, std::uint
     unsigned long long zero = 0ull;
     if (cuda_error("cudaMemcpy(staging cache)", cudaMemcpy(device_cache, &host_cache, sizeof(host_cache), cudaMemcpyHostToDevice)) != 0) return 1;
     if (cuda_error("cudaMemcpy(staging generation)", cudaMemcpy(stale_generation, &generation, sizeof(generation), cudaMemcpyHostToDevice)) != 0) return 1;
-    if (cuda_error("cudaMemcpy(staging nonce)", cudaMemcpy(found_nonce, &no_nonce, sizeof(no_nonce), cudaMemcpyHostToDevice)) != 0) return 1;
+    if (cuda_error("cudaMemcpy(staging nonce)", cudaMemcpy(found_nonce, &no_nonce, sizeof(no_nonce), cudaMemcpyDeviceToHost)) != 0) return 1;
     if (cuda_error("cudaMemcpy(staging hashes)", cudaMemcpy(hashes_done, &zero, sizeof(zero), cudaMemcpyHostToDevice)) != 0) return 1;
 
     constexpr unsigned threads = 32u;
@@ -421,8 +421,11 @@ int main(int argc, char** argv) {
         return run_vector_self_test();
     }
     if (std::strcmp(argv[arg], "--benchmark") == 0 && (arg + 1 == argc || arg + 2 == argc)) {
-        unsigned seconds = 10u;
-        if (arg + 2 == argc) seconds = static_cast<unsigned>(std::strtoul(argv[arg + 1], nullptr, 10));
+        std::uint32_t seconds = 10u;
+        if (arg + 2 == argc && !parse_u32(argv[arg + 1], &seconds)) {
+            std::fputs("invalid --benchmark seconds\n", stderr);
+            return 64;
+        }
         return run_benchmark(seconds);
     }
     if (std::strcmp(argv[arg], "--staging-search") == 0 && arg + 9 == argc &&
