@@ -142,6 +142,42 @@ func TestClientRejectsMutatedCurrentWorkOnSubmit(t *testing.T) {
 	}
 }
 
+func TestClientCountsAcceptedRejectedAndStaleSubmitResults(t *testing.T) {
+	statuses := []string{"accepted", "invalid", "mutated", "stale"}
+	var submits atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/mining/work", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(Work{
+			WorkID: "stats-work", Algorithm: "sudharma-gpupow-v1", Version: 2,
+			Height: 99, Difficulty: 2, Target: "000f", HeaderPrefix: "3344", RewardAddress: "SUDH-stats",
+		})
+	})
+	mux.HandleFunc("/v1/mining/submit", func(w http.ResponseWriter, r *http.Request) {
+		index := int(submits.Add(1)) - 1
+		_ = json.NewEncoder(w).Encode(SubmitResult{Status: statuses[index]})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	client, err := NewClient(srv.URL, srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	work, generation, err := client.Poll(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for nonce := uint64(1); nonce <= uint64(len(statuses)); nonce++ {
+		if _, err := client.SubmitVerified(context.Background(), work, generation, nonce, func(Work, uint64) bool { return true }); err != nil {
+			t.Fatalf("submit %d: %v", nonce, err)
+		}
+	}
+	stats := client.Stats()
+	if stats.Accepted != 1 || stats.Rejected != 2 || stats.Stale != 1 {
+		t.Fatalf("unexpected mining result counters: %+v", stats)
+	}
+}
+
 func TestClientNeverSubmitsWithoutVerifierApproval(t *testing.T) {
 	var submits atomic.Int32
 	mux := http.NewServeMux()
