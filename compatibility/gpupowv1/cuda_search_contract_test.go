@@ -8,12 +8,21 @@ import (
 )
 
 func TestCUDASearchKernelContract(t *testing.T) {
-	sourcePath := filepath.Join("..", "cuda", "gpupow_v1.cu")
-	source, err := os.ReadFile(sourcePath)
-	if err != nil {
-		t.Fatalf("read CUDA source: %v", err)
+	paths := []string{
+		filepath.Join("..", "cuda", "gpupow_v1.cu"),
+		filepath.Join("..", "cuda", "gpupow_v1_search.cuh"),
+		filepath.Join("..", "cuda", "khushi_miner.cu"),
 	}
-	text := string(source)
+	var source strings.Builder
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read CUDA source %s: %v", path, err)
+		}
+		source.Write(data)
+		source.WriteByte('\n')
+	}
+	text := source.String()
 
 	required := []string{
 		"__global__ void khushi_search_kernel",
