@@ -63,23 +63,63 @@ try {
     if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) { Invoke-KhushiStep "GPU telemetry" { & $MinerPath --device $Device --telemetry } }
     Write-Host "`nhardware-vector-and-benchmark=passed"
     Write-Host "This result is evidence for the hardware interoperability gate; it does not activate network mining or consensus."
+    Write-Host "Live --mine remains gated; controlled staging uses the isolated staging challenge API instead."
 
     if ($SubmitStagingSolution) {
         $normalizedEndpoint = $StagingEndpoint.TrimEnd("/")
-        $env:SUDHARMA_MINING_ENDPOINT = $normalizedEndpoint
-        Write-Host "`nnetwork-submission=explicitly-requested"
+        $challengeUrl = "$normalizedEndpoint/v1/mining/staging/challenge"
+        $submitUrl = "$normalizedEndpoint/v1/mining/staging/submit"
+        Write-Host "`n=== Controlled staging GPU solution ==="
+        Write-Host "network-submission=explicitly-requested"
         Write-Host "staging_endpoint=$normalizedEndpoint"
-        Write-Host "Invoking the miner's gated --mine path only after an explicit staging endpoint was supplied."
-        & $MinerPath --device $Device --mine
-        $mineExitCode = $LASTEXITCODE
-        if ($mineExitCode -eq 3) {
-            Write-Host "staging-submit=gated"
-            Write-Host "The current CUDA artifact still refuses network mining until the remaining hardware interoperability gate is satisfied."
-        } elseif ($mineExitCode -ne 0) {
-            throw "staging submission path failed with exit code $mineExitCode"
-        } else {
-            Write-Host "staging-submit=completed"
+
+        $challenge = Invoke-RestMethod -Method Get -Uri $challengeUrl -TimeoutSec 15
+        if ($challenge.algorithm -ne "sudharma-gpupow-v1") { throw "Unexpected staging algorithm: $($challenge.algorithm)" }
+        if ($challenge.staging -ne $true) { throw "Endpoint did not return explicit staging work" }
+        if ([UInt64]$challenge.height -ne 0) { throw "Current staging hardware gate requires height=0" }
+        if ([UInt32]$challenge.cache_nodes -ne 8) { throw "Current staging hardware gate requires cache_nodes=8" }
+        if ([string]::IsNullOrWhiteSpace([string]$challenge.challenge_id)) { throw "Staging challenge_id is missing" }
+        if ([string]::IsNullOrWhiteSpace([string]$challenge.header_prefix)) { throw "Staging header_prefix is missing" }
+        if ([string]::IsNullOrWhiteSpace([string]$challenge.target)) { throw "Staging target is missing" }
+
+        Write-Host "challenge_id=$($challenge.challenge_id)"
+        Write-Host "staging_height=$($challenge.height)"
+        Write-Host "staging_cache_nodes=$($challenge.cache_nodes)"
+
+        $stagingArgs = @(
+            "--device", [string]$Device,
+            "--staging-search",
+            "--header-prefix-hex", [string]$challenge.header_prefix,
+            "--target-hex", [string]$challenge.target,
+            "--height", [string]$challenge.height,
+            "--cache-nodes", [string]$challenge.cache_nodes
+        )
+        $stagingOutput = @(& $MinerPath @stagingArgs 2>&1)
+        $stagingExitCode = $LASTEXITCODE
+        $stagingOutput | ForEach-Object { Write-Host $_ }
+        if ($stagingExitCode -ne 0) {
+            throw "staging GPU search failed with exit code $stagingExitCode"
         }
+
+        $nonceLine = $stagingOutput | Where-Object { [string]$_ -match '^staging-solution-nonce=([0-9]+)' } | Select-Object -First 1
+        if (-not $nonceLine) { throw "GPU staging search returned no staging-solution-nonce=" }
+        $match = [regex]::Match([string]$nonceLine, '^staging-solution-nonce=([0-9]+)')
+        if (-not $match.Success) { throw "Unable to parse staging solution nonce" }
+        $nonce = [UInt64]::Parse($match.Groups[1].Value)
+        Write-Host "staging_solution_nonce=$nonce"
+
+        $solution = [ordered]@{
+            challenge = $challenge
+            nonce = $nonce
+        }
+        $solutionJson = $solution | ConvertTo-Json -Depth 10 -Compress
+        $result = Invoke-RestMethod -Method Post -Uri $submitUrl -ContentType "application/json" -Body $solutionJson -TimeoutSec 15
+        if ($result.status -ne "accepted") {
+            throw "Independent staging verifier rejected GPU solution with status: $($result.status)"
+        }
+        Write-Host "staging-submit=accepted"
+        Write-Host "network-submission=staging-accepted"
+        Write-Host "The GPU nonce was accepted by the isolated independent Go staging verifier. No block was created and consensus was not activated."
     } else {
         Write-Host "network-submission=not-requested"
         Write-Host "Benchmark/self-test mode is the default. Controlled submission requires both -SubmitStagingSolution and -StagingEndpoint."
