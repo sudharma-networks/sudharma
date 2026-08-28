@@ -333,7 +333,7 @@ int run_staging_search(const char* header_hex, const char* target_hex, std::uint
     unsigned long long zero = 0ull;
     if (cuda_error("cudaMemcpy(staging cache)", cudaMemcpy(device_cache, &host_cache, sizeof(host_cache), cudaMemcpyHostToDevice)) != 0) return 1;
     if (cuda_error("cudaMemcpy(staging generation)", cudaMemcpy(stale_generation, &generation, sizeof(generation), cudaMemcpyHostToDevice)) != 0) return 1;
-    if (cuda_error("cudaMemcpy(staging nonce)", cudaMemcpy(found_nonce, &no_nonce, sizeof(no_nonce), cudaMemcpyDeviceToHost)) != 0) return 1;
+    if (cuda_error("cudaMemcpy(staging nonce)", cudaMemcpy(found_nonce, &no_nonce, sizeof(no_nonce), cudaMemcpyHostToDevice)) != 0) return 1;
     if (cuda_error("cudaMemcpy(staging hashes)", cudaMemcpy(hashes_done, &zero, sizeof(zero), cudaMemcpyHostToDevice)) != 0) return 1;
 
     constexpr unsigned threads = 32u;
