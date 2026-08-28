@@ -9,6 +9,7 @@ on:
       - 'cmd/sudharma-gpupow-staging/**'
       - 'rpc/mining_staging*.go'
       - 'compatibility/gpupowv1/**'
+      - 'deployment/staging/**'
   workflow_dispatch:
 
 permissions:
@@ -37,8 +38,12 @@ jobs:
           GOOS: linux
           GOARCH: amd64
         run: |
-          mkdir -p dist
+          mkdir -p dist/deployment
           go build -trimpath -ldflags='-s -w' -o dist/sudharma-gpupow-staging ./cmd/sudharma-gpupow-staging
+          cp deployment/staging/sudharma-gpupow-staging.service dist/deployment/
+          cp deployment/staging/nginx-staging.example.conf dist/deployment/
+          cp deployment/staging/install-staging-verifier.sh dist/deployment/
+          chmod 0755 dist/deployment/install-staging-verifier.sh
 
       - name: Record provenance and checksum
         run: |
