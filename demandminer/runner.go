@@ -16,12 +16,12 @@ import (
 )
 
 const (
-	maxMinerOutputBytes   = 64 << 10
+	maxMinerOutputBytes  = 64 << 10
 	miningEvidenceWindow = 8 << 10
 )
 
 var (
-	pendingTransactionsPattern = regexp.MustCompile(`(?m)^Pending Transactions:\s*([0-9]+)\s*$`)
+	pendingTransactionsPattern  = regexp.MustCompile(`(?m)^Pending Transactions:\s*([0-9]+)\s*$`)
 	includedTransactionsPattern = regexp.MustCompile(`(?m)^Block #[0-9]+ found \| Hash: [^|]+ \| Transactions:\s*([0-9]+)\s*\|`)
 )
 
@@ -177,9 +177,9 @@ type miningOutput struct {
 	retained bytes.Buffer
 	tail     []byte
 
-	pendingSeen     bool
-	pendingPositive bool
-	includedSeen    bool
+	pendingSeen      bool
+	pendingPositive  bool
+	includedSeen     bool
 	includedPositive bool
 
 	onEvidence func()
