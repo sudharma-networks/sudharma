@@ -12,6 +12,7 @@ on:
       - 'compatibility/cuda/**'
       - 'compatibility/gpupowv1/windows_opencl_artifact_contract_test.go'
       - 'scripts/windows/test-khushi-miner.ps1'
+      - 'docs/gpu-pow-v1-production-memory-vectors.json'
       - 'docs/test-mining/PUBLIC_TEST_MINING.md'
   workflow_dispatch:
 
@@ -41,6 +42,7 @@ jobs:
           cl /nologo /std:c++17 /O2 /EHsc /DCL_TARGET_OPENCL_VERSION=120 /I"C:\vcpkg\installed\x64-windows\include" compatibility\opencl\khushi_production_vectors_opencl.cpp /link /LIBPATH:"C:\vcpkg\installed\x64-windows\lib" OpenCL.lib /OUT:dist\khushi-production-vectors-opencl.exe
           copy /Y compatibility\opencl\khushi_pow.cl dist\khushi_pow.cl
           copy /Y compatibility\opencl\gpupow_v1_production_vectors.cl dist\gpupow_v1_production_vectors.cl
+          copy /Y docs\gpu-pow-v1-production-memory-vectors.json dist\gpu-pow-v1-production-memory-vectors.json
 
       - name: Record provenance and checksums
         shell: pwsh
@@ -54,17 +56,20 @@ jobs:
             "production_vector_artifact=khushi-production-vectors-opencl.exe",
             "kernel=khushi_pow.cl",
             "production_vector_kernel=gpupow_v1_production_vectors.cl",
+            "production_vectors=docs/gpu-pow-v1-production-memory-vectors.json",
             "gpu_policy=GPU devices only; CPU fallback prohibited"
           ) | Set-Content -Encoding ascii dist/build-metadata.txt
           $miner = Get-FileHash -Algorithm SHA256 dist/khushi-miner-opencl.exe
           $vectors = Get-FileHash -Algorithm SHA256 dist/khushi-production-vectors-opencl.exe
           $kernel = Get-FileHash -Algorithm SHA256 dist/khushi_pow.cl
           $vectorKernel = Get-FileHash -Algorithm SHA256 dist/gpupow_v1_production_vectors.cl
+          $fixture = Get-FileHash -Algorithm SHA256 dist/gpu-pow-v1-production-memory-vectors.json
           @(
             "$($miner.Hash.ToLower())  khushi-miner-opencl.exe",
             "$($vectors.Hash.ToLower())  khushi-production-vectors-opencl.exe",
             "$($kernel.Hash.ToLower())  khushi_pow.cl",
-            "$($vectorKernel.Hash.ToLower())  gpupow_v1_production_vectors.cl"
+            "$($vectorKernel.Hash.ToLower())  gpupow_v1_production_vectors.cl",
+            "$($fixture.Hash.ToLower())  gpu-pow-v1-production-memory-vectors.json"
           ) | Set-Content -Encoding ascii dist/SHA256SUMS.txt
           Get-Content dist/SHA256SUMS.txt
 
