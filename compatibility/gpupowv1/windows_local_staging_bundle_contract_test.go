@@ -49,6 +49,11 @@ func TestWindowsLocalStagingBundleContract(t *testing.T) {
 			t.Fatalf("local staging gate script missing %q", token)
 		}
 	}
+	for lineNumber, line := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
+		if strings.HasSuffix(strings.TrimSpace(line), "\\") {
+			t.Fatalf("local staging gate script uses invalid PowerShell backslash continuation on line %d: %q", lineNumber+1, line)
+		}
+	}
 	if strings.Contains(text, "Seed-1") || strings.Contains(text, "Seed-2") || strings.Contains(text, "sudharma.service") {
 		t.Fatal("local staging gate must not target seed nodes or the live node service")
 	}
