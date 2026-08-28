@@ -25,7 +25,7 @@ func TestCUDAMinerHostSelfTestAndNoCPUFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CUDA host self-test failed: %v\n%s", err, out)
 	}
-	got := strings.TrimSpace(string(out))
+	got := strings.ReplaceAll(strings.TrimSpace(string(out)), "\r\n", "\n")
 	want := "kiss99=5f502f5e,5065034f,0b7649f5,6759296d\nself-test=ok"
 	if got != want {
 		t.Fatalf("CUDA primitive self-test mismatch:\ngot:\n%s\nwant:\n%s", got, want)
