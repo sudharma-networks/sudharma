@@ -3,7 +3,8 @@ param(
     [int]$Device = 0,
     [int]$BenchmarkSeconds = 60,
     [string]$StagingEndpoint = "",
-    [switch]$SubmitStagingSolution
+    [switch]$SubmitStagingSolution,
+    [string]$EvidenceDirectory = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -38,7 +39,14 @@ $MinerDir = Split-Path -Parent $MinerPath
 $MinerName = Split-Path -Leaf $MinerPath
 $ChecksumPath = Join-Path $MinerDir "SHA256SUMS.txt"
 $MetadataPath = Join-Path $MinerDir "build-metadata.txt"
-$LogPath = Join-Path $MinerDir ("khushi-hardware-test-{0}.log" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
+
+$ResolvedEvidenceDirectory = ""
+if (-not [string]::IsNullOrWhiteSpace($EvidenceDirectory)) {
+    $ResolvedEvidenceDirectory = (New-Item -ItemType Directory -Force -Path $EvidenceDirectory).FullName
+    $LogPath = Join-Path $ResolvedEvidenceDirectory "hardware-test.log"
+} else {
+    $LogPath = Join-Path $MinerDir ("khushi-hardware-test-{0}.log" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
+}
 
 Start-Transcript -Path $LogPath | Out-Null
 try {
@@ -46,6 +54,9 @@ try {
     Write-Host "miner=$MinerPath"
     Write-Host "device=$Device"
     Write-Host "benchmark_seconds=$BenchmarkSeconds"
+    if (-not [string]::IsNullOrWhiteSpace($ResolvedEvidenceDirectory)) {
+        Write-Host "evidence_directory=$ResolvedEvidenceDirectory"
+    }
     if (-not (Test-Path $ChecksumPath)) { throw "SHA256SUMS.txt not found beside miner: $ChecksumPath" }
     $checksumLine = Get-Content $ChecksumPath | Where-Object { $_ -match [regex]::Escape($MinerName) } | Select-Object -First 1
     if (-not $checksumLine) { throw "No checksum entry for $MinerName in SHA256SUMS.txt" }
@@ -56,6 +67,12 @@ try {
     if ($expected -ne $actual) { throw "SHA256 checksum mismatch; refusing to execute miner" }
     Write-Host "checksum=ok"
     if (Test-Path $MetadataPath) { Write-Host "`n=== Build metadata ==="; Get-Content $MetadataPath }
+    if (-not [string]::IsNullOrWhiteSpace($ResolvedEvidenceDirectory)) {
+        Copy-Item $ChecksumPath (Join-Path $ResolvedEvidenceDirectory "miner-SHA256SUMS.txt") -Force
+        if (Test-Path $MetadataPath) {
+            Copy-Item $MetadataPath (Join-Path $ResolvedEvidenceDirectory "miner-build-metadata.txt") -Force
+        }
+    }
     if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) { Invoke-KhushiStep "NVIDIA driver/GPU report (nvidia-smi)" { nvidia-smi } }
     Invoke-KhushiStep "GPU discovery (--list-devices)" { & $MinerPath --list-devices }
     Invoke-KhushiStep "Canonical hardware vector (--vector-self-test)" { & $MinerPath --device $Device --vector-self-test }
@@ -81,6 +98,10 @@ try {
         if ([string]::IsNullOrWhiteSpace([string]$challenge.challenge_id)) { throw "Staging challenge_id is missing" }
         if ([string]::IsNullOrWhiteSpace([string]$challenge.header_prefix)) { throw "Staging header_prefix is missing" }
         if ([string]::IsNullOrWhiteSpace([string]$challenge.target)) { throw "Staging target is missing" }
+
+        if (-not [string]::IsNullOrWhiteSpace($ResolvedEvidenceDirectory)) {
+            $challenge | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $ResolvedEvidenceDirectory "challenge.json")
+        }
 
         Write-Host "challenge_id=$($challenge.challenge_id)"
         Write-Host "staging_height=$($challenge.height)"
@@ -112,8 +133,14 @@ try {
             challenge = $challenge
             nonce = $nonce
         }
+        if (-not [string]::IsNullOrWhiteSpace($ResolvedEvidenceDirectory)) {
+            $solution | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $ResolvedEvidenceDirectory "solution.json")
+        }
         $solutionJson = $solution | ConvertTo-Json -Depth 10 -Compress
         $result = Invoke-RestMethod -Method Post -Uri $submitUrl -ContentType "application/json" -Body $solutionJson -TimeoutSec 15
+        if (-not [string]::IsNullOrWhiteSpace($ResolvedEvidenceDirectory)) {
+            $result | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $ResolvedEvidenceDirectory "submit-result.json")
+        }
         if ($result.status -ne "accepted") {
             throw "Independent staging verifier rejected GPU solution with status: $($result.status)"
         }
