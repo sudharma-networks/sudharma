@@ -6,7 +6,7 @@
   "expected_symbol": "SUDH",
   "seed_address": "127.0.0.1:28444",
   "reward_address": "9ccdc094489874bed888ffe4bdf9b8298f4c5131",
-  "miner_binary": "/usr/local/bin/sudharmad",
+  "miner_binary": "/usr/local/libexec/sudharma-demand-miner/sudharmad",
   "data_directory": "/var/lib/sudharma-demand-miner",
   "lock_file": "/run/sudharma-demand-miner.lock",
   "poll_every": "10s",
