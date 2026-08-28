@@ -43,6 +43,8 @@ Node blockchain/state/mempool data live under `/var/lib/sudharma` (or the config
 
 The demand miner is deliberately separate from the faucet, public RPC proxy, wallet, and consensus code. It reads loopback node status and requests exactly one native `sudharmad -mineblocks 1` operation only when valid transactions are pending. The example reward address `9ccdc094489874bed888ffe4bdf9b8298f4c5131` is a public address only; it contains no private key, seed, wallet file, signing material, or credential.
 
+The installer does not replace a host's shared `/usr/local/bin/sudharmad`. The mining child uses a dedicated reviewed copy installed at `/usr/local/libexec/sudharma-demand-miner/sudharmad`, so demand-miner installation and rollback remain isolated from any existing node executable.
+
 The native `sudharmad -mineblocks 1` path continues into the normal long-running node loop after mining. The isolated demand-miner runner handles that lifecycle without changing `sudharmad`: it waits for positive pending-transaction evidence and the post-broadcast `Block #... | Transactions: ...` evidence, then terminates and reaps only the unique ephemeral child process it created. Tests cover the real output format, bounded timeout/cancellation behavior and the controlled one-shot exit.
 
 **Activation gate:** keep the supervisor disabled until an authorized operator can perform the staged live-testnet acceptance checks below the repository boundary. CI verification of the runner and packaging is necessary but does not prove host IAM/SSM authority, service installation on a seed, or live block/transaction behavior. Do not weaken child timeouts, kill arbitrary node processes, broaden IAM, or alter consensus behavior to bypass this gate.
@@ -59,7 +61,7 @@ sudo DEMAND_MINER_BIN="$PWD/sudharma-demand-miner" SUDHARMAD_BIN="$PWD/sudharmad
   bash ./deployment/testnet/install-demand-miner.sh
 ```
 
-Installation is idempotent and preserves an existing `/etc/sudharma/demand-miner.json`. Review that file after installation. Raw status stays on `http://127.0.0.1:28545`; do not point the supervisor at the public HTTPS wallet endpoint.
+Installation is idempotent and preserves an existing `/etc/sudharma/demand-miner.json`. The supplied `SUDHARMAD_BIN` is copied only to `/usr/local/libexec/sudharma-demand-miner/sudharmad`; an existing `/usr/local/bin/sudharmad` is not modified. Review the demand-miner config after installation. Raw status stays on `http://127.0.0.1:28545`; do not point the supervisor at the public HTTPS wallet endpoint.
 
 For a no-host-change rehearsal, use a staging root:
 
@@ -103,18 +105,17 @@ Only one supervisor host should be active initially. Do not enable a second seed
 
 ### Rollback
 
-Rollback is limited to the isolated supervisor and its own ephemeral data. It must not touch the public-testnet node state:
+Rollback is limited to the isolated supervisor, its dedicated mining binary, and its own ephemeral data. It must not touch the public-testnet node state or any shared `/usr/local/bin/sudharmad`:
 
 ```bash
 sudo systemctl disable --now sudharma-demand-miner.service || true
 sudo rm -f /etc/systemd/system/sudharma-demand-miner.service
 sudo rm -f /usr/local/bin/sudharma-demand-miner
+sudo rm -rf /usr/local/libexec/sudharma-demand-miner
 sudo rm -f /etc/sudharma/demand-miner.json
 sudo rm -rf /var/lib/sudharma-demand-miner
 sudo systemctl daemon-reload
 ```
-
-The native `sudharmad` binary is shared operational infrastructure and is intentionally not removed by this rollback sequence.
 
 ## Owner boundary
 
