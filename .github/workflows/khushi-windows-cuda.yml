@@ -1,4 +1,4 @@
-name: Khushi RTX 2060 Windows CUDA
+name: Khushi NVIDIA Windows CUDA
 
 on:
   push:
@@ -8,6 +8,7 @@ on:
       - '.github/workflows/khushi-windows-cuda.yml'
       - 'compatibility/cuda/**'
       - 'compatibility/gpupowv1/windows_artifact_contract_test.go'
+      - 'compatibility/gpupowv1/device_memory_contract_test.go'
   workflow_dispatch:
 
 permissions:
@@ -24,7 +25,7 @@ jobs:
       - name: Install CUDA toolkit
         uses: Jimver/cuda-toolkit@v0.2.36
         with:
-          cuda: '13.2.0'
+          cuda: '12.8.1'
           method: network
           sub-packages: '["nvcc", "visual_studio_integration", "cudart"]'
 
@@ -32,13 +33,13 @@ jobs:
         shell: pwsh
         run: nvcc -V
 
-      - name: Build Khushi Algorithm RTX 2060 miner
+      - name: Build Khushi Algorithm NVIDIA miner
         shell: cmd
         run: |
           call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           where cl.exe
           if not exist dist mkdir dist
-          nvcc -std=c++17 -O3 -arch=sm_75 -lineinfo -Xcompiler "/EHsc" compatibility\cuda\khushi_miner.cu -o dist\khushi-miner-rtx2060.exe
+          nvcc -std=c++17 -O3 -lineinfo -Xcompiler "/EHsc" -gencode=arch=compute_61,code=sm_61 -gencode=arch=compute_75,code=sm_75 -gencode=arch=compute_86,code=sm_86 -gencode=arch=compute_89,code=compute_89 compatibility\cuda\khushi_miner.cu -o dist\khushi-miner-nvidia.exe
 
       - name: Package CUDA runtime
         shell: pwsh
@@ -54,18 +55,18 @@ jobs:
             "algorithm=Khushi Algorithm",
             "protocol_id=sudharma-gpupow-v1",
             "source_revision=$env:GITHUB_SHA",
-            "cuda_arch=sm_75",
-            "artifact=khushi-miner-rtx2060.exe"
+            "cuda_arches=sm_61,sm_75,sm_86,compute_89",
+            "artifact=khushi-miner-nvidia.exe"
           ) | Set-Content -Encoding ascii dist/build-metadata.txt
           nvcc -V 2>&1 | Add-Content -Encoding ascii dist/build-metadata.txt
-          $hash = Get-FileHash -Algorithm SHA256 dist/khushi-miner-rtx2060.exe
-          "$($hash.Hash.ToLower())  khushi-miner-rtx2060.exe" | Set-Content -Encoding ascii dist/SHA256SUMS.txt
+          $hash = Get-FileHash -Algorithm SHA256 dist/khushi-miner-nvidia.exe
+          "$($hash.Hash.ToLower())  khushi-miner-nvidia.exe" | Set-Content -Encoding ascii dist/SHA256SUMS.txt
           Get-Content dist/SHA256SUMS.txt
 
-      - name: Upload RTX 2060 Windows artifact
+      - name: Upload generic NVIDIA Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: khushi-miner-rtx2060-windows
+          name: khushi-miner-nvidia-windows
           path: dist/*
           if-no-files-found: error
           retention-days: 14
