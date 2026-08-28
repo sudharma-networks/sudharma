@@ -15,11 +15,15 @@ namespace sudharma::gpupowv1 {
 
 constexpr std::uint64_t kProductionDatasetBytes = 2ull << 30u;
 constexpr std::uint64_t kProductionCacheBytes = 16ull << 20u;
+constexpr std::uint64_t kProductionRuntimeReserveBytes = 256ull << 20u;
+constexpr std::uint64_t kMinimumDedicatedVRAMBytes = 4ull << 30u;
 constexpr std::uint64_t kProductionChunkBytes = 256ull << 20u;
 constexpr std::uint64_t kProductionItemBytes = 64ull;
 constexpr std::uint32_t kProductionChunkCount = 8u;
 constexpr std::uint64_t kProductionItemCount =
     kProductionDatasetBytes / kProductionItemBytes;
+constexpr std::uint64_t kProductionRequiredVRAMBytes =
+    kProductionDatasetBytes + kProductionCacheBytes + kProductionRuntimeReserveBytes;
 
 struct DatasetLocation {
     std::uint32_t chunk = 0u;
