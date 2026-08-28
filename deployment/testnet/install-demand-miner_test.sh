@@ -11,9 +11,11 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 root="$tmp/root"
 fixtures="$tmp/fixtures"
-mkdir -p "$fixtures"
+mkdir -p "$fixtures" "$root/usr/local/bin"
 printf '#!/bin/sh\nexit 0\n' > "$fixtures/sudharma-demand-miner"
 printf '#!/bin/sh\nexit 0\n' > "$fixtures/sudharmad"
+printf 'existing-node-binary-must-survive\n' > "$root/usr/local/bin/sudharmad"
+shared_node_before="$(sha256sum "$root/usr/local/bin/sudharmad" | awk '{print $1}')"
 chmod 0755 "$fixtures/sudharma-demand-miner" "$fixtures/sudharmad"
 
 [[ -f "$installer" ]] || { echo "missing installer: $installer" >&2; exit 1; }
@@ -37,17 +39,24 @@ assert_mode() {
 }
 
 [[ -f "$root/usr/local/bin/sudharma-demand-miner" ]]
-[[ -f "$root/usr/local/bin/sudharmad" ]]
+[[ -f "$root/usr/local/libexec/sudharma-demand-miner/sudharmad" ]]
 [[ -f "$root/etc/sudharma/demand-miner.json" ]]
 [[ -f "$root/etc/systemd/system/sudharma-demand-miner.service" ]]
 [[ -d "$root/var/lib/sudharma-demand-miner" ]]
 assert_mode 755 "$root/usr/local/bin/sudharma-demand-miner"
-assert_mode 755 "$root/usr/local/bin/sudharmad"
+assert_mode 755 "$root/usr/local/libexec/sudharma-demand-miner/sudharmad"
 assert_mode 640 "$root/etc/sudharma/demand-miner.json"
 assert_mode 644 "$root/etc/systemd/system/sudharma-demand-miner.service"
 assert_mode 750 "$root/var/lib/sudharma-demand-miner"
 
+shared_node_after="$(sha256sum "$root/usr/local/bin/sudharmad" | awk '{print $1}')"
+[[ "$shared_node_after" == "$shared_node_before" ]] || {
+  echo "installer must not replace shared /usr/local/bin/sudharmad" >&2
+  exit 1
+}
+
 grep -Fq '"status_url": "http://127.0.0.1:28545"' "$root/etc/sudharma/demand-miner.json"
+grep -Fq '"miner_binary": "/usr/local/libexec/sudharma-demand-miner/sudharmad"' "$root/etc/sudharma/demand-miner.json"
 grep -Fq '"data_directory": "/var/lib/sudharma-demand-miner"' "$root/etc/sudharma/demand-miner.json"
 grep -Fq 'User=sudharma-miner' "$root/etc/systemd/system/sudharma-demand-miner.service"
 grep -Fq 'NoNewPrivileges=true' "$root/etc/systemd/system/sudharma-demand-miner.service"
