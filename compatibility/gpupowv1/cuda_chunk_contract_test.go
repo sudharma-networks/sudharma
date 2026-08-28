@@ -34,6 +34,24 @@ int main() {
     sudharma::gpupowv1::DatasetLocation invalid{};
     return sudharma::gpupowv1::dataset_item_location(33554432ull, &invalid) ? 3 : 0;
 }
+`
+	if err := os.WriteFile(source, []byte(program), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	include := filepath.Join("..", "cuda")
+	cmd := exec.Command(compiler, "-std=c++17", "-O2", "-I", include, source, "-o", binary)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("compile CUDA chunk contract: %v\n%s", err, out)
+	}
+	out, err := exec.Command(binary).CombinedOutput()
+	if err != nil {
+		t.Fatalf("run CUDA chunk contract: %v\n%s", err, out)
+	}
+	want := "0:0:0\n4194303:0:268435392\n4194304:1:0\n33554431:7:268435392"
+	if got := strings.TrimSpace(string(out)); got != want {
+		t.Fatalf("CUDA chunk mapping mismatch:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
 
 func TestCUDAProductionDatasetChunkAllocationCleanup(t *testing.T) {
 	compiler, err := exec.LookPath("g++")
@@ -94,23 +112,5 @@ int main() {
 	}
 	if out, err := exec.Command(binary).CombinedOutput(); err != nil {
 		t.Fatalf("run CUDA chunk allocation contract: %v\n%s", err, out)
-	}
-}
-`
-	if err := os.WriteFile(source, []byte(program), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	include := filepath.Join("..", "cuda")
-	cmd := exec.Command(compiler, "-std=c++17", "-O2", "-I", include, source, "-o", binary)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("compile CUDA chunk contract: %v\n%s", err, out)
-	}
-	out, err := exec.Command(binary).CombinedOutput()
-	if err != nil {
-		t.Fatalf("run CUDA chunk contract: %v\n%s", err, out)
-	}
-	want := "0:0:0\n4194303:0:268435392\n4194304:1:0\n33554431:7:268435392"
-	if got := strings.TrimSpace(string(out)); got != want {
-		t.Fatalf("CUDA chunk mapping mismatch:\ngot:\n%s\nwant:\n%s", got, want)
 	}
 }
