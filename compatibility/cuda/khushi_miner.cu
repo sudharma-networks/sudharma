@@ -58,6 +58,19 @@ bool decode_fixed_hex(const char* text, std::array<std::uint8_t, N>* output) {
     return true;
 }
 
+bool decode_header_hex(const char* text, SearchJob* job) {
+    const std::size_t length = std::strlen(text);
+    if (length == 0u || (length & 1u) != 0u || length / 2u > job->header_prefix.size()) return false;
+    job->header_length = static_cast<std::uint32_t>(length / 2u);
+    for (std::size_t i = 0; i < job->header_length; ++i) {
+        const int hi = hex_nibble(text[i * 2u]);
+        const int lo = hex_nibble(text[i * 2u + 1u]);
+        if (hi < 0 || lo < 0) return false;
+        job->header_prefix[i] = static_cast<std::uint8_t>((hi << 4) | lo);
+    }
+    return true;
+}
+
 SearchCache genesis_vector_cache() {
     SearchCache cache{};
     for (std::size_t node = 0; node < cache.size(); ++node) {
@@ -281,6 +294,77 @@ int run_benchmark(unsigned seconds) {
     return 0;
 }
 
+int run_staging_search(const char* header_hex, const char* target_hex, std::uint64_t height, std::uint32_t cache_nodes) {
+    if (height != 0u || cache_nodes != 8u) {
+        std::fputs("staging search only supports height=0 cache_nodes=8\n", stderr);
+        return 64;
+    }
+    if (select_device(selected_device) != 0) return 2;
+    constexpr std::size_t runtime_bytes = sizeof(std::uint32_t) + 2u * sizeof(unsigned long long);
+    if (memory_preflight(sizeof(SearchCache), runtime_bytes) != 0) return 2;
+
+    SearchJob job{};
+    if (!decode_header_hex(header_hex, &job)) {
+        std::fputs("invalid --header-prefix-hex value\n", stderr);
+        return 64;
+    }
+    if (!decode_fixed_hex(target_hex, &job.target)) {
+        std::fputs("invalid --target-hex value\n", stderr);
+        return 64;
+    }
+    if (!decode_fixed_hex(kProgramZeroSeedHex, &job.program_seed)) {
+        std::fputs("invalid staging program seed fixture\n", stderr);
+        return 1;
+    }
+
+    SearchCache host_cache = genesis_vector_cache();
+    SearchCache* device_cache = nullptr;
+    std::uint32_t* stale_generation = nullptr;
+    unsigned long long* found_nonce = nullptr;
+    unsigned long long* hashes_done = nullptr;
+
+    if (cuda_error("cudaMalloc(staging cache)", cudaMalloc(reinterpret_cast<void**>(&device_cache), sizeof(SearchCache))) != 0) return 1;
+    if (cuda_error("cudaMalloc(staging generation)", cudaMalloc(reinterpret_cast<void**>(&stale_generation), sizeof(std::uint32_t))) != 0) return 1;
+    if (cuda_error("cudaMalloc(staging nonce)", cudaMalloc(reinterpret_cast<void**>(&found_nonce), sizeof(unsigned long long))) != 0) return 1;
+    if (cuda_error("cudaMalloc(staging hashes)", cudaMalloc(reinterpret_cast<void**>(&hashes_done), sizeof(unsigned long long))) != 0) return 1;
+
+    const std::uint32_t generation = 1u;
+    const unsigned long long no_nonce = kSearchNoNonce;
+    unsigned long long zero = 0ull;
+    if (cuda_error("cudaMemcpy(staging cache)", cudaMemcpy(device_cache, &host_cache, sizeof(host_cache), cudaMemcpyHostToDevice)) != 0) return 1;
+    if (cuda_error("cudaMemcpy(staging generation)", cudaMemcpy(stale_generation, &generation, sizeof(generation), cudaMemcpyHostToDevice)) != 0) return 1;
+    if (cuda_error("cudaMemcpy(staging nonce)", cudaMemcpy(found_nonce, &no_nonce, sizeof(no_nonce), cudaMemcpyHostToDevice)) != 0) return 1;
+    if (cuda_error("cudaMemcpy(staging hashes)", cudaMemcpy(hashes_done, &zero, sizeof(zero), cudaMemcpyHostToDevice)) != 0) return 1;
+
+    constexpr unsigned threads = 32u;
+    constexpr std::uint64_t nonces_per_launch = 32u;
+    constexpr std::uint64_t max_nonces = 65536u;
+    unsigned long long host_nonce = no_nonce;
+    for (std::uint64_t nonce_start = 0u; nonce_start < max_nonces && host_nonce == no_nonce; nonce_start += nonces_per_launch) {
+        job.nonce_start = nonce_start;
+        job.nonce_count = nonces_per_launch;
+        sudharma::gpupowv1::khushi_search_kernel<<<1u, threads>>>(
+            job, device_cache, stale_generation, generation, found_nonce, hashes_done);
+        if (cuda_error("khushi staging search launch", cudaGetLastError()) != 0) return 1;
+        if (cuda_error("khushi staging search sync", cudaDeviceSynchronize()) != 0) return 1;
+        if (cuda_error("cudaMemcpy(staging nonce host)", cudaMemcpy(&host_nonce, found_nonce, sizeof(host_nonce), cudaMemcpyDeviceToHost)) != 0) return 1;
+    }
+
+    unsigned long long hashes = 0ull;
+    if (cuda_error("cudaMemcpy(staging hashes host)", cudaMemcpy(&hashes, hashes_done, sizeof(hashes), cudaMemcpyDeviceToHost)) != 0) return 1;
+    cudaFree(hashes_done);
+    cudaFree(found_nonce);
+    cudaFree(stale_generation);
+    cudaFree(device_cache);
+
+    if (host_nonce == no_nonce) {
+        std::printf("staging-search=not-found hashes=%llu\n", hashes);
+        return 4;
+    }
+    std::printf("staging-solution-nonce=%llu hashes=%llu\n", host_nonce, hashes);
+    return 0;
+}
+
 bool parse_device(const char* text, int* device) {
     char* end = nullptr;
     const long value = std::strtol(text, &end, 10);
@@ -289,9 +373,24 @@ bool parse_device(const char* text, int* device) {
     return true;
 }
 
+bool parse_u64(const char* text, std::uint64_t* value) {
+    char* end = nullptr;
+    const unsigned long long parsed = std::strtoull(text, &end, 10);
+    if (text == end || *end != '\0') return false;
+    *value = static_cast<std::uint64_t>(parsed);
+    return true;
+}
+
+bool parse_u32(const char* text, std::uint32_t* value) {
+    std::uint64_t parsed = 0u;
+    if (!parse_u64(text, &parsed) || parsed > std::numeric_limits<std::uint32_t>::max()) return false;
+    *value = static_cast<std::uint32_t>(parsed);
+    return true;
+}
+
 void usage() {
     std::fputs(
-        "usage: khushi-miner [--device N] --list-devices | --device-info | --telemetry | --vector-self-test | --benchmark [seconds] | --mine\n",
+        "usage: khushi-miner [--device N] --list-devices | --device-info | --telemetry | --vector-self-test | --benchmark [seconds] | --staging-search --header-prefix-hex HEX --target-hex HEX --height N --cache-nodes N | --mine\n",
         stderr);
 }
 
@@ -325,6 +424,19 @@ int main(int argc, char** argv) {
         unsigned seconds = 10u;
         if (arg + 2 == argc) seconds = static_cast<unsigned>(std::strtoul(argv[arg + 1], nullptr, 10));
         return run_benchmark(seconds);
+    }
+    if (std::strcmp(argv[arg], "--staging-search") == 0 && arg + 9 == argc &&
+        std::strcmp(argv[arg + 1], "--header-prefix-hex") == 0 &&
+        std::strcmp(argv[arg + 3], "--target-hex") == 0 &&
+        std::strcmp(argv[arg + 5], "--height") == 0 &&
+        std::strcmp(argv[arg + 7], "--cache-nodes") == 0) {
+        std::uint64_t height = 0u;
+        std::uint32_t cache_nodes = 0u;
+        if (!parse_u64(argv[arg + 6], &height) || !parse_u32(argv[arg + 8], &cache_nodes)) {
+            std::fputs("invalid staging height or cache node count\n", stderr);
+            return 64;
+        }
+        return run_staging_search(argv[arg + 2], argv[arg + 4], height, cache_nodes);
     }
     if (std::strcmp(argv[arg], "--mine") == 0) {
         std::fputs("Khushi Algorithm network mining is gated until hardware interoperability passes; CPU fallback prohibited\n", stderr);
