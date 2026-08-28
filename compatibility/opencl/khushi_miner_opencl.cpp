@@ -16,6 +16,14 @@ namespace {
 
 constexpr const char* kExpectedDigest = "2a7c15fc6c84a67d43ff7074ac5835aa433145f89d10d1d9e36a99fe22da4b2b";
 constexpr const char* kProgramSeed = "613684e3f3b42773073fb9c99e71f2933eed301d450866fe9a5a5c0530a769bd";
+constexpr cl_ulong kProductionDatasetBytes = 2ull << 30u;
+constexpr cl_ulong kProductionCacheBytes = 16ull << 20u;
+constexpr cl_ulong kProductionRuntimeReserveBytes = 256ull << 20u;
+constexpr cl_ulong kProductionChunkBytes = 256ull << 20u;
+constexpr cl_uint kProductionChunkCount = 8u;
+constexpr cl_ulong kMinimumDedicatedVRAMBytes = 4ull << 30u;
+constexpr cl_ulong kProductionRequiredVRAMBytes =
+    kProductionDatasetBytes + kProductionCacheBytes + kProductionRuntimeReserveBytes;
 constexpr const char* kCacheHex[8] = {
     "68fae850a5cc8cddba29c7a56913c7340e69ba0d92830144aab66584e01a20e86b919e515046196e7ef9c006150fff8affc13fc252dea4490ef1bb4527adcb6b",
     "25c2c0f117e806e1a832bc4bbcc444043633f5100f9ddf3714988c1b2de377b6e9d6979803b8deca82d5267d53eccc89fa92e21984e535f4e8193881ab309741",
@@ -32,6 +40,7 @@ struct DeviceRef {
     cl_device_id device{};
     std::string name;
     cl_ulong global_memory{};
+    cl_ulong max_allocation{};
 };
 
 int selected_device = 0;
@@ -58,9 +67,11 @@ std::vector<DeviceRef> gpu_devices() {
         for (auto device : devices) {
             char name[256] = {};
             cl_ulong memory = 0;
+            cl_ulong max_allocation = 0;
             check(clGetDeviceInfo(device, CL_DEVICE_NAME, sizeof(name), name, nullptr), "CL_DEVICE_NAME");
             check(clGetDeviceInfo(device, CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(memory), &memory, nullptr), "CL_DEVICE_GLOBAL_MEM_SIZE");
-            out.push_back(DeviceRef{platform, device, name, memory});
+            check(clGetDeviceInfo(device, CL_DEVICE_MAX_MEM_ALLOC_SIZE, sizeof(max_allocation), &max_allocation, nullptr), "CL_DEVICE_MAX_MEM_ALLOC_SIZE");
+            out.push_back(DeviceRef{platform, device, name, memory, max_allocation});
         }
     }
     return out;
@@ -78,10 +89,102 @@ int list_devices() {
     auto devices = gpu_devices();
     std::printf("Khushi Algorithm OpenCL GPU devices=%zu\n", devices.size());
     for (std::size_t i = 0; i < devices.size(); ++i) {
-        std::printf("device=%zu name=%s vram_bytes=%llu backend=opencl\n",
-                    i, devices[i].name.c_str(), static_cast<unsigned long long>(devices[i].global_memory));
+        std::printf("device=%zu name=%s vram_bytes=%llu max_allocation_bytes=%llu backend=opencl\n",
+                    i, devices[i].name.c_str(),
+                    static_cast<unsigned long long>(devices[i].global_memory),
+                    static_cast<unsigned long long>(devices[i].max_allocation));
     }
     return devices.empty() ? 2 : 0;
+}
+
+int production_memory_self_test() {
+    auto devices = gpu_devices();
+    if (devices.empty()) {
+        std::fputs("Khushi Algorithm requires an OpenCL GPU; CPU fallback prohibited\n", stderr);
+        return 2;
+    }
+    if (selected_device < 0 || static_cast<std::size_t>(selected_device) >= devices.size()) {
+        std::fprintf(stderr, "invalid --device %d\n", selected_device);
+        return 2;
+    }
+
+    const auto& chosen = devices[static_cast<std::size_t>(selected_device)];
+    std::printf(
+        "production-memory-policy backend=opencl device=%d name=%s dataset_bytes=%llu cache_bytes=%llu runtime_reserve_bytes=%llu chunk_bytes=%llu chunks=%u required_vram_bytes=%llu minimum_dedicated_vram_bytes=%llu total_vram_bytes=%llu max_allocation_bytes=%llu\n",
+        selected_device,
+        chosen.name.c_str(),
+        static_cast<unsigned long long>(kProductionDatasetBytes),
+        static_cast<unsigned long long>(kProductionCacheBytes),
+        static_cast<unsigned long long>(kProductionRuntimeReserveBytes),
+        static_cast<unsigned long long>(kProductionChunkBytes),
+        static_cast<unsigned>(kProductionChunkCount),
+        static_cast<unsigned long long>(kProductionRequiredVRAMBytes),
+        static_cast<unsigned long long>(kMinimumDedicatedVRAMBytes),
+        static_cast<unsigned long long>(chosen.global_memory),
+        static_cast<unsigned long long>(chosen.max_allocation));
+
+    if (chosen.global_memory < kMinimumDedicatedVRAMBytes ||
+        chosen.global_memory < kProductionRequiredVRAMBytes) {
+        std::fputs("production-memory-self-test=failed insufficient dedicated VRAM\n", stderr);
+        return 2;
+    }
+    if (chosen.max_allocation < kProductionChunkBytes ||
+        chosen.max_allocation < kProductionRuntimeReserveBytes) {
+        std::fputs("production-memory-self-test=failed OpenCL max allocation is below 256 MiB\n", stderr);
+        return 2;
+    }
+
+    cl_int rc = CL_SUCCESS;
+    cl_context context = clCreateContext(nullptr, 1, &chosen.device, nullptr, nullptr, &rc);
+    if (rc != CL_SUCCESS || context == nullptr) {
+        std::fprintf(stderr, "clCreateContext(production) failed: OpenCL error %d\n", rc);
+        return 1;
+    }
+
+    cl_mem cache = nullptr;
+    cl_mem reserve = nullptr;
+    std::vector<cl_mem> chunks;
+    chunks.reserve(kProductionChunkCount);
+    auto cleanup = [&]() {
+        if (reserve) clReleaseMemObject(reserve);
+        for (cl_mem chunk : chunks) {
+            if (chunk) clReleaseMemObject(chunk);
+        }
+        if (cache) clReleaseMemObject(cache);
+        clReleaseContext(context);
+    };
+
+    cache = clCreateBuffer(context, CL_MEM_READ_WRITE,
+                           static_cast<std::size_t>(kProductionCacheBytes), nullptr, &rc);
+    if (rc != CL_SUCCESS || cache == nullptr) {
+        std::fprintf(stderr, "production cache allocation failed: OpenCL error %d\n", rc);
+        cleanup();
+        return 3;
+    }
+
+    for (cl_uint i = 0; i < kProductionChunkCount; ++i) {
+        cl_mem chunk = clCreateBuffer(context, CL_MEM_READ_WRITE,
+                                      static_cast<std::size_t>(kProductionChunkBytes), nullptr, &rc);
+        if (rc != CL_SUCCESS || chunk == nullptr) {
+            std::fprintf(stderr, "production dataset chunk %u allocation failed: OpenCL error %d\n",
+                         static_cast<unsigned>(i), rc);
+            cleanup();
+            return 3;
+        }
+        chunks.push_back(chunk);
+    }
+
+    reserve = clCreateBuffer(context, CL_MEM_READ_WRITE,
+                             static_cast<std::size_t>(kProductionRuntimeReserveBytes), nullptr, &rc);
+    if (rc != CL_SUCCESS || reserve == nullptr) {
+        std::fprintf(stderr, "production runtime reserve allocation failed: OpenCL error %d\n", rc);
+        cleanup();
+        return 3;
+    }
+
+    cleanup();
+    std::puts("production-memory-self-test=ok");
+    return 0;
 }
 
 bool hex_bytes(const char* text, std::vector<unsigned char>* out) {
@@ -226,8 +329,8 @@ int benchmark(unsigned seconds) {
     clReleaseMemObject(hd);clReleaseMemObject(f);clReleaseMemObject(ff);clReleaseMemObject(g);clReleaseMemObject(t);clReleaseMemObject(c);clReleaseMemObject(s);clReleaseMemObject(h);clReleaseKernel(kernel);return 0;
 }
 
-void usage(){std::fputs("usage: khushi-miner-opencl [--device N] --list-devices | --vector-self-test | --benchmark [seconds] | --mine\n",stderr);}
+void usage(){std::fputs("usage: khushi-miner-opencl [--device N] --list-devices | --vector-self-test | --production-memory-self-test | --benchmark [seconds] | --mine\n",stderr);}
 
 } // namespace
 
-int main(int argc,char** argv){int arg=1;if(argc>=3&&std::strcmp(argv[1],"--device")==0){selected_device=std::atoi(argv[2]);arg=3;}if(arg>=argc){usage();return 64;}if(std::strcmp(argv[arg],"--list-devices")==0)return list_devices();if(std::strcmp(argv[arg],"--vector-self-test")==0)return vector_self_test();if(std::strcmp(argv[arg],"--benchmark")==0){unsigned seconds=(arg+1<argc)?(unsigned)std::strtoul(argv[arg+1],nullptr,10):10u;return benchmark(seconds);}if(std::strcmp(argv[arg],"--mine")==0){std::fputs("Khushi Algorithm OpenCL network mining remains interoperability-gated; CPU fallback prohibited\n",stderr);return 3;}usage();return 64;}
+int main(int argc,char** argv){int arg=1;if(argc>=3&&std::strcmp(argv[1],"--device")==0){selected_device=std::atoi(argv[2]);arg=3;}if(arg>=argc){usage();return 64;}if(std::strcmp(argv[arg],"--list-devices")==0)return list_devices();if(std::strcmp(argv[arg],"--vector-self-test")==0)return vector_self_test();if(std::strcmp(argv[arg],"--production-memory-self-test")==0)return production_memory_self_test();if(std::strcmp(argv[arg],"--benchmark")==0){unsigned seconds=(arg+1<argc)?(unsigned)std::strtoul(argv[arg+1],nullptr,10):10u;return benchmark(seconds);}if(std::strcmp(argv[arg],"--mine")==0){std::fputs("Khushi Algorithm OpenCL network mining remains interoperability-gated; CPU fallback prohibited\n",stderr);return 3;}usage();return 64;}
