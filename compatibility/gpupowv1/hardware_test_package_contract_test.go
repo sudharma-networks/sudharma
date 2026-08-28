@@ -22,11 +22,16 @@ func TestKhushiHardwareTestPackageContract(t *testing.T) {
 		"--benchmark",
 		"nvidia-smi",
 		"--mine",
-		"AllowMining",
+		"SubmitStagingSolution",
+		"StagingEndpoint",
+		"network-submission=not-requested",
 	} {
 		if !strings.Contains(text, token) {
 			t.Fatalf("hardware test script missing %q", token)
 		}
+	}
+	if strings.Contains(text, "AllowMining") {
+		t.Fatal("hardware test script must not retain legacy AllowMining gate")
 	}
 
 	docPath := filepath.Join("..", "..", "docs", "khushi-miner.md")
@@ -44,6 +49,8 @@ func TestKhushiHardwareTestPackageContract(t *testing.T) {
 		"dynamic",
 		"hardware interoperability gate",
 		"CPU fallback",
+		"SubmitStagingSolution",
+		"StagingEndpoint",
 	} {
 		if !strings.Contains(docText, token) {
 			t.Fatalf("Khushi miner guide missing %q", token)
