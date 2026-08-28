@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "gpupow_v1_search.cuh"
@@ -79,10 +80,10 @@ int run_benchmark(unsigned seconds) {
     unsigned long long* found_nonce = nullptr;
     unsigned long long* hashes_done = nullptr;
 
-    if (cuda_error("cudaMalloc(cache)", cudaMalloc(&device_cache, sizeof(SearchCache))) != 0) return 1;
-    if (cuda_error("cudaMalloc(stale_generation)", cudaMalloc(&stale_generation, sizeof(std::uint32_t))) != 0) return 1;
-    if (cuda_error("cudaMalloc(found_nonce)", cudaMalloc(&found_nonce, sizeof(unsigned long long))) != 0) return 1;
-    if (cuda_error("cudaMalloc(hashes_done)", cudaMalloc(&hashes_done, sizeof(unsigned long long))) != 0) return 1;
+    if (cuda_error("cudaMalloc(cache)", cudaMalloc(reinterpret_cast<void**>(&device_cache), sizeof(SearchCache))) != 0) return 1;
+    if (cuda_error("cudaMalloc(stale_generation)", cudaMalloc(reinterpret_cast<void**>(&stale_generation), sizeof(std::uint32_t))) != 0) return 1;
+    if (cuda_error("cudaMalloc(found_nonce)", cudaMalloc(reinterpret_cast<void**>(&found_nonce), sizeof(unsigned long long))) != 0) return 1;
+    if (cuda_error("cudaMalloc(hashes_done)", cudaMalloc(reinterpret_cast<void**>(&hashes_done), sizeof(unsigned long long))) != 0) return 1;
 
     const std::uint32_t generation = 1u;
     const unsigned long long no_nonce = kSearchNoNonce;
