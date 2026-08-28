@@ -39,7 +39,7 @@ jobs:
           call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           where cl.exe
           if not exist dist mkdir dist
-          nvcc -std=c++17 -O3 -lineinfo -Xcompiler "/EHsc" -gencode=arch=compute_61,code=sm_61 -gencode=arch=compute_75,code=sm_75 -gencode=arch=compute_86,code=sm_86 -gencode=arch=compute_89,code=compute_89 compatibility\cuda\khushi_miner.cu -o dist\khushi-miner-nvidia.exe
+          nvcc -std=c++17 --expt-relaxed-constexpr -O3 -lineinfo -Xcompiler "/EHsc" -gencode=arch=compute_61,code=sm_61 -gencode=arch=compute_75,code=sm_75 -gencode=arch=compute_86,code=sm_86 -gencode=arch=compute_89,code=compute_89 compatibility\cuda\khushi_miner.cu -o dist\khushi-miner-nvidia.exe
 
       - name: Package CUDA runtime
         shell: pwsh
