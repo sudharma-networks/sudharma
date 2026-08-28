@@ -139,12 +139,15 @@ func (c *Client) recordSubmitStatus(status string) bool {
 
 func (c *Client) SubmitVerified(ctx context.Context, work Work, generation, nonce uint64, verifier Verifier) (SubmitResult, error) {
 	if !c.isCurrentWork(work, generation) {
+		c.recordSubmitStatus("stale")
 		return SubmitResult{}, errors.New("stale or mutated mining work")
 	}
 	if verifier == nil || !verifier(work, nonce) {
+		c.recordSubmitStatus("invalid")
 		return SubmitResult{}, errors.New("candidate failed independent host verification")
 	}
 	if !c.isCurrentWork(work, generation) {
+		c.recordSubmitStatus("stale")
 		return SubmitResult{}, errors.New("mining work became stale or mutated before submission")
 	}
 
