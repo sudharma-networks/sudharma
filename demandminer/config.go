@@ -1,8 +1,8 @@
-// Package demandminer contains the public-testnet demand miner supervisor.
 package demandminer
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -10,12 +10,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
 
-// Config is the non-secret configuration for the demand miner. It deliberately
-// contains no private keys or wallet credentials.
+var rewardAddressPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
 type Config struct {
 	Environment     string `json:"environment"`
 	StatusURL       string `json:"status_url"`
@@ -33,27 +34,25 @@ type Config struct {
 	ChildTimeout    string `json:"child_timeout"`
 }
 
-var rewardAddressPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
-
-// LoadConfig reads and strictly decodes a JSON configuration file.
 func LoadConfig(path string) (Config, error) {
 	var cfg Config
-	if strings.TrimSpace(path) == "" {
-		return cfg, fmt.Errorf("configuration path is required")
-	}
 	f, err := os.Open(path)
 	if err != nil {
 		return cfg, fmt.Errorf("open config: %w", err)
 	}
 	defer f.Close()
+
 	dec := json.NewDecoder(f)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&cfg); err != nil {
 		return cfg, fmt.Errorf("decode config: %w", err)
 	}
 	var extra any
-	if err := dec.Decode(&extra); err != io.EOF {
-		return cfg, fmt.Errorf("config must contain one JSON object")
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return cfg, errors.New("decode config: multiple JSON values")
+		}
+		return cfg, fmt.Errorf("decode config: %w", err)
 	}
 	if err := cfg.Validate(); err != nil {
 		return cfg, err
@@ -61,92 +60,120 @@ func LoadConfig(path string) (Config, error) {
 	return cfg, nil
 }
 
-// Validate enforces the fixed public-testnet identity and safe local endpoints.
 func (c Config) Validate() error {
-	required := map[string]string{
-		"environment": c.Environment, "status_url": c.StatusURL, "expected_network": c.ExpectedNetwork,
-		"expected_coin": c.ExpectedCoin, "expected_symbol": c.ExpectedSymbol, "seed_address": c.SeedAddress,
-		"reward_address": c.RewardAddress, "miner_binary": c.MinerBinary, "data_directory": c.DataDirectory,
-		"lock_file": c.LockFile, "poll_every": c.PollEvery, "cooldown": c.Cooldown,
-		"failure_backoff": c.FailureBackoff, "child_timeout": c.ChildTimeout,
-	}
-	for name, value := range required {
-		if strings.TrimSpace(value) == "" {
-			return fmt.Errorf("%s is required", name)
-		}
+	if c.Environment == "" {
+		return errors.New("environment is required")
 	}
 	if c.Environment != "public-testnet" {
-		return fmt.Errorf("environment must be public-testnet")
+		return errors.New("environment must be public-testnet")
+	}
+	if err := validateLoopbackURL(c.StatusURL); err != nil {
+		return fmt.Errorf("status_url: %w", err)
 	}
 	if c.ExpectedNetwork != "sudharma" {
-		return fmt.Errorf("expected_network must be sudharma")
+		return errors.New("expected_network must be sudharma")
 	}
 	if c.ExpectedCoin != "Sudharma" {
-		return fmt.Errorf("expected_coin must be Sudharma")
+		return errors.New("expected_coin must be Sudharma")
 	}
 	if c.ExpectedSymbol != "SUDH" {
-		return fmt.Errorf("expected_symbol must be SUDH")
+		return errors.New("expected_symbol must be SUDH")
 	}
-
-	u, err := url.Parse(c.StatusURL)
-	if err != nil || u.Scheme == "" || u.Host == "" || u.User != nil {
-		return fmt.Errorf("status_url must be a valid loopback URL")
-	}
-	ip := net.ParseIP(u.Hostname())
-	if ip == nil || !ip.IsLoopback() {
-		return fmt.Errorf("status_url must use a loopback address")
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("status_url must use http or https")
+	if err := validateHostPort(c.SeedAddress); err != nil {
+		return fmt.Errorf("seed_address: %w", err)
 	}
 	if !rewardAddressPattern.MatchString(c.RewardAddress) {
-		return fmt.Errorf("reward_address must be exactly 40 lowercase hexadecimal characters")
+		return errors.New("reward_address must be 40 lowercase hexadecimal characters")
 	}
-	for name, path := range map[string]string{"miner_binary": c.MinerBinary, "data_directory": c.DataDirectory, "lock_file": c.LockFile} {
-		if !filepath.IsAbs(path) {
-			return fmt.Errorf("%s must be an absolute path", name)
-		}
+	if !filepath.IsAbs(c.MinerBinary) {
+		return errors.New("miner_binary must be an absolute path")
 	}
-	poll, err := c.PollDuration()
+	if !filepath.IsAbs(c.DataDirectory) {
+		return errors.New("data_directory must be an absolute path")
+	}
+	if !filepath.IsAbs(c.LockFile) {
+		return errors.New("lock_file must be an absolute path")
+	}
+
+	poll, err := positiveDuration("poll_every", c.PollEvery)
 	if err != nil {
 		return err
 	}
-	cooldown, err := c.CooldownDuration()
+	cooldown, err := positiveDuration("cooldown", c.Cooldown)
 	if err != nil {
-		return err
-	}
-	if _, err := c.FailureBackoffDuration(); err != nil {
-		return err
-	}
-	if _, err := c.ChildTimeoutDuration(); err != nil {
 		return err
 	}
 	if cooldown < poll {
-		return fmt.Errorf("cooldown must be at least poll_every")
+		return errors.New("cooldown must not be shorter than poll_every")
+	}
+	if _, err := positiveDuration("failure_backoff", c.FailureBackoff); err != nil {
+		return err
+	}
+	child, err := positiveDuration("child_timeout", c.ChildTimeout)
+	if err != nil {
+		return err
+	}
+	if child < time.Second {
+		return errors.New("child_timeout must be at least 1s")
 	}
 	return nil
 }
 
-func parsePositiveDuration(name, value string, minimum time.Duration) (time.Duration, error) {
-	d, err := time.ParseDuration(value)
-	if err != nil || d <= 0 {
-		return 0, fmt.Errorf("%s must be a positive duration", name)
+func validateLoopbackURL(raw string) error {
+	if strings.TrimSpace(raw) == "" {
+		return errors.New("is required")
 	}
-	if d < minimum {
-		return 0, fmt.Errorf("%s must be at least %s", name, minimum)
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return errors.New("must be an absolute URL")
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return errors.New("scheme must be http or https")
+	}
+	host := u.Hostname()
+	if strings.EqualFold(host, "localhost") {
+		return nil
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		return errors.New("host must be loopback")
+	}
+	return nil
+}
+
+func validateHostPort(value string) error {
+	if strings.TrimSpace(value) == "" {
+		return errors.New("is required")
+	}
+	host, port, err := net.SplitHostPort(value)
+	if err != nil || host == "" || port == "" {
+		return errors.New("must be host:port")
+	}
+	portNumber, err := strconv.Atoi(port)
+	if err != nil || portNumber < 1 || portNumber > 65535 {
+		return errors.New("port must be a number from 1 to 65535")
+	}
+	return nil
+}
+
+func positiveDuration(name, raw string) (time.Duration, error) {
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a valid duration: %w", name, err)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("%s must be positive", name)
 	}
 	return d, nil
 }
 
-func (c Config) PollDuration() (time.Duration, error) {
-	return parsePositiveDuration("poll_every", c.PollEvery, 0)
+func (c Config) PollDuration() time.Duration     { d, _ := time.ParseDuration(c.PollEvery); return d }
+func (c Config) CooldownDuration() time.Duration { d, _ := time.ParseDuration(c.Cooldown); return d }
+func (c Config) FailureBackoffDuration() time.Duration {
+	d, _ := time.ParseDuration(c.FailureBackoff)
+	return d
 }
-func (c Config) CooldownDuration() (time.Duration, error) {
-	return parsePositiveDuration("cooldown", c.Cooldown, 0)
-}
-func (c Config) FailureBackoffDuration() (time.Duration, error) {
-	return parsePositiveDuration("failure_backoff", c.FailureBackoff, 0)
-}
-func (c Config) ChildTimeoutDuration() (time.Duration, error) {
-	return parsePositiveDuration("child_timeout", c.ChildTimeout, time.Second)
+func (c Config) ChildTimeoutDuration() time.Duration {
+	d, _ := time.ParseDuration(c.ChildTimeout)
+	return d
 }

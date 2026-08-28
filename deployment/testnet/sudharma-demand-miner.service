@@ -1,8 +1,8 @@
 [Unit]
-Description=Sudharma public-testnet demand miner
-After=network-online.target
+Description=Sudharma public-testnet demand miner supervisor
+After=network-online.target sudharma.service
 Wants=network-online.target
-ConditionPathExists=/etc/sudharma/demand-miner.json
+Requires=sudharma.service
 
 [Service]
 Type=simple
@@ -10,10 +10,12 @@ User=sudharma-miner
 Group=sudharma-miner
 RuntimeDirectory=sudharma-demand-miner
 RuntimeDirectoryMode=0750
-ExecStart=/usr/bin/flock --nonblock --close /run/sudharma-demand-miner/lock /usr/local/bin/sudharma-demand-miner -config /etc/sudharma/demand-miner.json
+ExecStart=/usr/local/bin/sudharma-demand-miner -config /etc/sudharma/demand-miner.json
 Restart=on-failure
-RestartSec=15
-TimeoutStopSec=30
+RestartSec=30s
+TimeoutStopSec=15s
+UMask=0027
+
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true
@@ -21,16 +23,18 @@ ProtectSystem=strict
 ProtectHome=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
+ProtectKernelLogs=true
 ProtectControlGroups=true
 ProtectClock=true
+ProtectHostname=true
 RestrictSUIDSGID=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
-RestrictNamespaces=true
 CapabilityBoundingSet=
 AmbientCapabilities=
-ReadWritePaths=/var/lib/sudharma-demand-miner /run/sudharma-demand-miner
-UMask=0077
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/sudharma-demand-miner
+ReadWritePaths=/run/sudharma-demand-miner
 
 [Install]
 WantedBy=multi-user.target

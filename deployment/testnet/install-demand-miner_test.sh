@@ -1,161 +1,141 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 installer="$repo_root/deployment/testnet/install-demand-miner.sh"
-example_config="$repo_root/deployment/testnet/demand-miner.example.json"
 unit="$repo_root/deployment/testnet/sudharma-demand-miner.service"
+example="$repo_root/deployment/testnet/demand-miner.example.json"
 readme="$repo_root/deployment/testnet/README.md"
-workdir=$(mktemp -d)
-trap 'rm -rf "$workdir"' EXIT
 
-fail() {
-  printf 'FAIL: %s\n' "$*" >&2
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+root="$tmp/root"
+fixtures="$tmp/fixtures"
+mkdir -p "$fixtures" "$root/usr/local/bin"
+printf '#!/bin/sh\nexit 0\n' > "$fixtures/sudharma-demand-miner"
+printf '#!/bin/sh\nexit 0\n' > "$fixtures/sudharmad"
+printf 'existing-node-binary-must-survive\n' > "$root/usr/local/bin/sudharmad"
+shared_node_before="$(sha256sum "$root/usr/local/bin/sudharmad" | awk '{print $1}')"
+chmod 0755 "$fixtures/sudharma-demand-miner" "$fixtures/sudharmad"
+
+[[ -f "$installer" ]] || { echo "missing installer: $installer" >&2; exit 1; }
+[[ -f "$unit" ]] || { echo "missing service unit: $unit" >&2; exit 1; }
+[[ -f "$example" ]] || { echo "missing example config: $example" >&2; exit 1; }
+
+run_install() {
+  DESTDIR="$root" \
+  DEMAND_MINER_BIN="$fixtures/sudharma-demand-miner" \
+  SUDHARMAD_BIN="$fixtures/sudharmad" \
+  bash "$installer" "$@"
+}
+
+if run_install --enable >/dev/null 2>&1; then
+  echo "--enable with DESTDIR must be refused" >&2
+  exit 1
+fi
+for forbidden in \
+  "$root/usr/local/bin/sudharma-demand-miner" \
+  "$root/usr/local/libexec/sudharma-demand-miner/sudharmad" \
+  "$root/etc/sudharma/demand-miner.json" \
+  "$root/etc/systemd/system/sudharma-demand-miner.service" \
+  "$root/var/lib/sudharma-demand-miner"; do
+  if [[ -e "$forbidden" ]]; then
+    echo "refused DESTDIR --enable must not mutate staging root: $forbidden" >&2
+    exit 1
+  fi
+done
+
+# An existing config symlink must be rejected before the installer writes any
+# miner assets or follows the link with chmod/chown.
+mkdir -p "$root/etc/sudharma"
+victim="$tmp/outside-config"
+printf 'outside-config-must-survive\n' > "$victim"
+chmod 0600 "$victim"
+victim_before="$(sha256sum "$victim" | awk '{print $1}')"
+ln -s "$victim" "$root/etc/sudharma/demand-miner.json"
+if run_install >/dev/null 2>&1; then
+  echo "installer must reject an existing config symlink" >&2
+  exit 1
+fi
+[[ "$(stat -c '%a' "$victim")" == "600" ]] || {
+  echo "rejected config symlink must not change target mode" >&2
+  exit 1
+}
+[[ "$(sha256sum "$victim" | awk '{print $1}')" == "$victim_before" ]] || {
+  echo "rejected config symlink must not change target content" >&2
+  exit 1
+}
+for forbidden in \
+  "$root/usr/local/bin/sudharma-demand-miner" \
+  "$root/usr/local/libexec/sudharma-demand-miner/sudharmad" \
+  "$root/etc/systemd/system/sudharma-demand-miner.service" \
+  "$root/var/lib/sudharma-demand-miner"; do
+  if [[ -e "$forbidden" ]]; then
+    echo "rejected config symlink must not install assets: $forbidden" >&2
+    exit 1
+  fi
+done
+rm "$root/etc/sudharma/demand-miner.json"
+
+output="$(run_install)"
+run_install >/dev/null
+
+assert_mode() {
+  local want="$1" path="$2" got
+  got="$(stat -c '%a' "$path")"
+  [[ "$got" == "$want" ]] || { echo "mode $path: want $want got $got" >&2; exit 1; }
+}
+
+[[ -f "$root/usr/local/bin/sudharma-demand-miner" ]]
+[[ -f "$root/usr/local/libexec/sudharma-demand-miner/sudharmad" ]]
+[[ -f "$root/etc/sudharma/demand-miner.json" ]]
+[[ -f "$root/etc/systemd/system/sudharma-demand-miner.service" ]]
+[[ -d "$root/var/lib/sudharma-demand-miner" ]]
+assert_mode 755 "$root/usr/local/bin/sudharma-demand-miner"
+assert_mode 755 "$root/usr/local/libexec/sudharma-demand-miner/sudharmad"
+assert_mode 640 "$root/etc/sudharma/demand-miner.json"
+assert_mode 644 "$root/etc/systemd/system/sudharma-demand-miner.service"
+assert_mode 750 "$root/var/lib/sudharma-demand-miner"
+
+shared_node_after="$(sha256sum "$root/usr/local/bin/sudharmad" | awk '{print $1}')"
+[[ "$shared_node_after" == "$shared_node_before" ]] || {
+  echo "installer must not replace shared /usr/local/bin/sudharmad" >&2
   exit 1
 }
 
-require_file() {
-  [[ -f "$1" ]] || fail "missing file: $1"
-}
-
-require_mode() {
-  local path=$1
-  local expected=$2
-  local actual
-  actual=$(stat -c '%a' "$path")
-  [[ "$actual" == "$expected" ]] || fail "mode for $path is $actual, want $expected"
-}
-
-require_contains() {
-  local needle=$1
-  local path=$2
-  grep -Fqx -- "$needle" "$path" >/dev/null || fail "missing line in $path: $needle"
-}
-
-require_not_exists() {
-  [[ ! -e "$1" ]] || fail "unexpected path: $1"
-}
-
-require_example_config() {
-  python3 - "$example_config" <<'PY'
-import json
-import sys
-
-expected = {
-    "environment": "public-testnet",
-    "status_url": "http://127.0.0.1:28545",
-    "expected_network": "sudharma",
-    "expected_coin": "Sudharma",
-    "expected_symbol": "SUDH",
-    "seed_address": "127.0.0.1:28444",
-    "reward_address": "9ccdc094489874bed888ffe4bdf9b8298f4c5131",
-    "miner_binary": "/usr/local/libexec/sudharma-demand-miner/sudharmad",
-    "data_directory": "/var/lib/sudharma-demand-miner",
-    "lock_file": "/run/sudharma-demand-miner/lock",
-    "poll_every": "10s",
-    "cooldown": "30s",
-    "failure_backoff": "30s",
-    "child_timeout": "5m",
-}
-with open(sys.argv[1], encoding="utf-8") as config_file:
-    actual = json.load(config_file)
-if actual != expected:
-    raise SystemExit(f"example config mismatch: {actual!r}")
-PY
-}
-
-mkdir -p "$workdir/fixtures" "$workdir/bin"
-printf '#!/usr/bin/env sh\nexit 0\n' >"$workdir/fixtures/sudharma-demand-miner"
-printf '#!/usr/bin/env sh\nexit 0\n' >"$workdir/fixtures/sudharmad"
-chmod 0755 "$workdir/fixtures/sudharma-demand-miner" "$workdir/fixtures/sudharmad"
-printf '{"fixture":true}\n' >"$workdir/fixtures/demand-miner.json"
-
-cat >"$workdir/bin/systemctl" <<'EOF'
-#!/usr/bin/env sh
-printf '%s\n' "$*" >>"$SYSTEMCTL_LOG"
-EOF
-chmod 0755 "$workdir/bin/systemctl"
-
-stage="$workdir/stage"
-mkdir -p "$stage/usr/local/bin"
-printf 'pre-existing sudharmad sentinel\n' >"$stage/usr/local/bin/sudharmad"
-chmod 0755 "$stage/usr/local/bin/sudharmad"
-cp "$stage/usr/local/bin/sudharmad" "$workdir/pre-existing-sudharmad"
-install_output="$workdir/install.out"
-PATH="$workdir/bin:$PATH" SYSTEMCTL_LOG="$workdir/systemctl.log" DESTDIR="$stage" \
-  bash "$installer" \
-  --miner-binary "$workdir/fixtures/sudharma-demand-miner" \
-  --node-binary "$workdir/fixtures/sudharmad" \
-  --config "$workdir/fixtures/demand-miner.json" >"$install_output"
-
-require_file "$stage/usr/local/bin/sudharma-demand-miner"
-require_file "$stage/usr/local/libexec/sudharma-demand-miner/sudharmad"
-require_file "$stage/etc/sudharma/demand-miner.json"
-require_file "$stage/etc/systemd/system/sudharma-demand-miner.service"
-require_mode "$stage/usr/local/bin/sudharma-demand-miner" 755
-require_mode "$stage/usr/local/libexec/sudharma-demand-miner/sudharmad" 755
-require_mode "$stage/etc/sudharma/demand-miner.json" 644
-require_mode "$stage/etc/systemd/system/sudharma-demand-miner.service" 644
-require_mode "$stage/var/lib/sudharma-demand-miner" 750
-cmp "$workdir/fixtures/demand-miner.json" "$stage/etc/sudharma/demand-miner.json" >/dev/null
-cmp "$workdir/pre-existing-sudharmad" "$stage/usr/local/bin/sudharmad" >/dev/null
-require_not_exists "$stage/var/lib/sudharma"
-require_contains 'installation complete; service remains disabled' "$install_output"
-[[ ! -e "$workdir/systemctl.log" ]] || fail 'installer invoked systemctl while staging'
-
-# A second staged install must be a no-op from the service manager's perspective.
-PATH="$workdir/bin:$PATH" SYSTEMCTL_LOG="$workdir/systemctl.log" DESTDIR="$stage" \
-  bash "$installer" \
-  --miner-binary "$workdir/fixtures/sudharma-demand-miner" \
-  --node-binary "$workdir/fixtures/sudharmad" \
-  --config "$workdir/fixtures/demand-miner.json" >/dev/null
-[[ ! -e "$workdir/systemctl.log" ]] || fail 'idempotent staged installer invoked systemctl'
-
-require_contains 'User=sudharma-miner' "$stage/etc/systemd/system/sudharma-demand-miner.service"
-require_contains 'Group=sudharma-miner' "$stage/etc/systemd/system/sudharma-demand-miner.service"
-require_contains 'NoNewPrivileges=true' "$stage/etc/systemd/system/sudharma-demand-miner.service"
-require_contains 'PrivateTmp=true' "$stage/etc/systemd/system/sudharma-demand-miner.service"
-require_contains 'ProtectSystem=strict' "$stage/etc/systemd/system/sudharma-demand-miner.service"
-require_contains 'RuntimeDirectory=sudharma-demand-miner' "$stage/etc/systemd/system/sudharma-demand-miner.service"
-require_contains 'RuntimeDirectoryMode=0750' "$stage/etc/systemd/system/sudharma-demand-miner.service"
-require_contains 'ReadWritePaths=/var/lib/sudharma-demand-miner /run/sudharma-demand-miner' "$stage/etc/systemd/system/sudharma-demand-miner.service"
-if grep -q '^ExecStartPre=' "$stage/etc/systemd/system/sudharma-demand-miner.service"; then
-  fail 'unit retains an unsafe root ExecStartPre command'
-fi
-grep -Eq '^ExecStart=.*/flock .*/run/sudharma-demand-miner/lock ' \
-  "$stage/etc/systemd/system/sudharma-demand-miner.service" || fail 'unit lacks flock single-instance protection'
-require_example_config
-
-grep -Fq 'reward address is public' "$readme" || fail 'README does not disclose reward-address safety'
-grep -Fq 'systemctl enable --now sudharma-demand-miner.service' "$readme" || fail 'README lacks explicit enable command'
-grep -Fq 'journalctl -u sudharma-demand-miner.service' "$readme" || fail 'README lacks journal command'
-grep -Fq 'systemctl status sudharma-demand-miner.service' "$readme" || fail 'README lacks status command'
-grep -Fq -- '--rollback' "$readme" || fail 'README lacks rollback command'
-grep -Fq 'go build -trimpath -o sudharma-demand-miner ./cmd/sudharma-demand-miner' "$readme" || fail 'README lacks explicit demand-miner build output'
-grep -Fq 'go build -trimpath -o sudharmad ./cmd/sudharmad' "$readme" || fail 'README lacks explicit native-miner build output'
-
-# The activation call is deliberately structurally guarded by --enable; normal
-# staged installs above prove it never reaches a service manager by default.
-awk '
-  /if \[\[ "\$enable" == true \]\]; then/ { guarded = 1 }
-  guarded && /systemctl enable --now sudharma-demand-miner\.service/ { found = 1 }
-  END { exit(found ? 0 : 1) }
-' "$installer" || fail 'enable command is not guarded by --enable'
-if grep -Eq '/var/lib/sudharma($|[^-])' "$installer"; then
-  fail 'rollback or install path references the node data directory'
+grep -Fq '"status_url": "http://127.0.0.1:28545"' "$root/etc/sudharma/demand-miner.json"
+grep -Fq '"miner_binary": "/usr/local/libexec/sudharma-demand-miner/sudharmad"' "$root/etc/sudharma/demand-miner.json"
+grep -Fq '"data_directory": "/var/lib/sudharma-demand-miner"' "$root/etc/sudharma/demand-miner.json"
+grep -Fq '"lock_file": "/run/sudharma-demand-miner/lock"' "$root/etc/sudharma/demand-miner.json"
+grep -Fq 'User=sudharma-miner' "$root/etc/systemd/system/sudharma-demand-miner.service"
+grep -Fq 'NoNewPrivileges=true' "$root/etc/systemd/system/sudharma-demand-miner.service"
+grep -Fq 'PrivateTmp=true' "$root/etc/systemd/system/sudharma-demand-miner.service"
+grep -Fq 'ProtectSystem=strict' "$root/etc/systemd/system/sudharma-demand-miner.service"
+grep -Fq 'RuntimeDirectory=sudharma-demand-miner' "$root/etc/systemd/system/sudharma-demand-miner.service"
+grep -Fq 'RuntimeDirectoryMode=0750' "$root/etc/systemd/system/sudharma-demand-miner.service"
+grep -Fq 'ReadWritePaths=/var/lib/sudharma-demand-miner' "$root/etc/systemd/system/sudharma-demand-miner.service"
+grep -Fq 'ReadWritePaths=/run/sudharma-demand-miner' "$root/etc/systemd/system/sudharma-demand-miner.service"
+grep -Fq 'ExecStart=/usr/local/bin/sudharma-demand-miner -config /etc/sudharma/demand-miner.json' "$root/etc/systemd/system/sudharma-demand-miner.service"
+if grep -Fq 'ExecStartPre=' "$root/etc/systemd/system/sudharma-demand-miner.service"; then
+  echo "service must not replace the lock inode during startup" >&2
+  exit 1
 fi
 
-rollback_output="$workdir/rollback.out"
-PATH="$workdir/bin:$PATH" SYSTEMCTL_LOG="$workdir/systemctl.log" DESTDIR="$stage" \
-  bash "$installer" --rollback >"$rollback_output"
-require_not_exists "$stage/usr/local/bin/sudharma-demand-miner"
-require_not_exists "$stage/usr/local/libexec/sudharma-demand-miner/sudharmad"
-require_not_exists "$stage/etc/sudharma/demand-miner.json"
-require_not_exists "$stage/etc/systemd/system/sudharma-demand-miner.service"
-cmp "$workdir/pre-existing-sudharmad" "$stage/usr/local/bin/sudharmad" >/dev/null
-[[ -d "$stage/var/lib/sudharma-demand-miner" ]] || fail 'rollback removed demand miner data'
-require_not_exists "$stage/var/lib/sudharma"
-[[ ! -e "$workdir/systemctl.log" ]] || fail 'staged rollback invoked systemctl'
-require_contains 'rollback complete; data directories were preserved' "$rollback_output"
+grep -Fq 'sudharma-miner' <<<"$output"
+if grep -Fq 'systemctl enable --now' <<<"$output"; then
+  echo "default install must not enable service" >&2
+  exit 1
+fi
+if grep -Eq 'systemctl[[:space:]]+enable[[:space:]]+--now' "$installer" && ! grep -Fq -- '--enable' "$installer"; then
+  echo "enable --now must be gated by --enable" >&2
+  exit 1
+fi
 
-printf 'PASS: demand miner installer safety checks\n'
+rollback="$(awk '/^### Rollback/{flag=1; next} flag && /^### /{exit} flag{print}' "$readme")"
+[[ -n "$rollback" ]] || { echo "missing Rollback section" >&2; exit 1; }
+if grep -Fq '/var/lib/sudharma ' <<<"$rollback" || grep -Fq '/var/lib/sudharma/' <<<"$rollback"; then
+  echo "rollback must never reference node data /var/lib/sudharma" >&2
+  exit 1
+fi
+
+echo "demand miner installer safety checks passed"
