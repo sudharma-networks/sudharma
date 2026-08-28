@@ -17,6 +17,7 @@ Participants can currently:
 - record Windows host, GPU and driver provenance automatically;
 - record hashrate, temperature, power and utilization where supported;
 - retain a standardized evidence directory for review;
+- run the packaged localhost controlled-staging gate without mixing artifacts from different revisions;
 - use a separately announced staging endpoint for controlled submission testing when enabled.
 
 Do **not** submit wallet private keys, seed phrases, AWS credentials, API secrets or other secrets with test results.
@@ -25,7 +26,7 @@ Do **not** submit wallet private keys, seed phrases, AWS credentials, API secret
 
 Download the release asset `khushi-miner-nvidia-windows.zip` and extract it, for example to `C:\KhushiMiner`.
 
-The package includes the NVIDIA miner, CUDA runtime dependency, checksums, build metadata and the hardware-test PowerShell runner.
+The package includes the NVIDIA miner, CUDA runtime dependency, same-revision local Go staging verifier, checksums, build metadata, hardware-test runner and local-staging runner.
 
 Open PowerShell and run:
 
@@ -64,7 +65,7 @@ The evidence directory contains `hardware-test.log` plus the released miner chec
 
 Download `khushi-miner-opencl-windows.zip` and extract it to a folder such as `C:\KhushiMinerOpenCL`.
 
-Install the GPU vendor driver that provides the OpenCL runtime. Then run:
+The package includes the OpenCL miner and kernels, same-revision local Go staging verifier, checksums, build metadata, hardware-test runner and local-staging runner. Install the GPU vendor driver that provides the OpenCL runtime, then run:
 
 ```powershell
 cd C:\KhushiMinerOpenCL
@@ -107,6 +108,27 @@ https://github.com/sudharma-networks/sudharma/issues/24
 ## Controlled staging mining
 
 Controlled staging is separate from unrestricted network mining. Do not point a miner at arbitrary RPC endpoints and do not expose administrative RPC services to the public internet.
+
+### Packaged localhost staging gate — recommended hardware interoperability check
+
+Each released Windows miner ZIP now contains its matching miner, the same-revision independent Go staging verifier, checksums and both PowerShell runners. From a freshly extracted NVIDIA CUDA **or** OpenCL package, run:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\run-local-staging-gate.ps1 -Device 0 -BenchmarkSeconds 60
+```
+
+The wrapper auto-detects the packaged CUDA or OpenCL miner, verifies the staging verifier checksum, starts the verifier on localhost only, runs the full hardware/vector/memory/benchmark suite, fetches a bounded staging challenge, submits the GPU-produced nonce to the independent Go verifier, creates an auditable evidence directory, and stops the verifier afterward.
+
+A successful run ends with:
+
+```text
+local-staging-gate=accepted
+```
+
+This localhost test creates **no block**, does not touch Seed-1 or Seed-2, and does not activate consensus mining.
+
+### Separately announced staging endpoint
 
 When a Sudharma staging mining endpoint is explicitly announced and approved for testing, the hardware runner can perform the bounded staging flow with both `-SubmitStagingSolution` and `-StagingEndpoint`:
 
