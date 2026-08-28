@@ -16,13 +16,13 @@ var miningStagingChallengeDomain = []byte("SUDHARMA-GPU-POW-V1-STAGING-CHALLENGE
 // to prove that a physical GPU search result agrees with a Go verifier before
 // production cache/DAG policy or Version-2 consensus activation is enabled.
 type MiningStagingChallenge struct {
-	ChallengeID    string `json:"challenge_id"`
-	Algorithm      string `json:"algorithm"`
-	Height         uint64 `json:"height"`
+	ChallengeID     string `json:"challenge_id"`
+	Algorithm       string `json:"algorithm"`
+	Height          uint64 `json:"height"`
 	HeaderPrefixHex string `json:"header_prefix"`
-	TargetHex      string `json:"target"`
-	CacheNodes     uint32 `json:"cache_nodes"`
-	Staging        bool   `json:"staging"`
+	TargetHex       string `json:"target"`
+	CacheNodes      uint32 `json:"cache_nodes"`
+	Staging         bool   `json:"staging"`
 }
 
 type MiningStagingSolution struct {
@@ -74,13 +74,13 @@ func (s *MiningStagingService) Issue(headerPrefix []byte, height uint64, cacheNo
 	id := sha256.Sum256(idInput)
 
 	challenge := MiningStagingChallenge{
-		ChallengeID:    hex.EncodeToString(id[:]),
-		Algorithm:      pow.GPUV1AlgorithmID,
-		Height:         height,
+		ChallengeID:     hex.EncodeToString(id[:]),
+		Algorithm:       pow.GPUV1AlgorithmID,
+		Height:          height,
 		HeaderPrefixHex: hex.EncodeToString(headerPrefix),
-		TargetHex:      hex.EncodeToString(target),
-		CacheNodes:     cacheNodes,
-		Staging:        true,
+		TargetHex:       hex.EncodeToString(target),
+		CacheNodes:      cacheNodes,
+		Staging:         true,
 	}
 
 	s.mu.Lock()
