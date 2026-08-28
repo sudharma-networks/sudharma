@@ -76,6 +76,38 @@ func TestClientPollGenerationAndVerifiedSubmit(t *testing.T) {
 	}
 }
 
+func TestClientRejectsReusedWorkIDWithMutatedTemplate(t *testing.T) {
+	var calls atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/mining/work", func(w http.ResponseWriter, r *http.Request) {
+		work := Work{
+			WorkID: "stable-id", Algorithm: "sudharma-gpupow-v1", Version: 2,
+			Height: 77, Difficulty: 3, Target: "000f", HeaderPrefix: "aabb", RewardAddress: "SUDH-miner",
+		}
+		if calls.Add(1) > 1 {
+			work.HeaderPrefix = "ccdd"
+		}
+		_ = json.NewEncoder(w).Encode(work)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	client, err := NewClient(srv.URL, srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, generation, err := client.Poll(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := client.Poll(context.Background()); err == nil {
+		t.Fatal("reused work_id with mutated immutable template must be rejected")
+	}
+	if !client.IsCurrent(first.WorkID, generation) {
+		t.Fatal("rejecting mutated work must preserve the previously accepted work binding")
+	}
+}
+
 func TestClientNeverSubmitsWithoutVerifierApproval(t *testing.T) {
 	var submits atomic.Int32
 	mux := http.NewServeMux()
