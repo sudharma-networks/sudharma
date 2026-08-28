@@ -31,14 +31,16 @@ jobs:
         run: |
           vcpkg install opencl:x64-windows
 
-      - name: Build generic Khushi OpenCL miner
+      - name: Build generic Khushi OpenCL miner and production vector gate
         shell: cmd
         run: |
           call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           where cl.exe
           if not exist dist mkdir dist
           cl /nologo /std:c++17 /O2 /EHsc /DCL_TARGET_OPENCL_VERSION=120 /I"C:\vcpkg\installed\x64-windows\include" compatibility\opencl\khushi_miner_opencl.cpp /link /LIBPATH:"C:\vcpkg\installed\x64-windows\lib" OpenCL.lib /OUT:dist\khushi-miner-opencl.exe
+          cl /nologo /std:c++17 /O2 /EHsc /DCL_TARGET_OPENCL_VERSION=120 /I"C:\vcpkg\installed\x64-windows\include" compatibility\opencl\khushi_production_vectors_opencl.cpp /link /LIBPATH:"C:\vcpkg\installed\x64-windows\lib" OpenCL.lib /OUT:dist\khushi-production-vectors-opencl.exe
           copy /Y compatibility\opencl\khushi_pow.cl dist\khushi_pow.cl
+          copy /Y compatibility\opencl\gpupow_v1_production_vectors.cl dist\gpupow_v1_production_vectors.cl
 
       - name: Record provenance and checksums
         shell: pwsh
@@ -49,14 +51,20 @@ jobs:
             "source_revision=$env:GITHUB_SHA",
             "backend=OpenCL 1.2",
             "artifact=khushi-miner-opencl.exe",
+            "production_vector_artifact=khushi-production-vectors-opencl.exe",
             "kernel=khushi_pow.cl",
+            "production_vector_kernel=gpupow_v1_production_vectors.cl",
             "gpu_policy=GPU devices only; CPU fallback prohibited"
           ) | Set-Content -Encoding ascii dist/build-metadata.txt
-          $exe = Get-FileHash -Algorithm SHA256 dist/khushi-miner-opencl.exe
+          $miner = Get-FileHash -Algorithm SHA256 dist/khushi-miner-opencl.exe
+          $vectors = Get-FileHash -Algorithm SHA256 dist/khushi-production-vectors-opencl.exe
           $kernel = Get-FileHash -Algorithm SHA256 dist/khushi_pow.cl
+          $vectorKernel = Get-FileHash -Algorithm SHA256 dist/gpupow_v1_production_vectors.cl
           @(
-            "$($exe.Hash.ToLower())  khushi-miner-opencl.exe",
-            "$($kernel.Hash.ToLower())  khushi_pow.cl"
+            "$($miner.Hash.ToLower())  khushi-miner-opencl.exe",
+            "$($vectors.Hash.ToLower())  khushi-production-vectors-opencl.exe",
+            "$($kernel.Hash.ToLower())  khushi_pow.cl",
+            "$($vectorKernel.Hash.ToLower())  gpupow_v1_production_vectors.cl"
           ) | Set-Content -Encoding ascii dist/SHA256SUMS.txt
           Get-Content dist/SHA256SUMS.txt
 
