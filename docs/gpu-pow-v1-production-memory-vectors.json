@@ -1,0 +1,34 @@
+{
+  "algorithm": "sudharma-gpupow-v1",
+  "dataset_bytes": 2147483648,
+  "cache_bytes": 16777216,
+  "chunk_bytes": 268435456,
+  "item_bytes": 64,
+  "epoch": 0,
+  "vectors": [
+    {
+      "index": 0,
+      "chunk": 0,
+      "offset": 0,
+      "digest_hex": "eb2d4ea4f291aa352d7e6788aa56703a3b1fe7d47564dc80d109d9f8de75e4de5b875e27d6aae37523753a88f00e337f15983e38819c630e2128d04f0548ad8b"
+    },
+    {
+      "index": 4194303,
+      "chunk": 0,
+      "offset": 268435392,
+      "digest_hex": "9b906e7a49f6b4de879f935d7fb68815481f9091540f083d81f54dcce44543bf95ceb282b3877aaaeb530e756752e79c7295282b008c54e8c05735daef437500"
+    },
+    {
+      "index": 4194304,
+      "chunk": 1,
+      "offset": 0,
+      "digest_hex": "5ff3da521e9a3ad3b2722b8dbc4a7d0d95aab31abba2bfee881ac1552912f754b0819dbd047b9b6b1b05b897968aed49f7002daaaccbd877e83c9812951d5a3e"
+    },
+    {
+      "index": 33554431,
+      "chunk": 7,
+      "offset": 268435392,
+      "digest_hex": "baade0e152b5a0741b4c865e5d547a4a10887abf3edbc9a93dc80361d205368aa3f7914076210afd2bd233966f32e264efb498719c5afd947c4a5226d7fd83a9"
+    }
+  ]
+}
