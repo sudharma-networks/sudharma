@@ -191,12 +191,39 @@ int vector_self_test() {
 int benchmark(unsigned seconds) {
     if (seconds == 0) seconds = 10;
     Runtime rt = make_runtime(); cl_int rc=0; cl_kernel kernel=clCreateKernel(rt.program,"khushi_search",&rc); check(rc,"clCreateKernel(khushi_search)");
-    const char header_text[]="khushi-algorithm-generic-opencl-benchmark"; cl_uint header_len=sizeof(header_text)-1u,cache_nodes=8,generation=1,hashes=0;cl_ulong nonce_start=0,nonce_count=1,found=~(cl_ulong)0;
-    std::vector<unsigned char> seed(32),cache(512),target(32,0); for(std::size_t i=0;i<seed.size();++i)seed[i]=(unsigned char)((i*17u+3u)&0xffu);for(std::size_t i=0;i<cache.size();++i)cache[i]=(unsigned char)((i*29u+11u)&0xffu);
-    cl_mem h=clCreateBuffer(rt.context,CL_MEM_READ_ONLY|CL_MEM_COPY_HOST_PTR,header_len,(void*)header_text,&rc);check(rc,"bench header");cl_mem s=clCreateBuffer(rt.context,CL_MEM_READ_ONLY|CL_MEM_COPY_HOST_PTR,32,seed.data(),&rc);check(rc,"bench seed");cl_mem c=clCreateBuffer(rt.context,CL_MEM_READ_ONLY|CL_MEM_COPY_HOST_PTR,cache.size(),cache.data(),&rc);check(rc,"bench cache");cl_mem t=clCreateBuffer(rt.context,CL_MEM_READ_ONLY|CL_MEM_COPY_HOST_PTR,32,target.data(),&rc);check(rc,"bench target");cl_mem g=clCreateBuffer(rt.context,CL_MEM_READ_WRITE|CL_MEM_COPY_HOST_PTR,sizeof(generation),&generation,&rc);check(rc,"bench generation");cl_mem f=clCreateBuffer(rt.context,CL_MEM_READ_WRITE|CL_MEM_COPY_HOST_PTR,sizeof(found),&found,&rc);check(rc,"bench found");cl_mem hd=clCreateBuffer(rt.context,CL_MEM_READ_WRITE|CL_MEM_COPY_HOST_PTR,sizeof(hashes),&hashes,&rc);check(rc,"bench hashes");
-    auto start=std::chrono::steady_clock::now(),deadline=start+std::chrono::seconds(seconds);do{hashes=0;check(clEnqueueWriteBuffer(rt.queue,hd,CL_TRUE,0,sizeof(hashes),&hashes,0,nullptr,nullptr),"hash reset");int a=0;check(clSetKernelArg(kernel,a++,sizeof(h),&h),"a0");check(clSetKernelArg(kernel,a++,sizeof(header_len),&header_len),"a1");check(clSetKernelArg(kernel,a++,sizeof(s),&s),"a2");check(clSetKernelArg(kernel,a++,sizeof(c),&c),"a3");check(clSetKernelArg(kernel,a++,sizeof(cache_nodes),&cache_nodes),"a4");check(clSetKernelArg(kernel,a++,sizeof(t),&t),"a5");check(clSetKernelArg(kernel,a++,sizeof(nonce_start),&nonce_start),"a6");check(clSetKernelArg(kernel,a++,sizeof(nonce_count),&nonce_count),"a7");check(clSetKernelArg(kernel,a++,sizeof(g),&g),"a8");check(clSetKernelArg(kernel,a++,sizeof(generation),&generation),"a9");check(clSetKernelArg(kernel,a++,sizeof(f),&f),"a10");check(clSetKernelArg(kernel,a++,sizeof(hd),&hd),"a11");std::size_t one=1;check(clEnqueueNDRangeKernel(rt.queue,kernel,1,nullptr,&one,nullptr,0,nullptr,nullptr),"bench enqueue");check(clFinish(rt.queue),"bench finish");++nonce_start;}while(std::chrono::steady_clock::now()<deadline);
-    auto end=std::chrono::steady_clock::now();double elapsed=std::chrono::duration<double>(end-start).count();double rate=elapsed>0?static_cast<double>(nonce_start)/elapsed:0;std::printf("Khushi Algorithm benchmark backend=opencl device=%d seconds=%.3f hashes=%llu hashrate_hps=%.6f\n",selected_device,elapsed,(unsigned long long)nonce_start,rate);
-    clReleaseMemObject(hd);clReleaseMemObject(f);clReleaseMemObject(g);clReleaseMemObject(t);clReleaseMemObject(c);clReleaseMemObject(s);clReleaseMemObject(h);clReleaseKernel(kernel);return 0;
+    const char header_text[]="khushi-algorithm-generic-opencl-benchmark";
+    cl_uint header_len=sizeof(header_text)-1u,cache_nodes=8,generation=1,found_flag=0,hashes=0;
+    cl_ulong nonce_start=0,nonce_count=1,found=~(cl_ulong)0;
+    std::vector<unsigned char> seed(32),cache(512),target(32,0);
+    for(std::size_t i=0;i<seed.size();++i)seed[i]=(unsigned char)((i*17u+3u)&0xffu);
+    for(std::size_t i=0;i<cache.size();++i)cache[i]=(unsigned char)((i*29u+11u)&0xffu);
+    cl_mem h=clCreateBuffer(rt.context,CL_MEM_READ_ONLY|CL_MEM_COPY_HOST_PTR,header_len,(void*)header_text,&rc);check(rc,"bench header");
+    cl_mem s=clCreateBuffer(rt.context,CL_MEM_READ_ONLY|CL_MEM_COPY_HOST_PTR,32,seed.data(),&rc);check(rc,"bench seed");
+    cl_mem c=clCreateBuffer(rt.context,CL_MEM_READ_ONLY|CL_MEM_COPY_HOST_PTR,cache.size(),cache.data(),&rc);check(rc,"bench cache");
+    cl_mem t=clCreateBuffer(rt.context,CL_MEM_READ_ONLY|CL_MEM_COPY_HOST_PTR,32,target.data(),&rc);check(rc,"bench target");
+    cl_mem g=clCreateBuffer(rt.context,CL_MEM_READ_WRITE|CL_MEM_COPY_HOST_PTR,sizeof(generation),&generation,&rc);check(rc,"bench generation");
+    cl_mem ff=clCreateBuffer(rt.context,CL_MEM_READ_WRITE|CL_MEM_COPY_HOST_PTR,sizeof(found_flag),&found_flag,&rc);check(rc,"bench found flag");
+    cl_mem f=clCreateBuffer(rt.context,CL_MEM_READ_WRITE|CL_MEM_COPY_HOST_PTR,sizeof(found),&found,&rc);check(rc,"bench found");
+    cl_mem hd=clCreateBuffer(rt.context,CL_MEM_READ_WRITE|CL_MEM_COPY_HOST_PTR,sizeof(hashes),&hashes,&rc);check(rc,"bench hashes");
+    auto start=std::chrono::steady_clock::now(),deadline=start+std::chrono::seconds(seconds);
+    do{
+        hashes=0;found_flag=0;found=~(cl_ulong)0;
+        check(clEnqueueWriteBuffer(rt.queue,hd,CL_TRUE,0,sizeof(hashes),&hashes,0,nullptr,nullptr),"hash reset");
+        check(clEnqueueWriteBuffer(rt.queue,ff,CL_TRUE,0,sizeof(found_flag),&found_flag,0,nullptr,nullptr),"found flag reset");
+        check(clEnqueueWriteBuffer(rt.queue,f,CL_TRUE,0,sizeof(found),&found,0,nullptr,nullptr),"found nonce reset");
+        int a=0;
+        check(clSetKernelArg(kernel,a++,sizeof(h),&h),"a0");check(clSetKernelArg(kernel,a++,sizeof(header_len),&header_len),"a1");
+        check(clSetKernelArg(kernel,a++,sizeof(s),&s),"a2");check(clSetKernelArg(kernel,a++,sizeof(c),&c),"a3");
+        check(clSetKernelArg(kernel,a++,sizeof(cache_nodes),&cache_nodes),"a4");check(clSetKernelArg(kernel,a++,sizeof(t),&t),"a5");
+        check(clSetKernelArg(kernel,a++,sizeof(nonce_start),&nonce_start),"a6");check(clSetKernelArg(kernel,a++,sizeof(nonce_count),&nonce_count),"a7");
+        check(clSetKernelArg(kernel,a++,sizeof(g),&g),"a8");check(clSetKernelArg(kernel,a++,sizeof(generation),&generation),"a9");
+        check(clSetKernelArg(kernel,a++,sizeof(ff),&ff),"a10");check(clSetKernelArg(kernel,a++,sizeof(f),&f),"a11");
+        check(clSetKernelArg(kernel,a++,sizeof(hd),&hd),"a12");
+        std::size_t one=1;check(clEnqueueNDRangeKernel(rt.queue,kernel,1,nullptr,&one,nullptr,0,nullptr,nullptr),"bench enqueue");check(clFinish(rt.queue),"bench finish");++nonce_start;
+    }while(std::chrono::steady_clock::now()<deadline);
+    auto end=std::chrono::steady_clock::now();double elapsed=std::chrono::duration<double>(end-start).count();double rate=elapsed>0?static_cast<double>(nonce_start)/elapsed:0;
+    std::printf("Khushi Algorithm benchmark backend=opencl device=%d seconds=%.3f hashes=%llu hashrate_hps=%.6f\n",selected_device,elapsed,(unsigned long long)nonce_start,rate);
+    clReleaseMemObject(hd);clReleaseMemObject(f);clReleaseMemObject(ff);clReleaseMemObject(g);clReleaseMemObject(t);clReleaseMemObject(c);clReleaseMemObject(s);clReleaseMemObject(h);clReleaseKernel(kernel);return 0;
 }
 
 void usage(){std::fputs("usage: khushi-miner-opencl [--device N] --list-devices | --vector-self-test | --benchmark [seconds] | --mine\n",stderr);}
