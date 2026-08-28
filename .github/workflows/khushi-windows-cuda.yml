@@ -1,0 +1,69 @@
+name: Khushi RTX 2060 Windows CUDA
+
+on:
+  push:
+    branches:
+      - feature/gpu-pow-v1
+    paths:
+      - '.github/workflows/khushi-windows-cuda.yml'
+      - 'compatibility/cuda/**'
+      - 'compatibility/gpupowv1/windows_artifact_contract_test.go'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-cuda:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install CUDA toolkit
+        uses: Jimver/cuda-toolkit@v0.2.36
+        with:
+          cuda: '13.2.0'
+          method: network
+          sub-packages: '["nvcc", "visual_studio_integration", "cudart"]'
+
+      - name: CUDA compiler version
+        shell: pwsh
+        run: nvcc -V
+
+      - name: Build Khushi Algorithm RTX 2060 miner
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          nvcc -std=c++17 -O3 -arch=sm_75 -lineinfo -Xcompiler "/EHsc" compatibility/cuda/khushi_miner.cu -o dist/khushi-miner-rtx2060.exe
+
+      - name: Package CUDA runtime
+        shell: pwsh
+        run: |
+          $runtime = Get-ChildItem -Path "$env:CUDA_PATH\bin" -Filter "cudart64_*.dll" | Select-Object -First 1
+          if (-not $runtime) { throw "CUDA runtime DLL not found under CUDA_PATH" }
+          Copy-Item $runtime.FullName -Destination dist
+
+      - name: Record provenance and checksum
+        shell: pwsh
+        run: |
+          @(
+            "algorithm=Khushi Algorithm",
+            "protocol_id=sudharma-gpupow-v1",
+            "source_revision=$env:GITHUB_SHA",
+            "cuda_arch=sm_75",
+            "artifact=khushi-miner-rtx2060.exe"
+          ) | Set-Content -Encoding ascii dist/build-metadata.txt
+          nvcc -V 2>&1 | Add-Content -Encoding ascii dist/build-metadata.txt
+          $hash = Get-FileHash -Algorithm SHA256 dist/khushi-miner-rtx2060.exe
+          "$($hash.Hash.ToLower())  khushi-miner-rtx2060.exe" | Set-Content -Encoding ascii dist/SHA256SUMS.txt
+          Get-Content dist/SHA256SUMS.txt
+
+      - name: Upload RTX 2060 Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: khushi-miner-rtx2060-windows
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
