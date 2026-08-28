@@ -6,11 +6,20 @@ import (
 	"encoding/hex"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/sudharma-networks/sudharma/pow"
 )
 
-var miningStagingChallengeDomain = []byte("SUDHARMA-GPU-POW-V1-STAGING-CHALLENGE\x00")
+const (
+	miningStagingMaxOutstanding = 16
+	miningStagingChallengeTTL    = 5 * time.Minute
+)
+
+var (
+	miningStagingChallengeDomain = []byte("SUDHARMA-GPU-POW-V1-STAGING-CHALLENGE\x00")
+	miningStagingNow             = time.Now
+)
 
 // MiningStagingChallenge is deliberately not a block template. It exists only
 // to prove that a physical GPU search result agrees with a Go verifier before
@@ -32,14 +41,23 @@ type MiningStagingSolution struct {
 
 type MiningStagingVerifier func(challenge MiningStagingChallenge, nonce uint64) bool
 
+type miningStagingActiveChallenge struct {
+	challenge MiningStagingChallenge
+	issuedAt  time.Time
+}
+
 type MiningStagingService struct {
-	mu       sync.RWMutex
+	mu       sync.Mutex
 	verifier MiningStagingVerifier
-	active   *MiningStagingChallenge
+	active   map[string]miningStagingActiveChallenge
+	order    []string
 }
 
 func NewMiningStagingService(verifier MiningStagingVerifier) *MiningStagingService {
-	return &MiningStagingService{verifier: verifier}
+	return &MiningStagingService{
+		verifier: verifier,
+		active:   make(map[string]miningStagingActiveChallenge),
+	}
 }
 
 // Issue creates explicit non-consensus work. cacheNodes is mandatory on every
@@ -83,8 +101,18 @@ func (s *MiningStagingService) Issue(headerPrefix []byte, height uint64, cacheNo
 		Staging:         true,
 	}
 
+	now := miningStagingNow()
 	s.mu.Lock()
-	s.active = &challenge
+	s.pruneActiveLocked(now)
+	if _, exists := s.active[challenge.ChallengeID]; !exists {
+		for len(s.active) >= miningStagingMaxOutstanding && len(s.order) > 0 {
+			oldest := s.order[0]
+			s.order = s.order[1:]
+			delete(s.active, oldest)
+		}
+		s.order = append(s.order, challenge.ChallengeID)
+	}
+	s.active[challenge.ChallengeID] = miningStagingActiveChallenge{challenge: challenge, issuedAt: now}
 	s.mu.Unlock()
 	return challenge, nil
 }
@@ -94,15 +122,17 @@ func (s *MiningStagingService) Submit(solution MiningStagingSolution) MiningSubm
 		return MiningSubmitResult{Status: MiningSubmitStale}
 	}
 
-	s.mu.RLock()
-	if s.active == nil || solution.Challenge.ChallengeID != s.active.ChallengeID {
-		s.mu.RUnlock()
+	now := miningStagingNow()
+	s.mu.Lock()
+	s.pruneActiveLocked(now)
+	entry, ok := s.active[solution.Challenge.ChallengeID]
+	verifier := s.verifier
+	s.mu.Unlock()
+	if !ok {
 		return MiningSubmitResult{Status: MiningSubmitStale}
 	}
-	active := *s.active
-	verifier := s.verifier
-	s.mu.RUnlock()
 
+	active := entry.challenge
 	if !stagingChallengeMatches(solution.Challenge, active) {
 		return MiningSubmitResult{Status: MiningSubmitMutated}
 	}
@@ -112,11 +142,32 @@ func (s *MiningStagingService) Submit(solution MiningStagingSolution) MiningSubm
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.active == nil || s.active.ChallengeID != active.ChallengeID {
+	s.pruneActiveLocked(miningStagingNow())
+	current, ok := s.active[active.ChallengeID]
+	if !ok || !stagingChallengeMatches(current.challenge, active) {
 		return MiningSubmitResult{Status: MiningSubmitStale}
 	}
-	s.active = nil
+	delete(s.active, active.ChallengeID)
 	return MiningSubmitResult{Status: MiningSubmitAccepted}
+}
+
+func (s *MiningStagingService) pruneActiveLocked(now time.Time) {
+	if len(s.order) == 0 {
+		return
+	}
+	kept := s.order[:0]
+	for _, id := range s.order {
+		entry, ok := s.active[id]
+		if !ok {
+			continue
+		}
+		if now.Sub(entry.issuedAt) > miningStagingChallengeTTL {
+			delete(s.active, id)
+			continue
+		}
+		kept = append(kept, id)
+	}
+	s.order = kept
 }
 
 func stagingChallengeMatches(got, want MiningStagingChallenge) bool {
