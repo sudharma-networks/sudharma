@@ -11,6 +11,7 @@ on:
       - 'compatibility/gpupowv1/**'
       - 'scripts/windows/run-local-staging-gate.ps1'
       - 'scripts/windows/test-khushi-miner.ps1'
+      - 'docs/test-mining/PUBLIC_TEST_MINING.md'
   workflow_dispatch:
 
 permissions:
@@ -29,6 +30,31 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Validate packaged PowerShell syntax
+        shell: pwsh
+        run: |
+          $parseErrors = @()
+          foreach ($script in @(
+            'scripts/windows/run-local-staging-gate.ps1',
+            'scripts/windows/test-khushi-miner.ps1'
+          )) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $script,
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -ne 0) {
+              Write-Error "PowerShell syntax validation failed for $script"
+              $errors | ForEach-Object { Write-Error $_.Message }
+              $parseErrors += $errors
+            }
+          }
+          if ($parseErrors.Count -ne 0) {
+            throw "PowerShell syntax validation failed"
+          }
 
       - name: Test staging verifier and contracts
         shell: pwsh
