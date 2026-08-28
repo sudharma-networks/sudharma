@@ -45,6 +45,38 @@ for forbidden in \
   fi
 done
 
+# An existing config symlink must be rejected before the installer writes any
+# miner assets or follows the link with chmod/chown.
+mkdir -p "$root/etc/sudharma"
+victim="$tmp/outside-config"
+printf 'outside-config-must-survive\n' > "$victim"
+chmod 0600 "$victim"
+victim_before="$(sha256sum "$victim" | awk '{print $1}')"
+ln -s "$victim" "$root/etc/sudharma/demand-miner.json"
+if run_install >/dev/null 2>&1; then
+  echo "installer must reject an existing config symlink" >&2
+  exit 1
+fi
+[[ "$(stat -c '%a' "$victim")" == "600" ]] || {
+  echo "rejected config symlink must not change target mode" >&2
+  exit 1
+}
+[[ "$(sha256sum "$victim" | awk '{print $1}')" == "$victim_before" ]] || {
+  echo "rejected config symlink must not change target content" >&2
+  exit 1
+}
+for forbidden in \
+  "$root/usr/local/bin/sudharma-demand-miner" \
+  "$root/usr/local/libexec/sudharma-demand-miner/sudharmad" \
+  "$root/etc/systemd/system/sudharma-demand-miner.service" \
+  "$root/var/lib/sudharma-demand-miner"; do
+  if [[ -e "$forbidden" ]]; then
+    echo "rejected config symlink must not install assets: $forbidden" >&2
+    exit 1
+  fi
+done
+rm "$root/etc/sudharma/demand-miner.json"
+
 output="$(run_install)"
 run_install >/dev/null
 
