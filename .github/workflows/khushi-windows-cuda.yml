@@ -33,10 +33,12 @@ jobs:
         run: nvcc -V
 
       - name: Build Khushi Algorithm RTX 2060 miner
-        shell: pwsh
+        shell: cmd
         run: |
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          nvcc -std=c++17 -O3 -arch=sm_75 -lineinfo -Xcompiler "/EHsc" compatibility/cuda/khushi_miner.cu -o dist/khushi-miner-rtx2060.exe
+          call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          where cl.exe
+          if not exist dist mkdir dist
+          nvcc -std=c++17 -O3 -arch=sm_75 -lineinfo -Xcompiler "/EHsc" compatibility\cuda\khushi_miner.cu -o dist\khushi-miner-rtx2060.exe
 
       - name: Package CUDA runtime
         shell: pwsh
