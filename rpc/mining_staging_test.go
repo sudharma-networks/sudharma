@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"testing"
+	"time"
 
 	"github.com/sudharma-networks/sudharma/pow"
 )
@@ -66,6 +67,9 @@ func TestMiningStagingSubmitRejectsMutationAndUsesVerifier(t *testing.T) {
 	if verified != 2 {
 		t.Fatalf("verifier calls after accepted nonce: got %d want 2", verified)
 	}
+	if got := service.Submit(valid); got.Status != MiningSubmitStale {
+		t.Fatalf("replayed staging nonce status: got %q want %q", got.Status, MiningSubmitStale)
+	}
 }
 
 func TestMiningStagingKeepsIndependentOutstandingChallenges(t *testing.T) {
@@ -88,6 +92,48 @@ func TestMiningStagingKeepsIndependentOutstandingChallenges(t *testing.T) {
 	}
 	if got := service.Submit(MiningStagingSolution{Challenge: second, Nonce: 7}); got.Status != MiningSubmitAccepted {
 		t.Fatalf("second outstanding challenge status: got %q want %q", got.Status, MiningSubmitAccepted)
+	}
+}
+
+func TestMiningStagingBoundsOutstandingChallenges(t *testing.T) {
+	service := NewMiningStagingService(func(challenge MiningStagingChallenge, nonce uint64) bool {
+		return nonce == 7
+	})
+	target := bytes.Repeat([]byte{0xff}, 32)
+	issued := make([]MiningStagingChallenge, 0, miningStagingMaxOutstanding+1)
+	for i := 0; i < miningStagingMaxOutstanding+1; i++ {
+		challenge, err := service.Issue([]byte{byte(i + 1)}, 0, 8, target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		issued = append(issued, challenge)
+	}
+
+	if got := service.Submit(MiningStagingSolution{Challenge: issued[0], Nonce: 7}); got.Status != MiningSubmitStale {
+		t.Fatalf("evicted staging challenge status: got %q want %q", got.Status, MiningSubmitStale)
+	}
+	if got := service.Submit(MiningStagingSolution{Challenge: issued[len(issued)-1], Nonce: 7}); got.Status != MiningSubmitAccepted {
+		t.Fatalf("newest staging challenge status: got %q want %q", got.Status, MiningSubmitAccepted)
+	}
+}
+
+func TestMiningStagingExpiresOutstandingChallenges(t *testing.T) {
+	originalNow := miningStagingNow
+	defer func() { miningStagingNow = originalNow }()
+
+	now := time.Unix(1_800_000_000, 0)
+	miningStagingNow = func() time.Time { return now }
+	service := NewMiningStagingService(func(challenge MiningStagingChallenge, nonce uint64) bool {
+		return nonce == 7
+	})
+	challenge, err := service.Issue([]byte("hardware-gate-expiry"), 0, 8, bytes.Repeat([]byte{0xff}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now = now.Add(miningStagingChallengeTTL + time.Nanosecond)
+	if got := service.Submit(MiningStagingSolution{Challenge: challenge, Nonce: 7}); got.Status != MiningSubmitStale {
+		t.Fatalf("expired staging challenge status: got %q want %q", got.Status, MiningSubmitStale)
 	}
 }
 
