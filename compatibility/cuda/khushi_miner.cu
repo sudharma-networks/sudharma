@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 
 #include "gpupow_v1_search.cuh"
 
@@ -29,6 +30,8 @@ constexpr const char* kGenesisCacheHex[8] = {
     "d4301c92c2addfc7c7983981263e64dafb2d186e147f508ad346b0b002ae4933efebdced686a61f15282bdfc226bb932ced7d5346f296cf8d2c89f38c2adbc59",
     "14d42ce1d735d05d233dccb89532ee7fdbb10acb45d97f2010c04122677b21375a9ddd9dff63010306414d2ecf8c3fb007df86898b2bb55b61c64f19ebffe140",
 };
+
+int selected_device = 0;
 
 int cuda_error(const char* operation, cudaError_t err) {
     if (err == cudaSuccess) return 0;
@@ -75,7 +78,7 @@ SearchCache benchmark_cache() {
 
 SearchJob benchmark_job(std::uint64_t nonce_start, std::uint64_t nonce_count) {
     SearchJob job{};
-    constexpr char header[] = "khushi-algorithm-rtx2060-benchmark";
+    constexpr char header[] = "khushi-algorithm-generic-gpu-benchmark";
     job.header_length = static_cast<std::uint32_t>(sizeof(header) - 1u);
     for (std::size_t i = 0; i < sizeof(header) - 1u; ++i) {
         job.header_prefix[i] = static_cast<std::uint8_t>(header[i]);
@@ -87,6 +90,38 @@ SearchJob benchmark_job(std::uint64_t nonce_start, std::uint64_t nonce_count) {
     job.nonce_start = nonce_start;
     job.nonce_count = nonce_count;
     return job;
+}
+
+bool checked_add(std::size_t a, std::size_t b, std::size_t* out) {
+    if (b > std::numeric_limits<std::size_t>::max() - a) return false;
+    *out = a + b;
+    return true;
+}
+
+std::size_t required_vram_bytes(std::size_t epoch_bytes, std::size_t runtime_bytes) {
+    // This reports the allocation needed by the current miner mode. Production
+    // epoch/DAG sizing remains an explicit consensus/deployment parameter and
+    // is passed in as epoch_bytes instead of being inferred from a GPU model.
+    constexpr std::size_t runtime_reserve = 64u * 1024u * 1024u;
+    std::size_t required = 0u;
+    if (!checked_add(epoch_bytes, runtime_bytes, &required)) return std::numeric_limits<std::size_t>::max();
+    if (!checked_add(required, runtime_reserve, &required)) return std::numeric_limits<std::size_t>::max();
+    return required;
+}
+
+int select_device(int device) {
+    int count = 0;
+    if (cuda_error("cudaGetDeviceCount", cudaGetDeviceCount(&count)) != 0) return 1;
+    if (count == 0) {
+        std::fputs("Khushi Algorithm: no CUDA device found\n", stderr);
+        return 2;
+    }
+    if (device < 0 || device >= count) {
+        std::fprintf(stderr, "invalid CUDA device index %d (devices=%d)\n", device, count);
+        return 2;
+    }
+    selected_device = device;
+    return cuda_error("cudaSetDevice", cudaSetDevice(selected_device));
 }
 
 int print_device_info() {
@@ -112,10 +147,34 @@ int print_device_info() {
     return 0;
 }
 
+int memory_preflight(std::size_t epoch_bytes, std::size_t runtime_bytes) {
+    std::size_t available_vram_bytes = 0u;
+    std::size_t total_vram_bytes = 0u;
+    if (cuda_error("cudaMemGetInfo", cudaMemGetInfo(&available_vram_bytes, &total_vram_bytes)) != 0) return 1;
+    const std::size_t needed = required_vram_bytes(epoch_bytes, runtime_bytes);
+    std::printf("selected_device=%d required_vram_bytes=%llu available_vram_bytes=%llu total_vram_bytes=%llu\n",
+                selected_device,
+                static_cast<unsigned long long>(needed),
+                static_cast<unsigned long long>(available_vram_bytes),
+                static_cast<unsigned long long>(total_vram_bytes));
+    if (needed == std::numeric_limits<std::size_t>::max() || available_vram_bytes < needed) {
+        std::fprintf(stderr,
+                     "insufficient GPU memory: required_vram_bytes=%llu available_vram_bytes=%llu\n",
+                     static_cast<unsigned long long>(needed),
+                     static_cast<unsigned long long>(available_vram_bytes));
+        return 2;
+    }
+    return 0;
+}
+
 int run_telemetry() {
+    char command[512] = {};
+    std::snprintf(command,
+                  sizeof(command),
+                  "nvidia-smi -i %d --query-gpu=name,driver_version,temperature.gpu,power.draw,utilization.gpu,memory.used --format=csv,noheader,nounits",
+                  selected_device);
     std::puts("telemetry-columns=name,driver_version,temperature.gpu,power.draw,utilization.gpu,memory.used");
-    const int result = std::system(
-        "nvidia-smi --query-gpu=name,driver_version,temperature.gpu,power.draw,utilization.gpu,memory.used --format=csv,noheader,nounits");
+    const int result = std::system(command);
     if (result != 0) {
         std::fputs("telemetry=unavailable (nvidia-smi failed)\n", stderr);
         return 5;
@@ -124,7 +183,9 @@ int run_telemetry() {
 }
 
 int run_vector_self_test() {
-    if (print_device_info() != 0) return 2;
+    if (select_device(selected_device) != 0) return 2;
+    constexpr std::size_t runtime_bytes = 32u;
+    if (memory_preflight(sizeof(SearchCache), runtime_bytes) != 0) return 2;
 
     SearchCache host_cache = genesis_vector_cache();
     SearchJob job{};
@@ -166,7 +227,9 @@ int run_vector_self_test() {
 
 int run_benchmark(unsigned seconds) {
     if (seconds == 0u) seconds = 10u;
-    if (print_device_info() != 0) return 2;
+    if (select_device(selected_device) != 0) return 2;
+    constexpr std::size_t runtime_bytes = sizeof(std::uint32_t) + 2u * sizeof(unsigned long long);
+    if (memory_preflight(sizeof(SearchCache), runtime_bytes) != 0) return 2;
 
     SearchCache host_cache = benchmark_cache();
     SearchCache* device_cache = nullptr;
@@ -208,8 +271,8 @@ int run_benchmark(unsigned seconds) {
     const auto ended = std::chrono::steady_clock::now();
     const double elapsed = std::chrono::duration<double>(ended - started).count();
     const double rate = elapsed > 0.0 ? static_cast<double>(hashes) / elapsed : 0.0;
-    std::printf("Khushi Algorithm benchmark seconds=%.3f hashes=%llu hashrate_hps=%.6f\n",
-                elapsed, hashes, rate);
+    std::printf("Khushi Algorithm benchmark backend=cuda device=%d seconds=%.3f hashes=%llu hashrate_hps=%.6f\n",
+                selected_device, elapsed, hashes, rate);
 
     cudaFree(hashes_done);
     cudaFree(found_nonce);
@@ -218,30 +281,56 @@ int run_benchmark(unsigned seconds) {
     return 0;
 }
 
+bool parse_device(const char* text, int* device) {
+    char* end = nullptr;
+    const long value = std::strtol(text, &end, 10);
+    if (text == end || *end != '\0' || value < 0 || value > std::numeric_limits<int>::max()) return false;
+    *device = static_cast<int>(value);
+    return true;
+}
+
+void usage() {
+    std::fputs(
+        "usage: khushi-miner [--device N] --list-devices | --device-info | --telemetry | --vector-self-test | --benchmark [seconds] | --mine\n",
+        stderr);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
-    if (argc == 2 && std::strcmp(argv[1], "--device-info") == 0) {
+    int arg = 1;
+    if (argc >= 3 && std::strcmp(argv[arg], "--device") == 0) {
+        if (!parse_device(argv[arg + 1], &selected_device)) {
+            std::fputs("invalid --device value\n", stderr);
+            return 64;
+        }
+        arg += 2;
+    }
+    if (arg >= argc) {
+        usage();
+        return 64;
+    }
+
+    if ((std::strcmp(argv[arg], "--list-devices") == 0 || std::strcmp(argv[arg], "--device-info") == 0) && arg + 1 == argc) {
         return print_device_info();
     }
-    if (argc == 2 && std::strcmp(argv[1], "--telemetry") == 0) {
+    if (std::strcmp(argv[arg], "--telemetry") == 0 && arg + 1 == argc) {
+        if (select_device(selected_device) != 0) return 2;
         return run_telemetry();
     }
-    if (argc == 2 && std::strcmp(argv[1], "--vector-self-test") == 0) {
+    if (std::strcmp(argv[arg], "--vector-self-test") == 0 && arg + 1 == argc) {
         return run_vector_self_test();
     }
-    if ((argc == 2 || argc == 3) && std::strcmp(argv[1], "--benchmark") == 0) {
+    if (std::strcmp(argv[arg], "--benchmark") == 0 && (arg + 1 == argc || arg + 2 == argc)) {
         unsigned seconds = 10u;
-        if (argc == 3) {
-            seconds = static_cast<unsigned>(std::strtoul(argv[2], nullptr, 10));
-        }
+        if (arg + 2 == argc) seconds = static_cast<unsigned>(std::strtoul(argv[arg + 1], nullptr, 10));
         return run_benchmark(seconds);
     }
-    if (argc >= 2 && std::strcmp(argv[1], "--mine") == 0) {
-        std::fputs("Khushi Algorithm network mining is gated until RTX 2060 interoperability passes; CPU fallback prohibited\n", stderr);
+    if (std::strcmp(argv[arg], "--mine") == 0) {
+        std::fputs("Khushi Algorithm network mining is gated until hardware interoperability passes; CPU fallback prohibited\n", stderr);
         return 3;
     }
 
-    std::fputs("usage: khushi-miner --device-info | --telemetry | --vector-self-test | --benchmark [seconds] | --mine\n", stderr);
+    usage();
     return 64;
 }
