@@ -121,7 +121,7 @@ func (c *Client) Stats() Stats {
 	return c.stats
 }
 
-func (c *Client) recordSubmitStatus(status string) {
+func (c *Client) recordSubmitStatus(status string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	switch status {
@@ -131,7 +131,10 @@ func (c *Client) recordSubmitStatus(status string) {
 		c.stats.Stale++
 	case "invalid", "mutated":
 		c.stats.Rejected++
+	default:
+		return false
 	}
+	return true
 }
 
 func (c *Client) SubmitVerified(ctx context.Context, work Work, generation, nonce uint64, verifier Verifier) (SubmitResult, error) {
@@ -157,7 +160,9 @@ func (c *Client) SubmitVerified(ctx context.Context, work Work, generation, nonc
 	if strings.TrimSpace(result.Status) == "" {
 		return SubmitResult{}, errors.New("mining submit response missing status")
 	}
-	c.recordSubmitStatus(result.Status)
+	if !c.recordSubmitStatus(result.Status) {
+		return SubmitResult{}, fmt.Errorf("unknown mining submit status %q", result.Status)
+	}
 	return result, nil
 }
 
