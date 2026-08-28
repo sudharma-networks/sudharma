@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -147,6 +148,10 @@ func validateHostPort(value string) error {
 	host, port, err := net.SplitHostPort(value)
 	if err != nil || host == "" || port == "" {
 		return errors.New("must be host:port")
+	}
+	portNumber, err := strconv.Atoi(port)
+	if err != nil || portNumber < 1 || portNumber > 65535 {
+		return errors.New("port must be a number from 1 to 65535")
 	}
 	return nil
 }
