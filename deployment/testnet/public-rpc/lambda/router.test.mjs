@@ -9,7 +9,7 @@ import {
 
 const ADDRESS = '0123456789abcdef0123456789abcdef01234567';
 
-test('allows the public wallet and faucet route shapes', () => {
+test('allows the public wallet, faucet and website visitor route shapes', () => {
   const cases = [
     ['GET', '/health', 'health'],
     ['GET', '/ready', 'ready'],
@@ -20,6 +20,8 @@ test('allows the public wallet and faucet route shapes', () => {
     ['GET', '/v1/faucet/info', 'faucetInfo'],
     ['POST', '/v1/faucet/request', 'faucetInitial'],
     ['POST', '/v1/faucet/challenge', 'faucetChallenge'],
+    ['GET', '/v1/website/visitors', 'websiteVisitorsRead'],
+    ['POST', '/v1/website/visitors', 'websiteVisitorsRecord'],
   ];
   for (const [method, path, kind] of cases) {
     assert.equal(matchRoute(method, path).kind, kind, `${method} ${path}`);
@@ -44,6 +46,8 @@ test('rejects forbidden, malformed and wrong-method routes', () => {
     ['POST', '/v1/faucet/info'],
     ['GET', '/v1/faucet/request'],
     ['GET', '/v1/faucet/challenge'],
+    ['PUT', '/v1/website/visitors'],
+    ['DELETE', '/v1/website/visitors'],
   ];
   for (const [method, path] of cases) {
     assert.throws(() => matchRoute(method, path), undefined, `${method} ${path}`);
@@ -82,6 +86,25 @@ test('normalizes faucet JSON request bodies', () => {
   });
   assert.equal(normalized.kind, 'faucetInitial');
   assert.deepEqual(normalized.body, Buffer.from(body, 'utf8'));
+});
+
+test('normalizes website visitor JSON request bodies while GET remains bodyless', () => {
+  const body = JSON.stringify({ visitorId: '11111111-2222-4333-8444-555555555555' });
+  const normalized = normalizeEvent({
+    rawPath: '/v1/website/visitors',
+    headers: { 'content-type': 'application/json' },
+    body,
+    isBase64Encoded: false,
+    requestContext: { http: { method: 'POST' } },
+  });
+  assert.equal(normalized.kind, 'websiteVisitorsRecord');
+  assert.deepEqual(normalized.body, Buffer.from(body, 'utf8'));
+
+  assert.throws(() => normalizeEvent({
+    rawPath: '/v1/website/visitors',
+    body: '{}',
+    requestContext: { http: { method: 'GET' } },
+  }), /body not allowed/i);
 });
 
 test('normalizes base64 request bodies byte-for-byte', () => {
