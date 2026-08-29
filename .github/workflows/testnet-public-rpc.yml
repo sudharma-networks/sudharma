@@ -32,7 +32,7 @@ jobs:
       - name: Install Lambda dependencies
         working-directory: deployment/testnet/public-rpc/lambda
         run: npm install --ignore-scripts --no-audit --no-fund
-      - name: Test Lambda proxy and faucet
+      - name: Test Lambda proxy, faucet and website visitor counter
         working-directory: deployment/testnet/public-rpc/lambda
         run: npm test
       - name: Package Lambda
@@ -40,7 +40,7 @@ jobs:
           set -euo pipefail
           mkdir -p build/public-rpc
           cd deployment/testnet/public-rpc/lambda
-          zip -q -9 -r "$GITHUB_WORKSPACE/build/public-rpc/sudharma-testnet-wallet-proxy.zip" index.mjs router.mjs upstream.mjs faucet.mjs faucet-runtime.mjs package.json node_modules
+          zip -q -9 -r "$GITHUB_WORKSPACE/build/public-rpc/sudharma-testnet-wallet-proxy.zip" index.mjs router.mjs upstream.mjs faucet.mjs faucet-runtime.mjs visitor-runtime.mjs package.json node_modules
       - name: Upload Lambda artifact
         uses: actions/upload-artifact@v4
         with:
@@ -90,7 +90,7 @@ jobs:
       - name: Install Lambda dependencies
         working-directory: deployment/testnet/public-rpc/lambda
         run: npm install --ignore-scripts --no-audit --no-fund
-      - name: Test Lambda proxy and faucet again before deployment
+      - name: Test Lambda proxy, faucet and website visitor counter again before deployment
         working-directory: deployment/testnet/public-rpc/lambda
         run: npm test
       - name: Package Lambda
@@ -98,7 +98,7 @@ jobs:
           set -euo pipefail
           mkdir -p build/public-rpc
           cd deployment/testnet/public-rpc/lambda
-          zip -q -9 -r "$GITHUB_WORKSPACE/build/public-rpc/sudharma-testnet-wallet-proxy.zip" index.mjs router.mjs upstream.mjs faucet.mjs faucet-runtime.mjs package.json node_modules
+          zip -q -9 -r "$GITHUB_WORKSPACE/build/public-rpc/sudharma-testnet-wallet-proxy.zip" index.mjs router.mjs upstream.mjs faucet.mjs faucet-runtime.mjs visitor-runtime.mjs package.json node_modules
       - name: Configure AWS credentials from GitHub OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -119,6 +119,11 @@ jobs:
         run: |
           set -euo pipefail
           curl -fsS "${RPC_BASE_URL}/v1/status" | jq '{network,coin,symbol,height,peers}'
+      - name: Verify website visitor counter read route
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS "${RPC_BASE_URL}/v1/website/visitors" | jq -e '.total | numbers' >/dev/null
       - name: Activate faucet and smoke-test public info
         shell: bash
         run: |
