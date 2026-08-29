@@ -69,10 +69,10 @@
 - [x] Final integration-ready isolated head `a1c9f0b8fef89b24103e46ba667fac9876fedc7e`: GPU-PoW CI run **512** PASS, including Stage D, Stage E, Stage F, Stage G under race, activation-default-disabled guard, full regression and node build/checksum.
 - [x] Reconfirmed canonical `feature/gpu-pow-v1` immediately before integration: `1e6c000da84239df1858563898f36bf5abbdd1f8`.
 - [x] Compared canonical Stage F head to final Stage G head: Stage G was 16 commits ahead, 0 behind, with the canonical head as merge base.
-- [ ] Fast-forward canonical branch without force.
-- [ ] Verify canonical exact head with GPU-PoW and generic CI.
-- [ ] Update PR #25 and issue #13 metadata after canonical checks are green.
-- [ ] Perform final safety audit.
+- [x] Fast-forwarded canonical `feature/gpu-pow-v1` without force; PR #25 itself was not merged.
+- [x] Verified canonical integration head `b5a165c00f5e1d06bea558c66e9961af060f8d99`: GPU-PoW push run **514** PASS, GPU-PoW PR run **515** PASS, generic CI run **584** PASS.
+- [x] Updated PR #25 and issue #13 metadata with the Stage G checkpoint, exact-head CI and remaining gates.
+- [x] Final safety audit: PR #25 draft/open/unmerged; GPU-PoW activation disabled with no finite height; unrestricted GPU mining remains gated; Seed-1/Seed-2 and AWS unchanged; mainnet disabled; Stage G production bind remains only `tcp4` / `127.0.0.1:0`; no public Stratum endpoint or node wiring exists.
 
 ## Remaining gates after Stage G
 
