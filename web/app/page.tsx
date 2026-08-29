@@ -3,7 +3,9 @@ import { EcosystemCard } from "@/components/ecosystem-card";
 import { ProjectActivity } from "@/components/project-activity";
 import { ReadinessBadge } from "@/components/readiness-badge";
 import { StatusChip } from "@/components/status-chip";
+import { VisitorCounter } from "@/components/visitor-counter";
 import { SUDH_PARAMETERS } from "@/lib/project";
+import visitorCounterConfig from "@/public/data/visitor-counter.json";
 
 export default function Home() {
   return (
@@ -42,6 +44,11 @@ export default function Home() {
         <div className="section-heading"><p className="eyebrow">SUDH AT A GLANCE</p><h2>Development parameters, clearly stated.</h2><p>These values describe the current pre-mainnet design and remain subject to reviewed change before mainnet.</p></div>
         <div className="stats-grid">{SUDH_PARAMETERS.slice(0, 6).map(([label, value]) => <div className="stat" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
         <Link className="text-link" href="/sudh">View all SUDH parameters →</Link>
+      </section>
+
+      <section className="section-shell section-block">
+        <div className="section-heading"><p className="eyebrow">PUBLIC REACH</p><h2>See the community discover Sudharma.</h2><p>The public counter is privacy-friendly and records at most one visit per browser/device each day. It does not collect names, wallet addresses, seed phrases or account details.</p></div>
+        <div className="stats-grid"><VisitorCounter endpoint={visitorCounterConfig.endpoint} /></div>
       </section>
 
       <section className="section-shell section-block">
