@@ -2,7 +2,7 @@
 
 ## Status
 
-This document describes the staged Sudharma GPU-PoW Stratum interoperability profile. Stage D defines the transport-independent protocol core in `pool/stratum` and the immutable adapter in `rpc/stratum_adapter.go`. Stage E adds bounded framing and lifecycle for one already-open `net.Conn`. Stage F adds bounded supervision for an already-created `net.Listener` while preserving the Stage D/E contracts.
+This document describes the staged Sudharma GPU-PoW Stratum interoperability profile. Stage D defines the transport-independent protocol core in `pool/stratum` and the immutable adapter in `rpc/stratum_adapter.go`. Stage E adds bounded framing and lifecycle for one already-open `net.Conn`. Stage F adds bounded supervision for an already-created `net.Listener`. Stage G adds a deliberately local-only real socket owner and end-to-end TCP/TLS compatibility evidence while preserving the Stage D/E/F contracts.
 
 These checkpoints do **not** bind a public Stratum port, wire Stratum into `cmd/sudharma-rpcd`, deploy to Seed-1 or Seed-2, activate GPU-PoW, implement pool payouts or custody, or claim Kryptex approval/listing/wire compatibility.
 
@@ -20,7 +20,7 @@ The Stage D core returns typed protocol errors. Stage E defines per-connection f
 | `mining.authorize` | `[WALLET.WORKER, password]` | `true` after successful binding |
 | `mining.submit` | `[WALLET.WORKER, job_id, nonce_hex]` | one submit status string |
 
-For `mining.authorize`, the password is not treated as a credential in this checkpoint. Only an empty string or literal `x` compatibility placeholder is accepted and discarded.
+For `mining.authorize`, the password is not treated as a credential in this checkpoint. Only an empty string or literal `x` compatibility placeholder is accepted and discarded. Stage G exercises both forms over real loopback TCP sockets.
 
 ## Server notifications
 
@@ -109,7 +109,9 @@ Duplicate tracking is reset on clean work. Reaching the configured duplicate lim
 
 The Stage D package is deliberately transport-independent. `pool/stratum` does not open sockets, construct blocks, persist balances, or modify chain state. The RPC adapter copies the provider block, changes only the validated reward address before issuance, stores the exact returned immutable template and submits only a reconstructed solution based on that template plus nonce.
 
-Stage E and Stage F remain injection-only infrastructure. They do not choose a bind address, call a socket-listening primitive, load certificate/key files, wire themselves into the node or expose a public endpoint. Deferred work includes deployment-specific socket ownership, explicit endpoint configuration, proxy/IP policy beyond the raw peer address, production authentication, variable difficulty, accounting, payout thresholds, fees, wallet custody, Kryptex-specific extensions, miner packaging, public deployment and any GPU-PoW activation height.
+Stage E and Stage F remain injection-only infrastructure. They do not choose a bind address, call a socket-listening primitive, load certificate/key files, wire themselves into the node or expose a public endpoint. Stage G is the only staged socket owner and is intentionally incapable of selecting a public address: its zero-argument `loopback.Listen()` API opens only `tcp4` at `127.0.0.1:0`, and a source guard rejects configurable or alternate binding paths.
+
+Deferred work includes any public/deployment-specific socket ownership, explicit public endpoint configuration, proxy/IP policy beyond the raw peer address, production authentication, variable difficulty, accounting, payout thresholds, fees, wallet custody, Kryptex-specific extensions, miner packaging, public deployment and any GPU-PoW activation height.
 
 The permanent Stage D offline gate is:
 
@@ -155,4 +157,22 @@ The permanent Stage F gate is:
 
 ```bash
 go test -race ./pool/stratum/... ./rpc -run 'Stratum|Transport|Server|OfflineStratumTranscript' -count=1 -v
+```
+
+## Stage G loopback-only real-socket interoperability
+
+`loopback.Listen()` is a deliberately constrained socket owner for compatibility and test use. It has no arguments and binds exactly one IPv4 loopback listener using `net.Listen("tcp4", "127.0.0.1:0")`. The kernel selects the ephemeral port. Runtime validation rejects any returned address that is not IPv4 loopback or that retains port zero.
+
+A test-only AST source guard requires exactly one production listen call in `pool/stratum/loopback`, requires literal `tcp4` and `127.0.0.1:0` arguments, rejects address-selection helpers/environment/flag sources, rejects alternate listen paths, and requires the exported `Listen` function to remain zero-argument. Stage G therefore cannot be configured into a public endpoint through its current API.
+
+The compatibility suite in `compatibility/stratum` starts Stage F on the real Stage G listener and uses actual OS TCP sockets. The plaintext test proves subscribe, `WALLET.WORKER` authorization with password `x`, immediate difficulty/job delivery, `accepted_share`, `accepted_block`, duplicate rejection, and forwarding of exactly one network candidate. A separate real-socket case proves the blank password compatibility placeholder also authorizes and receives work.
+
+The TLS compatibility test generates its ECDSA P-256 key and self-signed x509 certificate entirely in memory, configures Stage F through the existing caller-supplied TLS boundary, proves a plaintext client is rejected before a Stage D session is created, then proves a trusted test client completes the Stratum flow over real TCP + TLS 1.2 or newer. No key or certificate fixture is written to disk or committed.
+
+Stage G is **local interoperability evidence only**. It is not wired into `cmd/sudharma-rpcd`, does not create a stable/public port, does not define reverse-proxy trust, does not implement vardiff/accounting/payouts/custody, does not deploy to AWS or Seed-1/Seed-2, does not activate GPU-PoW, and does not imply Kryptex approval or listing.
+
+The permanent Stage G gate is:
+
+```bash
+go test -race ./pool/stratum/... ./compatibility/stratum ./rpc -run 'Stratum|Transport|Server|Loopback|OfflineStratumTranscript' -count=1 -v
 ```
