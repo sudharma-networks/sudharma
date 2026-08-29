@@ -6,17 +6,22 @@ const DEFAULT_SEEDS = [
   'http://172.31.32.195:29100',
 ];
 
-function jsonResponse(statusCode, payload) {
+function jsonResponse(statusCode, payload, extraHeaders = {}) {
   return {
     statusCode,
     headers: {
       'cache-control': 'no-store',
       'content-type': 'application/json; charset=utf-8',
       'x-content-type-options': 'nosniff',
+      ...extraHeaders,
     },
     body: JSON.stringify(payload),
     isBase64Encoded: false,
   };
+}
+
+function visitorJsonResponse(statusCode, payload) {
+  return jsonResponse(statusCode, payload, { 'access-control-allow-origin': '*' });
 }
 
 function gatewayResponse(result) {
@@ -81,7 +86,7 @@ export function createHandler(options = {}) {
 
     if (isVisitorRoute(request.kind)) {
       if (typeof visitorHandler !== 'function') {
-        return jsonResponse(503, { error: 'website visitor counter is temporarily unavailable' });
+        return visitorJsonResponse(503, { error: 'website visitor counter is temporarily unavailable' });
       }
       try {
         const result = await visitorHandler(request, { context });
@@ -94,7 +99,7 @@ export function createHandler(options = {}) {
           latency_ms: Date.now() - started,
           request_id: context?.awsRequestId || null,
         });
-        return jsonResponse(statusCode, payload);
+        return visitorJsonResponse(statusCode, payload);
       } catch (error) {
         const statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : 500;
         safeLog(logger, statusCode >= 500 ? 'error' : 'warn', {
@@ -104,7 +109,7 @@ export function createHandler(options = {}) {
           latency_ms: Date.now() - started,
           request_id: context?.awsRequestId || null,
         });
-        return jsonResponse(statusCode, {
+        return visitorJsonResponse(statusCode, {
           error: statusCode >= 500
             ? 'website visitor counter is temporarily unavailable'
             : String(error?.message || 'visitor request rejected'),
