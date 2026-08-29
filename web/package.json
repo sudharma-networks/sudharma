@@ -10,7 +10,8 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "sync:github": "node scripts/sync-github-releases.mjs"
   },
   "dependencies": {
     "next": "^15.5.0",
