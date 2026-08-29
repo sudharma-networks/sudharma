@@ -85,7 +85,7 @@ func NewClient(baseURL string) (*Client, error) {
 	}
 	return &Client{
 		baseURL: strings.TrimRight(parsed.String(), "/"),
-		http: &http.Client{Timeout: 10 * time.Second},
+		http:    &http.Client{Timeout: 10 * time.Second},
 	}, nil
 }
 
