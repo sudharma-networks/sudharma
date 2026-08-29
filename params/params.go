@@ -17,7 +17,7 @@ const (
 	// Maximum monetary supply
 	// Internal identifier will be renamed from SUDH to SUDH
 	// in a later controlled migration step.
-	MaxSupplySUDH uint64 = 100_000_000
+	MaxSupplySUDH uint64 = 51_000_000_000
 	MaxSupply     uint64 = MaxSupplySUDH * CoinDecimals
 
 	// Block timing
