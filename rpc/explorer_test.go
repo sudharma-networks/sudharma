@@ -223,7 +223,7 @@ func TestExplorerAddressDetailsAndHistory(t *testing.T) {
 }
 
 func TestExplorerSearchResolvesBlockTransactionAndAddress(t *testing.T) {
-	server, _, chain, _, := newTestServer(t)
+	server, _, chain, _ := newTestServer(t)
 	address := "dddddddddddddddddddddddddddddddddddddddd"
 	tx := transactions.NewTransaction(address, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", 5, 1)
 	block := addExplorerRPCBlock(t, chain, tx)
