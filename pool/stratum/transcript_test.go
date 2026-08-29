@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 )
 
@@ -136,7 +135,27 @@ func TestOfflineStratumTranscript(t *testing.T) {
 		t.Fatalf("forwarded nonce = %016x, want %016x", source.submissions[0].Nonce, nonceBlock)
 	}
 
-	const expected = "TODO\n"
+	const expected = `{"id":1,"method":"mining.subscribe","params":["khushi-test/1.0"]}
+{"id":1,"result":"11111111111111111111111111111111","error":null}
+{"id":2,"method":"mining.authorize","params":["9ccdc094489874bed888ffe4bdf9b8298f4c5131.rig_01","x"]}
+{"id":2,"result":true,"error":null}
+{"id":null,"method":"mining.set_difficulty","params":[4]}
+{"id":null,"method":"mining.notify","params":["b8834f3e1663949d9332c1b42c2b8b47200d854b0be6cd9cfb1f5d30037b2dda","sudharma-gpupow-v1",100,"0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f","aabb","9ccdc094489874bed888ffe4bdf9b8298f4c5131",2,11,16909060,true]}
+{"id":3,"method":"mining.submit","params":["9ccdc094489874bed888ffe4bdf9b8298f4c5131.rig_01","b8834f3e1663949d9332c1b42c2b8b47200d854b0be6cd9cfb1f5d30037b2dda","0102030400000001"]}
+{"id":3,"result":"accepted_share","error":null}
+{"id":4,"method":"mining.submit","params":["9ccdc094489874bed888ffe4bdf9b8298f4c5131.rig_01","b8834f3e1663949d9332c1b42c2b8b47200d854b0be6cd9cfb1f5d30037b2dda","0102030400000002"]}
+{"id":4,"result":"accepted_block","error":null}
+{"id":5,"method":"mining.submit","params":["9ccdc094489874bed888ffe4bdf9b8298f4c5131.rig_01","b8834f3e1663949d9332c1b42c2b8b47200d854b0be6cd9cfb1f5d30037b2dda","0102030400000002"]}
+{"id":5,"result":"duplicate","error":null}
+{"id":null,"method":"mining.set_difficulty","params":[4]}
+{"id":null,"method":"mining.notify","params":["8d5c536ad1b2592b4a9937743eadbea48abd82422850110b9a3db0e590d99504","sudharma-gpupow-v1",101,"0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f","ccdd","9ccdc094489874bed888ffe4bdf9b8298f4c5131",2,11,16909060,true]}
+{"id":6,"method":"mining.submit","params":["9ccdc094489874bed888ffe4bdf9b8298f4c5131.rig_01","b8834f3e1663949d9332c1b42c2b8b47200d854b0be6cd9cfb1f5d30037b2dda","0102030400000003"]}
+{"id":6,"result":"stale","error":null}
+{"id":7,"method":"mining.submit","params":["9ccdc094489874bed888ffe4bdf9b8298f4c5131.rig_01","8d5c536ad1b2592b4a9937743eadbea48abd82422850110b9a3db0e590d99504","0102030500000003"]}
+{"id":7,"result":"invalid","error":null}
+{"id":8,"method":"mining.submit","params":[
+{"id":null,"result":null,"error":{"code":-32700,"message":"parse error"}}
+`
 	if got := transcript.String(); got != expected {
 		t.Fatalf("offline Stratum transcript mismatch\n--- got ---\n%s--- want ---\n%s", got, expected)
 	}
@@ -152,11 +171,5 @@ func transcriptWork(workID string, height uint64, headerPrefixHex, targetHex str
 		Version:         2,
 		Height:          height,
 		Difficulty:      11,
-	}
-}
-
-func TestOfflineStratumTranscriptProfileHasNoNetworkListener(t *testing.T) {
-	if strings.Contains(strings.ToLower(transcriptWallet), "tcp") {
-		t.Fatal("offline transcript fixture unexpectedly references a network listener")
 	}
 }

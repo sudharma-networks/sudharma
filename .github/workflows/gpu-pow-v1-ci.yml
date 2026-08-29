@@ -61,6 +61,9 @@ jobs:
       - name: Disposable activation and rollback rehearsal
         run: go test ./testnet ./operations -run 'GPU.*Rehearsal|GPUActivationRunbook' -count=1 -v
 
+      - name: Stage D offline Stratum protocol gate
+        run: go test ./pool/stratum ./rpc -run 'Stratum|OfflineStratumTranscript' -count=1 -v
+
       - name: Confirm network activation defaults remain disabled
         run: go test ./pow -run TestGPUV1NetworkActivationDefaultsRemainDisabled -count=1 -v
 
