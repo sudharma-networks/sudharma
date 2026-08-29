@@ -152,7 +152,62 @@ Add immutable `powPolicy` and `proofVerifier` fields to `Chain`. Route `AddBlock
 - [ ] **Step 4: Run** `go test ./rpc -count=1`; expect PASS.
 - [ ] **Step 5: Commit** `feat(gpu-pow): expose activation readiness status`.
 
-### Task 7: Disposable mixed-version and rollback rehearsal
+### Task 7: Offline pre-boundary activation abort
+
+**Files:**
+- Create: `cmd/sudharma-gpu-activation-abort/main.go`
+- Create: `cmd/sudharma-gpu-activation-abort/main_test.go`
+- Modify: `cmd/sudharma-rpcd/main.go`
+- Create: `operations/data_directory_lock.go`
+- Create: `operations/data_directory_lock_unix.go`
+- Create: `operations/data_directory_lock_windows.go`
+- Create: `operations/data_directory_lock_test.go`
+- Create: `operations/gpu_activation_abort.go`
+- Create: `operations/gpu_activation_abort_test.go`
+
+**Interfaces:**
+- Consumes: the persisted chain file and secure activation record created by
+  Task 5.
+- Produces: `operations.AbortGPUActivation(options GPUActivationAbortOptions)
+  (*GPUActivationAbortEvidence, error)` and an offline CLI requiring explicit
+  data/evidence directories plus the expected activation height.
+- Produces: `operations.LockDataDirectory(path string) (*DataDirectoryLock,
+  error)`, held by normal node startup and acquired non-blockingly by the abort
+  operation on Unix and Windows.
+
+- [ ] **Step 1: Write failing lock tests** proving one process cannot acquire
+  the same data directory twice, release permits reacquisition, a stale lock
+  file does not block acquisition, and separate directories do not conflict.
+- [ ] **Step 2: Implement platform-specific operating-system locks** behind
+  `LockDataDirectory`, using `flock(LOCK_EX|LOCK_NB)` on Unix and
+  `LockFileEx(LOCKFILE_EXCLUSIVE_LOCK|LOCKFILE_FAIL_IMMEDIATELY)` on Windows.
+  Integrate the lock at the start of `sudharma-rpcd` before chain/state files
+  are opened and retain it until shutdown.
+- [ ] **Step 3: Run** `go test ./operations ./cmd/sudharma-rpcd -run
+  'DataDirectoryLock|GPUStartup' -count=1`; expect PASS, then cross-compile the
+  node for `windows/amd64`.
+- [ ] **Step 4: Write failing operation tests** for missing and mismatched
+  activation records, insecure/symlinked inputs, tip below/exactly at/after the
+  boundary, an already-running node lock, atomic evidence preservation, and
+  refusal to overwrite an evidence destination.
+- [ ] **Step 5: Run** `go test ./operations -run GPUActivationAbort -count=1`;
+  expect missing API failures.
+- [ ] **Step 6: Implement the offline operation** by reusing strict activation
+  record loading, loading the persisted chain tip with legacy-only replay,
+  requiring an exclusive non-blocking data-directory lock, writing a 0600 JSON
+  evidence manifest, atomically renaming the activation record beside that
+  manifest, and synchronizing both directories. Never delete the only record
+  copy and never alter chain/state files.
+- [ ] **Step 7: Write failing CLI tests** for required flags, malformed heights,
+  successful dry validation and stable refusal messages. The CLI must not
+  expose an RPC listener or accept a mainnet mode.
+- [ ] **Step 8: Implement the minimal CLI** with `-data-dir`, `-evidence-dir`,
+  `-expected-activation-height`, and an explicit `-confirm-abort` gate.
+- [ ] **Step 9: Run** `go test ./operations ./cmd/sudharma-gpu-activation-abort
+  -count=1`, `go test ./... -count=1`, and the focused race suite.
+- [ ] **Step 10: Commit** `feat(gpu-pow): add safe offline activation abort`.
+
+### Task 8: Disposable mixed-version and rollback rehearsal
 
 **Files:**
 - Create: `testnet/gpupow_activation_rehearsal_test.go`
@@ -171,7 +226,7 @@ Add immutable `powPolicy` and `proofVerifier` fields to `Chain`. Route `AddBlock
 - [ ] **Step 6: Confirm constants remain disabled** with `go test ./pow -run TestGPUV1NetworkActivationDefaultsRemainDisabled -count=1`.
 - [ ] **Step 7: Commit** `test(gpu-pow): add activation rollback rehearsal`.
 
-### Task 8: Final evidence and PR checkpoint
+### Task 9: Final evidence and PR checkpoint
 
 **Files:**
 - Modify: PR #25 description only after exact-head verification.
