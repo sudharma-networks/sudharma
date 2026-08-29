@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/sudharma-networks/sudharma/blockchain"
@@ -40,16 +41,42 @@ type activeMiningWork struct {
 }
 
 type MiningWorkService struct {
-	mu       sync.RWMutex
-	verifier MiningSolutionVerifier
-	active   *activeMiningWork
+	mu            sync.RWMutex
+	verifier      MiningSolutionVerifier
+	powPolicy     blockchain.PoWPolicy
+	enforcePolicy bool
+	active        *activeMiningWork
 }
 
 func NewMiningWorkService(verifier MiningSolutionVerifier) *MiningWorkService {
 	return &MiningWorkService{verifier: verifier}
 }
 
+// NewMiningWorkServiceWithPolicy creates the activation-aware service used by
+// a live chain. The compatibility constructor remains available for isolated
+// template and submission tests that do not own chain consensus policy.
+func NewMiningWorkServiceWithPolicy(
+	verifier MiningSolutionVerifier,
+	policy blockchain.PoWPolicy,
+) *MiningWorkService {
+	return &MiningWorkService{
+		verifier:      verifier,
+		powPolicy:     policy,
+		enforcePolicy: true,
+	}
+}
+
 func (s *MiningWorkService) Issue(block *blockchain.Block) (MiningWorkTemplate, error) {
+	if block == nil {
+		return MiningWorkTemplate{}, fmt.Errorf("mining block cannot be nil")
+	}
+	if s.enforcePolicy && !s.powPolicy.VersionAllowed(block.Version, block.Height) {
+		return MiningWorkTemplate{}, fmt.Errorf(
+			"block version %d is not allowed at height %d",
+			block.Version,
+			block.Height,
+		)
+	}
 	template, err := NewMiningWorkTemplate(block)
 	if err != nil {
 		return MiningWorkTemplate{}, err

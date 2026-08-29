@@ -37,9 +37,16 @@ func MineNextBlock(
 		return emptyResult, 0, fmt.Errorf("chain tip cannot be nil")
 	}
 
-	block, err := blockchain.NewBlockFromMempool(previous, pool)
+	block, err := blockchain.NewBlockFromMempoolWithPolicy(
+		previous,
+		pool,
+		chain.PoWPolicy(),
+	)
 	if err != nil {
 		return emptyResult, 0, fmt.Errorf("failed to build candidate block: %w", err)
+	}
+	if block.Version == 2 {
+		return emptyResult, 0, fmt.Errorf("external GPU miner required")
 	}
 	if block.Timestamp <= previous.Timestamp {
 		block.Timestamp = previous.Timestamp + 1
