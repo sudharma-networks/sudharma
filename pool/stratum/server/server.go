@@ -2,9 +2,11 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/sudharma-networks/sudharma/pool/stratum/transport"
 )
@@ -47,6 +49,25 @@ func ServeListener(
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return ctxErr
 			}
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Temporary() {
+				timer := time.NewTimer(normalized.acceptErrorBackoff)
+				select {
+				case <-timer.C:
+					continue
+				case <-serveCtx.Done():
+					if !timer.Stop() {
+						select {
+						case <-timer.C:
+						default:
+						}
+					}
+					if ctxErr := ctx.Err(); ctxErr != nil {
+						return ctxErr
+					}
+					return serveCtx.Err()
+				}
+			}
 			return fmt.Errorf("accept Stratum connection: %w", err)
 		}
 		if conn == nil {
@@ -63,7 +84,13 @@ func ServeListener(
 		go func(conn net.Conn, key string) {
 			defer connections.Done()
 			defer tracker.Release(key)
-			_ = transport.ServeConn(serveCtx, conn, factory, transportConfig)
+
+			prepared, err := prepareConn(serveCtx, conn, normalized)
+			if err != nil {
+				_ = conn.Close()
+				return
+			}
+			_ = transport.ServeConn(serveCtx, prepared, factory, transportConfig)
 		}(conn, key)
 	}
 }
