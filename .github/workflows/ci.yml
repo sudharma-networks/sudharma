@@ -22,6 +22,14 @@ jobs:
       - name: Run tracked secret safety test
         run: bash ./scripts/check-tracked-secrets_test.sh
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run Telegram bridge tests
+        run: node --test scripts/telegram/*.test.js
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
