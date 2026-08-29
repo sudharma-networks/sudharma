@@ -57,12 +57,7 @@ func refreshFactory(source *refreshSource) SessionFactory {
 }
 
 func refreshWork(id string, height uint64) stratum.Work {
-	return stratum.Work{
-		WorkID: id, Algorithm: "sudharma-gpupow-v1",
-		TargetHex: "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f",
-		HeaderPrefixHex: "aabbccdd", RewardAddress: transportWallet,
-		Version: 2, Height: height, Difficulty: 11,
-	}
+	return stratum.Work{WorkID: id, Algorithm: "sudharma-gpupow-v1", TargetHex: "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f", HeaderPrefixHex: "aabbccdd", RewardAddress: transportWallet, Version: 2, Height: height, Difficulty: 11}
 }
 
 func authorizeRefreshConnection(t *testing.T, client net.Conn) *bufio.Reader {
