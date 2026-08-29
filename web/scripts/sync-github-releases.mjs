@@ -70,13 +70,15 @@ export function classifyAsset(release, asset) {
 
 export function normalizeReleases(releases) {
   const output = [];
+  const seenSlots = new Set();
   for (const release of [...releases].sort((a, b) => String(b.published_at || "").localeCompare(String(a.published_at || "")))) {
     for (const asset of release.assets || []) {
       const item = classifyAsset(release, asset);
-      if (!item) continue;
+      if (!item || seenSlots.has(item.slot)) continue;
       const sidecar = (release.assets || []).find((candidate) => candidate.name === `${asset.name}.sha256`);
       if (sidecar?.browser_download_url?.startsWith(`${OFFICIAL}/releases/download/`)) item.checksumUrl = sidecar.browser_download_url;
       output.push(item);
+      seenSlots.add(item.slot);
     }
   }
   return output;
