@@ -126,6 +126,49 @@ func TestPrepareConnTLSHandshakeTimeout(t *testing.T) {
 	}
 }
 
+func TestServeListenerTLSFailureDoesNotCreateSession(t *testing.T) {
+	serverRaw, clientRaw := net.Pipe()
+	defer clientRaw.Close()
+
+	listener := newScriptedListener(1)
+	listener.push(&addressedConn{
+		Conn:   serverRaw,
+		remote: &net.TCPAddr{IP: net.ParseIP("203.0.113.21"), Port: 5001},
+	}, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var calls atomic.Int32
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- ServeListener(
+			ctx,
+			listener,
+			newServerFactory(&calls),
+			transport.Config{},
+			Config{TLSConfig: newTestServerTLSConfig(t), TLSHandshakeTimeout: time.Second},
+		)
+	}()
+
+	if _, err := io.WriteString(clientRaw, "not tls\n"); err != nil {
+		t.Fatal(err)
+	}
+	assertConnectionClosed(t, clientRaw, "TLS handshake failure did not close connection")
+	if got := calls.Load(); got != 0 {
+		t.Fatalf("session factory calls after TLS failure = %d, want 0", got)
+	}
+
+	cancel()
+	select {
+	case err := <-serveDone:
+		if err != context.Canceled {
+			t.Fatalf("ServeListener error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("ServeListener did not remain controllable after TLS failure")
+	}
+}
+
 func TestServeListenerTLSDelegatesToStageE(t *testing.T) {
 	serverRaw, clientRaw := net.Pipe()
 	listener := newScriptedListener(1)
