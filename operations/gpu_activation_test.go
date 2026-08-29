@@ -1,8 +1,10 @@
 package operations
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/sudharma-networks/sudharma/params"
@@ -100,5 +102,115 @@ func TestGPUActivationAbortValidation(t *testing.T) {
 	}
 	if err := ValidateGPUActivationAbort(101, 100); err == nil {
 		t.Fatal("abort accepted after activation boundary")
+	}
+}
+
+func TestPersistGPUActivationDoesNotOverwriteExistingRecord(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gpu-activation.json")
+	existing := []byte("{\"gpu_v1_activation_height\":1720}\n")
+	if err := os.WriteFile(path, existing, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := persistGPUActivation(path, GPUActivationPolicy{GPUV1ActivationHeight: 1800}); err == nil {
+		t.Fatal("persistGPUActivation overwrote an existing activation record")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != string(existing) {
+		t.Fatalf("existing activation record changed: %q", data)
+	}
+}
+
+func TestPersistGPUActivationIgnoresStaleLegacyTemporaryFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gpu-activation.json")
+	staleTemporaryPath := path + ".tmp"
+	if err := os.WriteFile(staleTemporaryPath, []byte("stale partial record"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	policy := GPUActivationPolicy{GPUV1ActivationHeight: 1720}
+	if err := persistGPUActivation(path, policy); err != nil {
+		t.Fatalf("stale temporary file blocked activation persistence: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "{\"gpu_v1_activation_height\":1720}\n" {
+		t.Fatalf("persisted activation record = %q", data)
+	}
+}
+
+func TestGPUActivationRejectsSymlinkedPersistedRecord(t *testing.T) {
+	directory := t.TempDir()
+	target := filepath.Join(directory, "target.json")
+	path := filepath.Join(directory, "gpu-activation.json")
+	if err := os.WriteFile(target, []byte("{\"gpu_v1_activation_height\":1720}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadOrPersistGPUActivation(path, 1720, 1000, true); err == nil {
+		t.Fatal("symlinked persisted activation record accepted")
+	}
+}
+
+func TestGPUActivationRejectsMissingHeightRecord(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gpu-activation.json")
+	if err := os.WriteFile(path, []byte("{}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadOrPersistGPUActivation(path, 0, 0, true); err == nil {
+		t.Fatal("activation record without gpu_v1_activation_height accepted")
+	}
+}
+
+func TestGPUActivationRejectsUnknownRecordFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gpu-activation.json")
+	if err := os.WriteFile(path, []byte("{\"gpu_v1_activation_height\":1720,\"unexpected\":true}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadOrPersistGPUActivation(path, 1720, 1000, true); err == nil {
+		t.Fatal("activation record with unknown field accepted")
+	}
+}
+
+func TestGPUActivationRejectsPersistedDisabledSentinel(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gpu-activation.json")
+	data := []byte(fmt.Sprintf("{\"gpu_v1_activation_height\":%d}\n", params.GPUV1ActivationDisabled))
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadOrPersistGPUActivation(path, params.GPUV1ActivationDisabled, 0, true); err == nil {
+		t.Fatal("persisted disabled sentinel accepted")
+	}
+}
+
+func TestGPUActivationRejectsOverlyPermissivePersistedRecord(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits are not authoritative on Windows")
+	}
+	path := filepath.Join(t.TempDir(), "gpu-activation.json")
+	if err := os.WriteFile(path, []byte("{\"gpu_v1_activation_height\":1720}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadOrPersistGPUActivation(path, 1720, 1000, true); err == nil {
+		t.Fatal("overly permissive persisted activation record accepted")
+	}
+}
+
+func TestGPUActivationPersistedRecordStillRequiresReadyVerifier(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gpu-activation.json")
+	if err := os.WriteFile(path, []byte("{\"gpu_v1_activation_height\":1720}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadOrPersistGPUActivation(path, 1720, 1000, false); err == nil {
+		t.Fatal("persisted activation accepted while verifier is not ready")
 	}
 }
