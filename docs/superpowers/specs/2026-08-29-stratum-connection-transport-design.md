@@ -24,7 +24,7 @@ Create subpackage `pool/stratum/transport`.
 
 The subpackage imports `pool/stratum`; the core package must never import the transport package. `rpc` remains outside both layers. The transport receives a factory that constructs one fully configured Stage D `*stratum.Session` per connection.
 
-Proposed public surface:
+Public surface:
 
 ```go
 type SessionFactory func() (*stratum.Session, error)
@@ -36,26 +36,27 @@ type Config struct {
     MaxProtocolErrors int
     RequestsPerSecond uint32
     Burst             uint32
-    Clock             Clock // optional test clock; real clock by default
 }
 
 func ServeConn(ctx context.Context, conn net.Conn, factory SessionFactory, cfg Config) error
 ```
 
-`ServeConn` owns the passed connection for the duration of the call and closes it before returning. No accept loop is part of this package.
+`ServeConn` owns the passed connection for the duration of the call and closes it before returning. No accept loop is part of this package. Time injection used by deterministic unit tests is internal to the transport package and is not part of the public API.
 
 ## Configuration
 
-All resource controls must be finite. Zero values use conservative defaults suitable for an interoperability checkpoint, not a production deployment recommendation:
+All resource controls must be finite. Zero values select conservative defaults suitable for an interoperability checkpoint, not a production deployment recommendation:
 
 - read timeout: 30 seconds;
 - write timeout: 10 seconds;
 - authorized work refresh interval: 5 seconds;
-- maximum protocol errors before close: 8;
+- maximum recoverable protocol errors: 8;
 - request rate: 20 requests/second;
 - burst: 40 requests.
 
-Negative durations, zero/invalid explicit limits, or a nil session factory/connection fail construction/entry immediately. Tests use injected clock/ticker behavior where timing determinism matters.
+Negative duration values are invalid. For integer controls, zero selects the default; values above zero are explicit. `Burst` and `RequestsPerSecond` must either both resolve to positive values after defaults or configuration fails. A nil session factory or nil connection fails immediately.
+
+The first eight protocol errors may be framed and the stream may continue; the ninth protocol error returns `ErrProtocolBudget` and closes the connection after best-effort framing of that ninth error. Oversized-line and rate-limit failures are terminal regardless of the remaining protocol-error budget.
 
 These defaults may be changed only in a later deployment review; no public service is authorized by choosing them here.
 
@@ -74,11 +75,11 @@ Malformed JSON within a bounded line is converted from the Stage D `*ProtocolErr
 For each complete request line:
 
 1. enforce the per-connection token bucket before protocol processing;
-2. decode enough to identify the method using the existing Stage D decoder;
-3. call `Session.Handle` exactly once for the request;
+2. decode the request with the existing Stage D decoder to identify its method for transport lifecycle decisions;
+3. call `Session.Handle` exactly once for the request (the Stage D session performs its own validation again; this duplicate decode is deliberate to avoid adding a transport-specific entry point to the frozen core API);
 4. frame any returned `ProtocolError` as a response with `id:null`;
 5. serialize all returned messages through one connection writer;
-6. after a successful `mining.authorize`, immediately call `Session.RefreshWork` and write the resulting `mining.set_difficulty` and `mining.notify` messages.
+6. after a successful `mining.authorize` response, immediately call `Session.RefreshWork` and write the resulting `mining.set_difficulty` and `mining.notify` messages.
 
 The transport must not reinterpret worker identity, nonce lanes, share difficulty, job IDs or submit results. Those remain exclusively Stage D responsibilities.
 
@@ -90,13 +91,15 @@ Only one refresh loop may run per connection. Repeated authorization of the same
 
 All writes from request handling and refresh delivery pass through a single mutex-protected writer so JSON lines never interleave.
 
-A refresh source error, write error or context cancellation terminates the connection. This is intentionally fail-closed for the offline checkpoint; retry/backoff policy belongs to a later listener/operator stage.
+The refresh loop reports its first terminal error through a one-element error channel and sets an immediate read deadline to wake the request loop. The request loop prefers that recorded refresh error over the secondary read-deadline error. The refresh goroutine is stopped and joined before `ServeConn` returns. A refresh source error or refresh write error therefore terminates the connection deterministically without leaking a goroutine.
+
+This is intentionally fail-closed for the offline checkpoint; retry/backoff policy belongs to a later listener/operator stage.
 
 ## Deadlines and cancellation
 
 Before each blocking read, set `ReadDeadline(now + ReadTimeout)`. Before each write batch, set `WriteDeadline(now + WriteTimeout)`. A timeout is returned as a transport error and closes the connection.
 
-`ServeConn` must unblock promptly when the supplied context is canceled. A small cancellation goroutine may set an immediate deadline or close the owned connection; it must stop before `ServeConn` returns and must not leak.
+`ServeConn` unblocks promptly when the supplied context is canceled. A cancellation watcher sets an immediate connection deadline, waking any blocked read or write. The watcher is stopped and joined before `ServeConn` returns. If cancellation caused the I/O wakeup, `ServeConn` returns `ctx.Err()` rather than the secondary connection timeout/closed error.
 
 No goroutine spawned by `ServeConn` may outlive the call.
 
@@ -107,24 +110,26 @@ Use a small token bucket local to one connection. It is not an IP-level DDoS def
 - capacity = `Burst`;
 - refill rate = `RequestsPerSecond` tokens/second;
 - one complete request consumes one token before decoding;
-- if no token is available, return a transport-level rate-limit error and close the connection without invoking `Session.Handle` for that request.
+- if no token is available, return `ErrRateLimited` and close the connection without invoking `Session.Handle` for that request.
 
-A future listener stage must add aggregate/IP/proxy-aware admission controls outside this package.
+The token bucket accepts explicit timestamps internally so its unit tests do not depend on wall-clock sleeps. A future listener stage must add aggregate/IP/proxy-aware admission controls outside this package.
 
 ## Error model
 
-Define sentinel/typed transport errors sufficient for tests and operator logs, including:
+Expose stable sentinel errors for transport policy decisions:
 
-- invalid configuration;
-- oversized line;
-- protocol-error budget exceeded;
-- rate limit exceeded;
-- read timeout/error;
-- write timeout/error;
-- session-factory failure;
-- work-refresh failure.
+```go
+var (
+    ErrInvalidConfig  = errors.New("invalid Stratum transport configuration")
+    ErrLineTooLong    = errors.New("Stratum request line too long")
+    ErrProtocolBudget = errors.New("Stratum protocol error budget exceeded")
+    ErrRateLimited    = errors.New("Stratum connection rate limit exceeded")
+)
+```
 
-Do not expose secrets or raw connection metadata in error strings. Protocol parse/validation errors sent to a miner use the Stage D stable JSON-RPC codes.
+Session-factory, work-refresh and I/O failures wrap their underlying errors with operation-only context such as `create Stratum session`, `refresh Stratum work`, `read Stratum request`, or `write Stratum response`. Do not expose secrets, request bodies, worker identities, remote addresses or other raw connection metadata in returned error strings.
+
+Protocol parse/validation errors sent to a miner use the Stage D stable JSON-RPC codes.
 
 ## Security invariants
 
@@ -153,7 +158,7 @@ Required tests include:
 - CRLF handling;
 - exact 64 KiB boundary and 64 KiB+1 rejection;
 - malformed JSON response and protocol-error budget exhaustion;
-- request-rate exhaustion using a deterministic clock;
+- request-rate exhaustion using explicit token-bucket timestamps;
 - duplicate authorization starts one refresh pump;
 - changed work generates one new notification pair; identical work generates none;
 - concurrent refresh/request outputs remain valid non-interleaved JSON lines;
