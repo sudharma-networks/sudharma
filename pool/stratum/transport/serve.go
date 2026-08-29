@@ -63,7 +63,7 @@ func serveConn(ctx context.Context, conn net.Conn, factory SessionFactory, confi
 			return err
 		}
 
-		if err := conn.SetReadDeadline(time.Now().Add(normalized.readTimeout)); err != nil {
+		if err := conn.SetReadDeadline(time.Now().Add(normalized.readTimeout)); err != nil && !errors.Is(err, io.ErrClosedPipe) {
 			return fmt.Errorf("set Stratum read deadline: %w", err)
 		}
 		line, err := readRequestLine(reader)
