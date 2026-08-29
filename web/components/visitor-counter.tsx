@@ -26,11 +26,12 @@ export function VisitorCounter({ endpoint }: VisitorCounterProps) {
 
   useEffect(() => {
     if (!endpoint) return;
+    const counterEndpoint = endpoint;
     const controller = new AbortController();
 
     async function registerVisit() {
       try {
-        const response = await fetch(endpoint, {
+        const response = await fetch(counterEndpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ visitorId: visitorId() }),
