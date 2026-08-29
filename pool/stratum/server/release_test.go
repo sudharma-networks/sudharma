@@ -71,12 +71,7 @@ func TestServerReleasesAdmissionAfterRateLimitTermination(t *testing.T) {
 	if _, err := io.WriteString(clientOne, `{"id":2,"method":"mining.subscribe","params":[]}`+"\n"); err != nil {
 		t.Fatal(err)
 	}
-	if err := clientOne.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := reader.ReadByte(); err == nil {
-		t.Fatal("rate-limited connection remained open")
-	}
+	assertConnectionClosed(t, clientOne, "rate-limited connection remained open")
 	_ = clientOne.Close()
 	time.Sleep(10 * time.Millisecond)
 
@@ -117,13 +112,7 @@ func TestServerReleasesAdmissionAfterTLSFailure(t *testing.T) {
 	if _, err := io.WriteString(clientOne, "not tls\n"); err != nil {
 		t.Fatal(err)
 	}
-	if err := clientOne.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
-		t.Fatal(err)
-	}
-	var one [1]byte
-	if _, err := clientOne.Read(one[:]); err == nil {
-		t.Fatal("failed TLS connection remained open")
-	}
+	assertConnectionClosed(t, clientOne, "failed TLS connection remained open")
 	_ = clientOne.Close()
 	time.Sleep(10 * time.Millisecond)
 
