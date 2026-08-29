@@ -48,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -188,12 +189,11 @@ private fun ScreenFrame(title: String, onBack: (() -> Unit)? = null, content: @C
 
 @Composable
 private fun BrandMark(modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier.size(96.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text("S", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Black)
-    }
+    Image(
+        painter = painterResource(R.drawable.sudharma_logo),
+        contentDescription = "Sudharma Network logo",
+        modifier = modifier.size(96.dp),
+    )
 }
 
 @Composable
@@ -658,5 +658,3 @@ private fun BackupScreen(repository: SudharmaWalletRepository, onBack: () -> Uni
         }
     }
 }
-
-private fun formatAtomic(value: Long): String = BigDecimal.valueOf(value).movePointLeft(8).setScale(8).toPlainString()
