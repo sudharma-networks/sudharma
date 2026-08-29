@@ -1,10 +1,13 @@
 package operations
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/sudharma-networks/sudharma/params"
 )
@@ -28,19 +31,25 @@ func LoadOrPersistGPUActivation(
 	currentHeight uint64,
 	verifierReady bool,
 ) (GPUActivationPolicy, error) {
-	policy, err := loadGPUActivation(path)
-	if err == nil {
+	policy, exists, err := loadGPUActivation(path)
+	if err != nil {
+		return GPUActivationPolicy{}, err
+	}
+	if exists {
+		if policy.GPUV1ActivationHeight == params.GPUV1ActivationDisabled {
+			return GPUActivationPolicy{}, fmt.Errorf("persisted GPU-PoW activation record cannot be disabled")
+		}
 		if policy.GPUV1ActivationHeight != requestedActivationHeight {
 			return GPUActivationPolicy{}, fmt.Errorf(
-				"persisted gpu_v1 activation height is %d, requested %d",
+				"persisted GPU-PoW activation height is %d, requested %d",
 				policy.GPUV1ActivationHeight,
 				requestedActivationHeight,
 			)
 		}
+		if !verifierReady {
+			return GPUActivationPolicy{}, fmt.Errorf("GPU-PoW verifier is not ready")
+		}
 		return policy, nil
-	}
-	if !os.IsNotExist(err) {
-		return GPUActivationPolicy{}, err
 	}
 
 	policy = GPUActivationPolicy{GPUV1ActivationHeight: requestedActivationHeight}
@@ -48,75 +57,134 @@ func LoadOrPersistGPUActivation(
 		return policy, nil
 	}
 	if !verifierReady {
-		return GPUActivationPolicy{}, fmt.Errorf("gpu_v1 verifier is not ready")
+		return GPUActivationPolicy{}, fmt.Errorf("GPU-PoW verifier is not ready")
 	}
-	if requestedActivationHeight < currentHeight ||
+	if requestedActivationHeight <= currentHeight ||
 		requestedActivationHeight-currentHeight < gpuV1MinimumActivationLead {
 		return GPUActivationPolicy{}, fmt.Errorf(
-			"gpu_v1 activation must be at least %d blocks ahead",
+			"GPU-PoW activation height %d must be at least %d blocks after current height %d",
+			requestedActivationHeight,
 			gpuV1MinimumActivationLead,
+			currentHeight,
 		)
 	}
-	if path == "" {
-		return GPUActivationPolicy{}, fmt.Errorf("gpu_v1 activation record path is required")
-	}
-
-	data, err := json.Marshal(policy)
-	if err != nil {
-		return GPUActivationPolicy{}, fmt.Errorf("encode gpu_v1 activation policy: %w", err)
-	}
-	data = append(data, '\n')
-
-	temporaryPath := path + ".tmp"
-	defer os.Remove(temporaryPath)
-	file, err := os.OpenFile(temporaryPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		return GPUActivationPolicy{}, fmt.Errorf("create gpu_v1 activation record: %w", err)
-	}
-	if err := file.Chmod(0600); err != nil {
-		file.Close()
-		return GPUActivationPolicy{}, fmt.Errorf("secure gpu_v1 activation record: %w", err)
-	}
-	if _, err := file.Write(data); err != nil {
-		file.Close()
-		return GPUActivationPolicy{}, fmt.Errorf("write gpu_v1 activation record: %w", err)
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return GPUActivationPolicy{}, fmt.Errorf("sync gpu_v1 activation record: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return GPUActivationPolicy{}, fmt.Errorf("close gpu_v1 activation record: %w", err)
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		return GPUActivationPolicy{}, fmt.Errorf("commit gpu_v1 activation record: %w", err)
-	}
-	if err := syncDirectory(filepath.Dir(path)); err != nil {
+	if err := persistGPUActivation(path, policy); err != nil {
 		return GPUActivationPolicy{}, err
 	}
 	return policy, nil
 }
 
-func loadGPUActivation(path string) (GPUActivationPolicy, error) {
+type gpuActivationRecord struct {
+	GPUV1ActivationHeight *uint64 `json:"gpu_v1_activation_height"`
+}
+
+func loadGPUActivation(path string) (GPUActivationPolicy, bool, error) {
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return GPUActivationPolicy{}, false, nil
+	}
+	if err != nil {
+		return GPUActivationPolicy{}, false, fmt.Errorf("inspect GPU-PoW activation record: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return GPUActivationPolicy{}, false, fmt.Errorf("GPU-PoW activation record must be a regular file")
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0077 != 0 {
+		return GPUActivationPolicy{}, false, fmt.Errorf(
+			"GPU-PoW activation record permissions %o expose group/world access",
+			info.Mode().Perm(),
+		)
+	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return GPUActivationPolicy{}, err
+		return GPUActivationPolicy{}, false, fmt.Errorf("read GPU-PoW activation record: %w", err)
 	}
-	var policy GPUActivationPolicy
-	if err := json.Unmarshal(data, &policy); err != nil {
-		return GPUActivationPolicy{}, fmt.Errorf("decode gpu_v1 activation record: %w", err)
+	var record gpuActivationRecord
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&record); err != nil {
+		return GPUActivationPolicy{}, false, fmt.Errorf("decode GPU-PoW activation record: %w", err)
 	}
-	return policy, nil
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return GPUActivationPolicy{}, false, fmt.Errorf("decode GPU-PoW activation record: trailing data")
+	}
+	if record.GPUV1ActivationHeight == nil {
+		return GPUActivationPolicy{}, false, fmt.Errorf(
+			"decode GPU-PoW activation record: gpu_v1_activation_height is required",
+		)
+	}
+	return GPUActivationPolicy{GPUV1ActivationHeight: *record.GPUV1ActivationHeight}, true, nil
+}
+
+func persistGPUActivation(path string, policy GPUActivationPolicy) error {
+	if path == "" {
+		return fmt.Errorf("GPU-PoW activation record path is required")
+	}
+	directory := filepath.Dir(path)
+	if err := os.MkdirAll(directory, 0700); err != nil {
+		return fmt.Errorf("create GPU-PoW activation directory: %w", err)
+	}
+
+	data, err := json.Marshal(policy)
+	if err != nil {
+		return fmt.Errorf("encode GPU-PoW activation record: %w", err)
+	}
+	data = append(data, '\n')
+
+	file, err := os.CreateTemp(directory, "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("create temporary GPU-PoW activation record: %w", err)
+	}
+	temporaryPath := file.Name()
+	cleanup := true
+	defer func() {
+		_ = file.Close()
+		if cleanup {
+			_ = os.Remove(temporaryPath)
+		}
+	}()
+
+	if err := file.Chmod(0600); err != nil {
+		return fmt.Errorf("secure temporary GPU-PoW activation record: %w", err)
+	}
+	if _, err := file.Write(data); err != nil {
+		return fmt.Errorf("write GPU-PoW activation record: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		return fmt.Errorf("sync GPU-PoW activation record: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close GPU-PoW activation record: %w", err)
+	}
+
+	// A hard-link commit is atomic and cannot replace an already-persisted
+	// activation record. This makes conflicting first-arm attempts fail closed.
+	if err := os.Link(temporaryPath, path); err != nil {
+		return fmt.Errorf("commit GPU-PoW activation record without overwrite: %w", err)
+	}
+	if err := syncDirectory(directory); err != nil {
+		return err
+	}
+	if err := os.Remove(temporaryPath); err != nil {
+		return fmt.Errorf("remove temporary GPU-PoW activation record: %w", err)
+	}
+	cleanup = false
+	if err := syncDirectory(directory); err != nil {
+		return err
+	}
+	return nil
 }
 
 func syncDirectory(path string) error {
 	directory, err := os.Open(path)
 	if err != nil {
-		return fmt.Errorf("open gpu_v1 activation directory: %w", err)
+		return fmt.Errorf("open GPU-PoW activation directory: %w", err)
 	}
 	defer directory.Close()
 	if err := directory.Sync(); err != nil {
-		return fmt.Errorf("sync gpu_v1 activation directory: %w", err)
+		return fmt.Errorf("sync GPU-PoW activation directory: %w", err)
 	}
 	return nil
 }
