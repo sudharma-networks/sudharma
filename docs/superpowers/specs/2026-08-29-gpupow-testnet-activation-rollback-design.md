@@ -176,9 +176,31 @@ CI as physical GPU evidence.
 
 Operators may abort only while every participating node tip is below the
 activation height. Stop both nodes, preserve data snapshots and evidence,
-clear the identical persisted activation record through the explicit abort
-procedure, restore disabled configuration, restart, and verify Version 1-only
-status. If either node has reached the boundary, this procedure is forbidden.
+clear the identical persisted activation record through the explicit offline
+abort command, restore disabled configuration, restart, and verify Version
+1-only status. If either node has reached the boundary, this procedure is
+forbidden.
+
+The abort command operates on one stopped node data directory at a time. It
+requires the operator to supply the expected activation height and an evidence
+directory. It loads the persisted chain tip and activation record, rejects a
+missing or mismatched record, rejects a tip at or after the boundary, and
+refuses symlinked or insecure files. Before clearing the live record it writes
+an immutable evidence copy containing the original record, chain tip, expected
+height, timestamp and SHA-256 hashes. Clearing is implemented as an atomic
+rename into that evidence directory followed by directory synchronization;
+the command never deletes the only copy. Normal node startup holds an exclusive
+operating-system lock for its data directory for the process lifetime. The
+abort command must acquire that same lock without waiting and refuses to run
+when the node holds it. The runbook still requires both nodes to be stopped and
+snapshotted before either record is changed. A stale lock file is harmless
+because ownership is determined by the operating-system lock, not file
+existence.
+
+This is an operator-invoked recovery tool, not an RPC endpoint, startup flag,
+automatic rollback, or authorization to arm activation. Both nodes must be
+aborted independently with matching evidence and returned to disabled
+configuration before restart.
 
 ### At or after activation
 
@@ -206,6 +228,11 @@ Automated tests must cover:
 - 720-block arming lead-time validation;
 - persisted policy equality on restart and rejection of silent changes;
 - abort allowed only below the boundary;
+- offline abort rejection for active-node evidence, missing/mismatched policy,
+  symlink/insecure inputs and tips at or after the boundary;
+- single-process data-directory locking on supported Unix and Windows nodes;
+- preservation of an evidence copy before the live activation record is
+  cleared;
 - replay, restart, mixed-version observer and bounded Version 2 reorganization;
 - mainnet remaining disabled; and
 - existing legacy vectors and GPU interoperability vectors remaining unchanged.
