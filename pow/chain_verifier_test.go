@@ -25,7 +25,7 @@ func TestChainProofVerifierUsesProductionPolicy(t *testing.T) {
 
 func TestChainProofVerifierDispatchesWithoutFallback(t *testing.T) {
 	policy := blockchain.PoWPolicy{GPUV1ActivationHeight: 1}
-	verifier, err := NewChainProofVerifier(policy)
+	verifier, err := newChainProofVerifier(policy, 8)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,10 @@ func TestChainProofVerifierDispatchesWithoutFallback(t *testing.T) {
 }
 
 func TestChainProofVerifierRetainsOnlyCurrentEpoch(t *testing.T) {
-	verifier, err := NewChainProofVerifier(blockchain.PoWPolicy{GPUV1ActivationHeight: 1})
+	verifier, err := newChainProofVerifier(
+		blockchain.PoWPolicy{GPUV1ActivationHeight: 1},
+		8,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

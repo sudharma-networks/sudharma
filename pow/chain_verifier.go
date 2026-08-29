@@ -14,10 +14,11 @@ var productionGPUV1CacheNodeCount = uint32(
 )
 
 type chainProofVerifier struct {
-	policy      blockchain.PoWPolicy
-	mu          sync.Mutex
-	cachedEpoch uint64
-	cache       []GPUV1CacheNode
+	policy         blockchain.PoWPolicy
+	cacheNodeCount uint32
+	mu             sync.Mutex
+	cachedEpoch    uint64
+	cache          []GPUV1CacheNode
 }
 
 // NewChainProofVerifier returns a CPU verifier for legacy and GPU-PoW blocks.
@@ -26,10 +27,20 @@ func NewChainProofVerifier(policy blockchain.PoWPolicy) (blockchain.ProofVerifie
 	if err := gpupowv1.GPUV1ProductionMemory.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid GPU-PoW production memory policy: %w", err)
 	}
-	if productionGPUV1CacheNodeCount == 0 {
+	return newChainProofVerifier(policy, productionGPUV1CacheNodeCount)
+}
+
+func newChainProofVerifier(
+	policy blockchain.PoWPolicy,
+	cacheNodeCount uint32,
+) (blockchain.ProofVerifier, error) {
+	if cacheNodeCount == 0 {
 		return nil, fmt.Errorf("GPU-PoW production cache cannot be empty")
 	}
-	return &chainProofVerifier{policy: policy}, nil
+	return &chainProofVerifier{
+		policy:         policy,
+		cacheNodeCount: cacheNodeCount,
+	}, nil
 }
 
 func (v *chainProofVerifier) SupportsVersion(version uint32) bool {
@@ -57,7 +68,7 @@ func (v *chainProofVerifier) cacheForHeight(height uint64) []GPUV1CacheNode {
 	if len(v.cache) == 0 || v.cachedEpoch != epoch {
 		v.cache = GPUV1BuildCache(
 			GPUV1EpochSeed(epoch),
-			productionGPUV1CacheNodeCount,
+			v.cacheNodeCount,
 		)
 		v.cachedEpoch = epoch
 	}
