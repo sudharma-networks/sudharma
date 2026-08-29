@@ -85,6 +85,21 @@ func ServeListener(
 			defer connections.Done()
 			defer tracker.Release(key)
 
+			connectionDone := make(chan struct{})
+			abortDone := make(chan struct{})
+			go func() {
+				defer close(abortDone)
+				select {
+				case <-serveCtx.Done():
+					_ = conn.Close()
+				case <-connectionDone:
+				}
+			}()
+			defer func() {
+				close(connectionDone)
+				<-abortDone
+			}()
+
 			prepared, err := prepareConn(serveCtx, conn, normalized)
 			if err != nil {
 				_ = conn.Close()
