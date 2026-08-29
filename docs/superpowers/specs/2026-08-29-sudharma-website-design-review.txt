@@ -1,0 +1,9 @@
+Self-review completed after design-spec commit.
+
+Checks:
+- Placeholder scan: no TODO/TBD placeholders in the design spec.
+- Internal consistency: routed multi-page architecture, staged backend delivery, and pre-mainnet readiness labeling are consistent.
+- Scope: broad but intentionally structured for a multi-milestone implementation plan; no consensus changes are included.
+- Ambiguity: report durability/notification behavior, private security routing, and readiness labels are explicitly defined.
+
+No design-spec changes required at this review pass.
