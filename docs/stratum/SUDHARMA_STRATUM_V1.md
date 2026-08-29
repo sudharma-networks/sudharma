@@ -1,16 +1,16 @@
-# Sudharma Stratum V1 Offline Protocol Profile
+# Sudharma Stratum V1 Protocol Profile
 
 ## Status
 
-This document describes the Stage D **offline interoperability checkpoint** for Sudharma GPU-PoW. It defines the transport-independent Stratum-style message profile implemented by `pool/stratum` and the immutable adapter in `rpc/stratum_adapter.go`.
+This document describes the staged Sudharma GPU-PoW Stratum interoperability profile. Stage D defines the transport-independent protocol core in `pool/stratum` and the immutable adapter in `rpc/stratum_adapter.go`. Stage E adds bounded framing and lifecycle for one already-open `net.Conn`. Stage F adds bounded supervision for an already-created `net.Listener` while preserving the Stage D/E contracts.
 
-This checkpoint does **not** expose a public Stratum endpoint, start a TCP or HTTP listener, wire Stratum into `cmd/sudharma-rpcd`, deploy to Seed-1 or Seed-2, activate GPU-PoW, implement pool payouts or custody, or claim Kryptex approval/listing/wire compatibility.
+These checkpoints do **not** bind a public Stratum port, wire Stratum into `cmd/sudharma-rpcd`, deploy to Seed-1 or Seed-2, activate GPU-PoW, implement pool payouts or custody, or claim Kryptex approval/listing/wire compatibility.
 
 ## Wire model
 
 One UTF-8 JSON object is processed per newline-delimited message. Client request IDs may be JSON strings or base-10 integers and are echoed exactly in responses. Batch requests, duplicate object keys, unknown top-level fields, unsupported methods, malformed UTF-8, trailing JSON values and messages above 64 KiB are rejected.
 
-The offline core returns typed protocol errors. A future listener may decide how to frame or close a connection after those errors; no listener policy exists in this checkpoint.
+The Stage D core returns typed protocol errors. Stage E defines per-connection framing and bounded error handling; Stage F contains connection-local failures at the injected-listener boundary without changing protocol semantics.
 
 ## Client methods
 
@@ -109,28 +109,50 @@ Duplicate tracking is reset on clean work. Reaching the configured duplicate lim
 
 The Stage D package is deliberately transport-independent. `pool/stratum` does not open sockets, construct blocks, persist balances, or modify chain state. The RPC adapter copies the provider block, changes only the validated reward address before issuance, stores the exact returned immutable template and submits only a reconstructed solution based on that template plus nonce.
 
-Deferred work includes a bounded TCP/TLS listener, proxy/IP policy, production authentication, variable difficulty, accounting, payout thresholds, fees, wallet custody, Kryptex-specific extensions, miner packaging, public deployment and any GPU-PoW activation height.
+Stage E and Stage F remain injection-only infrastructure. They do not choose a bind address, call a socket-listening primitive, load certificate/key files, wire themselves into the node or expose a public endpoint. Deferred work includes deployment-specific socket ownership, explicit endpoint configuration, proxy/IP policy beyond the raw peer address, production authentication, variable difficulty, accounting, payout thresholds, fees, wallet custody, Kryptex-specific extensions, miner packaging, public deployment and any GPU-PoW activation height.
 
-The permanent offline gate is:
+The permanent Stage D offline gate is:
 
 ```bash
 go test ./pool/stratum ./rpc -run 'Stratum|OfflineStratumTranscript' -count=1 -v
 ```
 
-Passing this gate is software interoperability evidence only. It is not physical GPU evidence and is not a Kryptex onboarding or listing claim.
+Passing these software gates is interoperability evidence only. It is not physical GPU evidence and is not a Kryptex onboarding or listing claim.
 
 ## Stage E injected connection transport
 
-ServeConn accepts exactly one already-open net.Conn, creates exactly one Stage D session, and owns and closes that connection. It does not open a listener or create an accept loop.
+`ServeConn` accepts exactly one already-open `net.Conn`, creates exactly one Stage D session, and owns and closes that connection. It does not open a listener or create an accept loop.
 
-The injected transport accepts LF and CRLF framing with a strict 64 KiB request-line bound. Each connection has finite read and write deadlines, cancellation wakes blocked I/O, and all background refresh work is stopped before ServeConn returns.
+The injected transport accepts LF and CRLF framing with a strict 64 KiB request-line bound. Each connection has finite read and write deadlines, cancellation wakes blocked I/O, and all background refresh work is stopped before `ServeConn` returns.
 
-After successful authorization, work is delivered immediately and then refreshed periodically from the immutable Stage D source. Identical work produces no new notification; changed work produces a serialized mining.set_difficulty and mining.notify pair. All responses and refresh notifications share the same mutex-protected writer.
+After successful authorization, work is delivered immediately and then refreshed periodically from the immutable Stage D source. Identical work produces no new notification; changed work produces a serialized `mining.set_difficulty` and `mining.notify` pair. All responses and refresh notifications share the same mutex-protected writer.
 
 Each connection has an independent token bucket and a finite recoverable protocol-error budget. Oversized lines fail closed with a best-effort stable invalid-request response. These controls do not change the frozen worker identity, nonce-lane, immutable-job, duplicate-share, stale-share, or block-candidate contracts.
 
-Stage E still has no listener, TLS termination, public endpoint, trusted-proxy or IP admission policy, vardiff, payout/accounting/custody behavior, or Kryptex-specific extension. Passing the Stage E gate is software-only interoperability evidence; it is not physical GPU evidence or Kryptex approval.
+Stage E still has no listener, TLS termination, public endpoint, trusted-proxy or IP admission policy, vardiff, payout/accounting/custody behavior, or Kryptex-specific extension.
 
 The permanent Stage E gate is:
 
-    go test -race ./pool/stratum/... ./rpc -run 'Stratum|Transport|OfflineStratumTranscript' -count=1 -v
+```bash
+go test -race ./pool/stratum/... ./rpc -run 'Stratum|Transport|OfflineStratumTranscript' -count=1 -v
+```
+
+## Stage F injected listener supervisor
+
+`server.ServeListener` accepts an **already-created** `net.Listener`. It owns that injected listener for the duration of the call, accepts streams, applies listener-level admission, optionally performs TLS termination from a caller-supplied `*tls.Config`, and delegates every admitted stream to Stage E `transport.ServeConn`.
+
+Stage F defaults to a maximum of **256 concurrent connections globally** and **8 concurrent connections per source IP**. For TCP peers the admission key is the canonical remote IP only; source ports are ignored and IPv4-mapped IPv6 addresses normalize to IPv4. Non-TCP addresses fall back to `Addr.String()`. Stage F does not parse PROXY protocol and does not trust reverse-proxy headers, so an operator must not place it behind an address-multiplexing proxy and expect per-client admission accounting without a separately designed trusted-proxy layer.
+
+TLS is optional. Stage F accepts only a caller-supplied TLS configuration, clones it during normalization, requires **TLS 1.2 or newer**, and applies a default **10-second handshake timeout**. Stage F does not read certificate or private-key files itself. A TLS handshake failure or timeout is connection-local and does not create a Stage D session.
+
+Temporary listener accept failures use a bounded default retry backoff of **100 ms**. Permanent accept failures terminate the supervisor with context. Admission rejection, TLS failure, Stage E protocol/rate-limit termination, normal EOF, and other connection-local errors are contained to that connection; admission capacity is released when the connection goroutine exits.
+
+Cancellation closes the injected listener to wake a blocked `Accept`, aborts active raw connections so TLS/Stage E cleanup cannot stall shutdown, and waits for all admitted connection goroutines before `ServeListener` returns. Source-guard tests reject production calls to `net.Listen`, `tls.Listen`, `http.Serve`, `http.ListenAndServe`, and `http.ListenAndServeTLS`, plus production helper declarations beginning with `ListenAndServe`.
+
+Stage F still provides **no bind address**, certificate loading, node wiring, public Stratum endpoint, trusted-proxy support, vardiff, accounting, payouts, fees, custody, persistent miner accounts, or Kryptex approval claim. It does not change GPU-PoW consensus activation or deployment state.
+
+The permanent Stage F gate is:
+
+```bash
+go test -race ./pool/stratum/... ./rpc -run 'Stratum|Transport|Server|OfflineStratumTranscript' -count=1 -v
+```
