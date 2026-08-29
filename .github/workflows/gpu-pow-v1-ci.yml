@@ -5,6 +5,7 @@ on:
     branches:
       - feature/gpu-pow-v1
       - feature/gpu-pow-v1-stage-f
+      - feature/gpu-pow-v1-stage-g
   pull_request:
     branches:
       - main
