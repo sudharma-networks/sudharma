@@ -1,0 +1,38 @@
+name: Explorer Live Probe
+
+on:
+  push:
+    branches:
+      - security/explorer-live-probe
+    paths:
+      - '.github/workflows/explorer-live-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    env:
+      RPC_BASE_URL: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com
+    steps:
+      - name: Probe normal public RPC
+        run: |
+          set -euo pipefail
+          curl -fsS "${RPC_BASE_URL}/v1/status" | jq -e '{network,coin,symbol,height,peers}'
+      - name: Probe explorer status
+        run: |
+          set -euo pipefail
+          curl -fsS "${RPC_BASE_URL}/v1/explorer/status" | tee /tmp/explorer-status.json
+          jq -e '.network and .coin and .symbol and (.height | numbers) and .tip_hash and .total_work and (.peers | numbers) and (.mempool | numbers) and (.issued_supply | numbers)' /tmp/explorer-status.json >/dev/null
+      - name: Probe explorer latest blocks
+        run: |
+          set -euo pipefail
+          curl -fsS "${RPC_BASE_URL}/v1/explorer/blocks?limit=2" | tee /tmp/explorer-blocks.json
+          jq -e '.blocks | arrays' /tmp/explorer-blocks.json >/dev/null
+      - name: Probe explorer latest transactions
+        run: |
+          set -euo pipefail
+          curl -fsS "${RPC_BASE_URL}/v1/explorer/transactions?limit=2" | tee /tmp/explorer-transactions.json
+          jq -e '.transactions | arrays' /tmp/explorer-transactions.json >/dev/null
