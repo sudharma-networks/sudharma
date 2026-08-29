@@ -69,9 +69,10 @@ func (p PoWPolicy) VersionAtHeight(height uint64) (uint32, error)
 - [ ] **Step 3: Define**:
 
 ```go
-type ProofVerifier interface { Verify(*Block) bool }
-type ProofVerifierFunc func(*Block) bool
-func (f ProofVerifierFunc) Verify(b *Block) bool { return f(b) }
+type ProofVerifier interface {
+    SupportsVersion(uint32) bool
+    Verify(*Block) bool
+}
 ```
 
 Add immutable `powPolicy` and `proofVerifier` fields to `Chain`. Route `AddBlock` and `ValidateBlockAgainstChain` through `validateBlockCoreWithProof`; retain `ValidateBlockBasic` and `NewChain()` as legacy-only compatibility paths.
