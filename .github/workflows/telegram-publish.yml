@@ -14,9 +14,7 @@ concurrency:
 
 jobs:
   dry-run:
-    if: >-
-      github.event.label.name == 'telegram:dry-run' &&
-      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association)
+    if: github.event.label.name == 'telegram:dry-run'
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -45,9 +43,7 @@ jobs:
             --body "✅ Telegram dry-run passed. Validated ${COUNT} Unicode code points. Channel destination is ${DESTINATION_STATE}. No Telegram API call was made."
 
   publish:
-    if: >-
-      github.event.label.name == 'telegram:publish-approved' &&
-      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association)
+    if: github.event.label.name == 'telegram:publish-approved'
     runs-on: ubuntu-latest
     environment: telegram-publishing
     steps:

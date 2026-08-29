@@ -105,3 +105,21 @@ test('workflow is least privilege and separates dry-run from publish', () => {
   assert.match(publishSection, /link_preview_options/);
   assert.doesNotMatch(publishSection, /disable_web_page_preview/);
 });
+
+test('workflow routes jobs only by exact label and leaves trust authorization to validator', () => {
+  const workflowPath = path.resolve(__dirname, '../../.github/workflows/telegram-publish.yml');
+  const workflow = fs.readFileSync(workflowPath, 'utf8');
+  const dryStart = workflow.indexOf('  dry-run:');
+  const publishStart = workflow.indexOf('  publish:');
+  const drySection = workflow.slice(dryStart, publishStart);
+  const publishSection = workflow.slice(publishStart);
+  const dryIf = drySection.slice(drySection.indexOf('    if:'), drySection.indexOf('    runs-on:'));
+  const publishIf = publishSection.slice(publishSection.indexOf('    if:'), publishSection.indexOf('    runs-on:'));
+
+  assert.match(dryIf, /github\.event\.label\.name == 'telegram:dry-run'/);
+  assert.match(publishIf, /github\.event\.label\.name == 'telegram:publish-approved'/);
+  assert.doesNotMatch(dryIf, /author_association|fromJSON/);
+  assert.doesNotMatch(publishIf, /author_association|fromJSON/);
+  assert.match(drySection, /run: node scripts\/telegram\/validate-event\.js/);
+  assert.match(publishSection, /run: node scripts\/telegram\/validate-event\.js/);
+});
