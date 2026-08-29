@@ -5,11 +5,13 @@ on:
       - 'web/**'
       - 'deployment/website/**'
       - '.github/workflows/website-ci.yml'
+      - '.github/workflows/provision-website-visitor-counter.yml'
   pull_request:
     paths:
       - 'web/**'
       - 'deployment/website/**'
       - '.github/workflows/website-ci.yml'
+      - '.github/workflows/provision-website-visitor-counter.yml'
 permissions:
   contents: read
 jobs:
