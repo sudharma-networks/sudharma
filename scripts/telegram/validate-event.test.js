@@ -5,27 +5,42 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
+const TRUSTED_ACTOR = 'sudharma-network';
 const VALID_BODY = `<!-- sudharma-telegram-bridge:v1 -->\nTELEGRAM_MESSAGE_BEGIN\nHello from Sudharma\n\nSecond line.\nTELEGRAM_MESSAGE_END`;
 const SCRIPT = path.join(__dirname, 'validate-event.js');
 
-function runValidator({ mode = 'dry-run', association = 'OWNER', liveAssociation, label, body = VALID_BODY, pullRequest = false } = {}) {
+function runValidator({
+  mode = 'dry-run',
+  triggerActor = TRUSTED_ACTOR,
+  issueAuthor = TRUSTED_ACTOR,
+  association = 'CONTRIBUTOR',
+  label,
+  body = VALID_BODY,
+  pullRequest = false,
+} = {}) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sudharma-telegram-'));
   const eventPath = path.join(tempDir, 'event.json');
   const outputPath = path.join(tempDir, 'message.txt');
   const expectedLabel = label || (mode === 'publish' ? 'telegram:publish-approved' : 'telegram:dry-run');
-  const issue = { number: 77, body, author_association: association };
+  const issue = {
+    number: 77,
+    body,
+    author_association: association,
+    user: { login: issueAuthor },
+  };
   if (pullRequest) issue.pull_request = { url: 'https://example.invalid/pr/77' };
   fs.writeFileSync(eventPath, JSON.stringify({ action: 'labeled', issue, label: { name: expectedLabel } }));
 
-  const env = {
-    ...process.env,
-    GITHUB_EVENT_PATH: eventPath,
-    TELEGRAM_MODE: mode,
-    TELEGRAM_MESSAGE_FILE: outputPath,
-  };
-  if (liveAssociation !== undefined) env.TELEGRAM_AUTHOR_ASSOCIATION = liveAssociation;
-
-  const result = spawnSync(process.execPath, [SCRIPT], { encoding: 'utf8', env });
+  const result = spawnSync(process.execPath, [SCRIPT], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      GITHUB_EVENT_PATH: eventPath,
+      TELEGRAM_MODE: mode,
+      TELEGRAM_TRIGGER_ACTOR: triggerActor,
+      TELEGRAM_MESSAGE_FILE: outputPath,
+    },
+  });
 
   return {
     ...result,
@@ -34,35 +49,36 @@ function runValidator({ mode = 'dry-run', association = 'OWNER', liveAssociation
   };
 }
 
-test('dry-run accepts trusted exact label and writes only validated message', () => {
+test('dry-run accepts trusted trigger actor and trusted issue author even when association is contributor', () => {
   const result = runValidator();
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.message, 'Hello from Sudharma\n\nSecond line.');
 });
 
-test('publish accepts trusted exact publish label', () => {
+test('publish accepts trusted trigger actor and trusted issue author', () => {
   const result = runValidator({ mode: 'publish' });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.message, 'Hello from Sudharma\n\nSecond line.');
 });
 
-test('rejects untrusted issue association', () => {
-  const result = runValidator({ association: 'CONTRIBUTOR' });
+test('rejects untrusted trigger actor', () => {
+  const result = runValidator({ triggerActor: 'outside-user' });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /trusted/i);
+  assert.match(result.stderr, /trigger actor/i);
   assert.equal(result.message, null);
 });
 
-test('trusted live association overrides stale webhook association', () => {
-  const result = runValidator({ association: 'NONE', liveAssociation: 'MEMBER' });
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.message, 'Hello from Sudharma\n\nSecond line.');
+test('rejects untrusted issue author', () => {
+  const result = runValidator({ issueAuthor: 'outside-user' });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /issue author/i);
+  assert.equal(result.message, null);
 });
 
-test('untrusted live association overrides trusted webhook association', () => {
-  const result = runValidator({ association: 'OWNER', liveAssociation: 'CONTRIBUTOR' });
+test('rejects missing trigger actor', () => {
+  const result = runValidator({ triggerActor: '' });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /trusted/i);
+  assert.match(result.stderr, /trigger actor/i);
   assert.equal(result.message, null);
 });
 
@@ -119,7 +135,7 @@ test('workflow is least privilege and separates dry-run from publish', () => {
   assert.doesNotMatch(publishSection, /disable_web_page_preview/);
 });
 
-test('workflow routes jobs only by exact label and leaves trust authorization to validator', () => {
+test('workflow routes jobs only by exact label and passes trigger actor to validator', () => {
   const workflowPath = path.resolve(__dirname, '../../.github/workflows/telegram-publish.yml');
   const workflow = fs.readFileSync(workflowPath, 'utf8');
   const dryStart = workflow.indexOf('  dry-run:');
@@ -133,21 +149,10 @@ test('workflow routes jobs only by exact label and leaves trust authorization to
   assert.match(publishIf, /github\.event\.label\.name == 'telegram:publish-approved'/);
   assert.doesNotMatch(dryIf, /author_association|fromJSON/);
   assert.doesNotMatch(publishIf, /author_association|fromJSON/);
-  assert.match(drySection, /run: node scripts\/telegram\/validate-event\.js/);
-  assert.match(publishSection, /run: node scripts\/telegram\/validate-event\.js/);
-});
-
-test('workflow resolves current GitHub author association before validation', () => {
-  const workflowPath = path.resolve(__dirname, '../../.github/workflows/telegram-publish.yml');
-  const workflow = fs.readFileSync(workflowPath, 'utf8');
-  const dryStart = workflow.indexOf('  dry-run:');
-  const publishStart = workflow.indexOf('  publish:');
-  const drySection = workflow.slice(dryStart, publishStart);
-  const publishSection = workflow.slice(publishStart);
 
   for (const section of [drySection, publishSection]) {
-    assert.match(section, /gh api/);
-    assert.match(section, /author_association/);
-    assert.match(section, /TELEGRAM_AUTHOR_ASSOCIATION:\s*\$\{\{ steps\.issue-trust\.outputs\.association \}\}/);
+    assert.match(section, /TELEGRAM_TRIGGER_ACTOR:\s*\$\{\{ github\.actor \}\}/);
+    assert.match(section, /run: node scripts\/telegram\/validate-event\.js/);
+    assert.doesNotMatch(section, /author_association/);
   }
 });
