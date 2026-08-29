@@ -84,19 +84,22 @@
 - [x] Fast-forwarded `feature/gpu-pow-v1` to `5cc2d8d645640bdc964d0f9480b0a1168f7a73d2` using a non-forced ref update.
 - [x] PR #25 was not merged by the integration.
 
-## Final feature-branch verification
+## Canonical feature-branch verification
 
-This completion-record commit intentionally follows the fast-forward so the canonical feature branch can be verified at its own final exact head. Required checks are:
+Canonical verification checkpoint before this documentation-only record update: `b16be3c84f616cbfdd220a65e35985a52ab95547`.
 
-- [ ] GPU-PoW v1 CI PASS on this completion-record SHA.
-- [ ] Generic CI PASS on this completion-record SHA when triggered.
-- [ ] Stage D offline Stratum protocol gate PASS.
-- [ ] Stage E bounded Stratum transport gate PASS.
-- [ ] Stage F bounded Stratum listener supervisor gate PASS.
-- [ ] GPU-PoW network activation defaults remain disabled.
-- [ ] Full repository regression PASS.
-- [ ] Node build PASS.
-- [ ] Update PR #25 and issue #13 with the final Stage F checkpoint after those exact-head results are green.
+- [x] GPU-PoW v1 CI push run 495: PASS.
+- [x] GPU-PoW v1 CI PR run 496: PASS.
+- [x] Generic CI run 582: PASS.
+- [x] Stage D offline Stratum protocol gate: PASS.
+- [x] Stage E bounded Stratum transport gate: PASS.
+- [x] Stage F bounded Stratum listener supervisor gate: PASS under the race detector.
+- [x] GPU-PoW network activation defaults remain disabled.
+- [x] Full repository regression: PASS.
+- [x] Node build and checksum step: PASS.
+- [x] Generic CI tracked-secret safety, local two-node rehearsal, public-testnet container build/smoke and race detector: PASS.
+
+This commit changes documentation only. It is the final Stage F branch mutation; exact-head CI on this record commit is required before the Stage F checkpoint is reported to PR #25 and issue #13. No further Stage F branch edits should follow a green result.
 
 ## Remaining gates after Stage F
 
