@@ -5,30 +5,34 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/sudharma-networks/sudharma/params"
 )
 
 // Config contains operator-facing settings for a production Sudharma node.
 // Secrets do not belong in this file; the current node RPC is read/query plus
 // signed-transaction submission and never needs wallet private keys.
 type Config struct {
-	NodeID        string   `json:"node_id"`
-	P2PAddress    string   `json:"p2p_address"`
-	RPCAddress    string   `json:"rpc_address"`
-	Peers         []string `json:"peers"`
-	DataDirectory string   `json:"data_directory"`
-	LogJSON       bool     `json:"log_json"`
-	Metrics       bool     `json:"metrics"`
-	PersistEvery  string   `json:"persist_every"`
+	NodeID                string   `json:"node_id"`
+	P2PAddress            string   `json:"p2p_address"`
+	RPCAddress            string   `json:"rpc_address"`
+	Peers                 []string `json:"peers"`
+	DataDirectory         string   `json:"data_directory"`
+	LogJSON               bool     `json:"log_json"`
+	Metrics               bool     `json:"metrics"`
+	PersistEvery          string   `json:"persist_every"`
+	GPUV1ActivationHeight uint64   `json:"gpu_v1_activation_height"`
 }
 
 func DefaultConfig() Config {
 	return Config{
-		NodeID:        "rpc-node",
-		P2PAddress:    "127.0.0.1:18444",
-		RPCAddress:    "127.0.0.1:18545",
-		DataDirectory: "data-rpc-node",
-		Metrics:       true,
-		PersistEvery:  "30s",
+		NodeID:                "rpc-node",
+		P2PAddress:            "127.0.0.1:18444",
+		RPCAddress:            "127.0.0.1:18545",
+		DataDirectory:         "data-rpc-node",
+		Metrics:               true,
+		PersistEvery:          "30s",
+		GPUV1ActivationHeight: params.GPUV1ActivationDisabled,
 	}
 }
 
