@@ -1,0 +1,177 @@
+name: Telegram Publish
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: telegram-issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  dry-run:
+    if: >-
+      github.event.label.name == 'telegram:dry-run' &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate dry-run request
+        env:
+          TELEGRAM_MODE: dry-run
+          TELEGRAM_MESSAGE_FILE: ${{ runner.temp }}/telegram-message.txt
+        run: node scripts/telegram/validate-event.js
+
+      - name: Report dry-run success
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TELEGRAM_MESSAGE_FILE: ${{ runner.temp }}/telegram-message.txt
+          TELEGRAM_CHANNEL_ID: ${{ vars.TELEGRAM_CHANNEL_ID }}
+        run: |
+          COUNT=$(node -e "const fs=require('fs');const text=fs.readFileSync(process.env.TELEGRAM_MESSAGE_FILE,'utf8');process.stdout.write(String([...text].length));")
+          if [ -n "$TELEGRAM_CHANNEL_ID" ]; then
+            DESTINATION_STATE="configured"
+          else
+            DESTINATION_STATE="not configured"
+          fi
+          gh issue comment "${{ github.event.issue.number }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --body "✅ Telegram dry-run passed. Validated ${COUNT} Unicode code points. Channel destination is ${DESTINATION_STATE}. No Telegram API call was made."
+
+  publish:
+    if: >-
+      github.event.label.name == 'telegram:publish-approved' &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association)
+    runs-on: ubuntu-latest
+    environment: telegram-publishing
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate publish request
+        env:
+          TELEGRAM_MODE: publish
+          TELEGRAM_MESSAGE_FILE: ${{ runner.temp }}/telegram-message.txt
+        run: node scripts/telegram/validate-event.js
+
+      - name: Verify Telegram configuration
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ vars.TELEGRAM_CHANNEL_ID }}
+        run: |
+          set +x
+          if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+            echo "TELEGRAM_BOT_TOKEN is not configured." >&2
+            exit 1
+          fi
+          if [ -z "$TELEGRAM_CHANNEL_ID" ]; then
+            echo "TELEGRAM_CHANNEL_ID is not configured." >&2
+            exit 1
+          fi
+
+      - name: Check publish idempotency
+        id: idempotency
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments" --paginate --jq '.[].body' > "$RUNNER_TEMP/telegram-comments.txt"
+          PUBLISHED="<!-- sudharma-telegram-published:v1 issue=$ISSUE_NUMBER -->"
+          CLAIM="<!-- sudharma-telegram-publish-claim:v1 issue=$ISSUE_NUMBER -->"
+          if grep -Fq -- "$PUBLISHED" "$RUNNER_TEMP/telegram-comments.txt"; then
+            echo "state=published" >> "$GITHUB_OUTPUT"
+          elif grep -Fq -- "$CLAIM" "$RUNNER_TEMP/telegram-comments.txt"; then
+            echo "state=claimed" >> "$GITHUB_OUTPUT"
+          else
+            echo "state=new" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report already-published request
+        if: steps.idempotency.outputs.state == 'published'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment "${{ github.event.issue.number }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --body "ℹ️ Telegram publish skipped: this issue already has a successful publish marker."
+
+      - name: Fail closed on uncertain prior attempt
+        if: steps.idempotency.outputs.state == 'claimed'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment "${{ github.event.issue.number }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --body "⚠️ Telegram publish blocked: a previous publish claim exists without a success marker. Review the Telegram channel before retrying to avoid a duplicate."
+          exit 1
+
+      - name: Claim publish attempt
+        if: steps.idempotency.outputs.state == 'new'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --body "<!-- sudharma-telegram-publish-claim:v1 issue=$ISSUE_NUMBER -->\n⏳ Telegram publish attempt claimed by workflow run $GITHUB_RUN_ID."
+
+      - name: Publish to Telegram
+        if: steps.idempotency.outputs.state == 'new'
+        id: telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ vars.TELEGRAM_CHANNEL_ID }}
+          TELEGRAM_MESSAGE_FILE: ${{ runner.temp }}/telegram-message.txt
+        run: |
+          set +x
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const text = fs.readFileSync(process.env.TELEGRAM_MESSAGE_FILE, 'utf8');
+          const payload = {
+            chat_id: process.env.TELEGRAM_CHANNEL_ID,
+            text,
+            link_preview_options: { is_disabled: true },
+          };
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/telegram-payload.json', JSON.stringify(payload), { mode: 0o600 });
+          NODE
+
+          API_URL="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
+          HTTP_CODE=$(curl --silent --show-error \
+            --output "$RUNNER_TEMP/telegram-response.json" \
+            --write-out '%{http_code}' \
+            --request POST \
+            --header 'Content-Type: application/json' \
+            --data-binary "@$RUNNER_TEMP/telegram-payload.json" \
+            "$API_URL")
+
+          TELEGRAM_HTTP_CODE="$HTTP_CODE" node - <<'NODE'
+          const fs = require('node:fs');
+          const status = Number(process.env.TELEGRAM_HTTP_CODE);
+          let response;
+          try {
+            response = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/telegram-response.json', 'utf8'));
+          } catch {
+            throw new Error('Telegram response was not valid JSON');
+          }
+          if (status < 200 || status >= 300 || response?.ok !== true || !Number.isInteger(response?.result?.message_id)) {
+            throw new Error(`Telegram API rejected the publish request (HTTP ${status || 'unknown'}).`);
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `message_id=${response.result.message_id}\n`);
+          NODE
+
+      - name: Record publish success
+        if: steps.idempotency.outputs.state == 'new' && steps.telegram.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          TELEGRAM_MESSAGE_ID: ${{ steps.telegram.outputs.message_id }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --body "<!-- sudharma-telegram-published:v1 issue=$ISSUE_NUMBER -->\n✅ Telegram publish succeeded. message_id=$TELEGRAM_MESSAGE_ID · workflow_run=$GITHUB_RUN_ID"
