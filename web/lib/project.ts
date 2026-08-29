@@ -5,7 +5,7 @@ export const SITE_URL = "https://feature-website-foundation.d2mqyt0bt8s19s.ampli
 export const REPOSITORY_URL = "https://github.com/sudharma-networks/sudharma" as const;
 
 export const SUDH_PARAMETERS = [
-  ["Maximum supply", "100,000,000 SUDH"],
+  ["Maximum supply (hard cap)", "51,000,000,000 SUDH"],
   ["Decimals", "8"],
   ["Initial block reward", "50 SUDH"],
   ["Target block time", "60 seconds"],
