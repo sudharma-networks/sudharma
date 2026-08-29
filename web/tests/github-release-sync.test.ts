@@ -35,6 +35,28 @@ it("propagates the GitHub SHA256 digest and sidecar URL", () => {
   expect(item.checksumUrl).toContain(".apk.sha256");
 });
 
+it("keeps only the newest verified release for each product slot", () => {
+  const olderWallet = {
+    ...release,
+    tag_name: "android-wallet-v0.1.0-testnet",
+    name: "Sudharma Android Wallet 0.1.0 Testnet",
+    published_at: "2026-08-26T14:20:19Z",
+    html_url: "https://github.com/sudharma-networks/sudharma/releases/tag/android-wallet-v0.1.0-testnet",
+    assets: [
+      {
+        ...release.assets[0],
+        browser_download_url: "https://github.com/sudharma-networks/sudharma/releases/download/android-wallet-v0.1.0-testnet/Sudharma-Wallet-0.1.0-testnet.apk"
+      }
+    ]
+  };
+
+  const items = normalizeReleases([olderWallet, release]);
+  const wallets = items.filter((item) => item.slot === "android-wallet");
+
+  expect(wallets).toHaveLength(1);
+  expect(wallets[0].version).toBe("wallet-testnet-v0.1.0");
+});
+
 it("classifies CUDA and OpenCL miner packages as experimental", () => {
   const minerRelease = { ...release, tag_name: "test-mining-v0.1.0", name: "Sudharma Public Test Mining — Khushi Algorithm v0.1" };
   const cuda = classifyAsset(minerRelease, { name: "khushi-miner-nvidia-windows.zip", size: 1, digest: "sha256:abc", browser_download_url: "https://github.com/sudharma-networks/sudharma/releases/download/test-mining-v0.1.0/khushi-miner-nvidia-windows.zip" });
