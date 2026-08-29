@@ -64,9 +64,10 @@
 - [x] Added permanent `Stage G real loopback Stratum interoperability gate` after Stage F.
 - [x] Permanent command uses `-race` over `./pool/stratum/... ./compatibility/stratum ./rpc` with Stage D/E/F/G selectors.
 - [x] Updated `docs/stratum/SUDHARMA_STRATUM_V1.md` with the loopback-only socket boundary, real TCP/TLS evidence and deployment exclusions.
-- [x] Isolated final implementation/docs head before this record: `54e67682fec5193049216cbd5be568b101555674`.
-- [x] Exact-head isolated GPU-PoW CI run **510** PASS, including Stage D, Stage E, Stage F, the new Stage G race gate, activation-default-disabled guard, full regression and node build/checksum.
-- [ ] Reconfirm canonical `feature/gpu-pow-v1` ancestry immediately before integration.
+- [x] Isolated implementation/docs head `54e67682fec5193049216cbd5be568b101555674`: GPU-PoW CI run **510** PASS.
+- [x] Completion-record head `4e88b5da8c8b70ae45c1c19c03efcf5d7bc21143`: GPU-PoW CI run **511** PASS, including Stage D, Stage E, Stage F, Stage G under race, activation-default-disabled guard, full regression and node build/checksum.
+- [x] Reconfirmed canonical `feature/gpu-pow-v1` immediately before integration: `1e6c000da84239df1858563898f36bf5abbdd1f8`.
+- [x] Compared canonical Stage F head to Stage G completion-record head: Stage G was 15 commits ahead, 0 behind, with the canonical head as merge base.
 - [ ] Fast-forward canonical branch without force.
 - [ ] Verify canonical exact head with GPU-PoW and generic CI.
 - [ ] Update PR #25 and issue #13 metadata after canonical checks are green.
