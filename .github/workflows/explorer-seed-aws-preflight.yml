@@ -28,56 +28,41 @@ jobs:
           role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
           aws-region: ap-south-1
 
-      - name: Discover seed EC2 and SSM readiness without changes
+      - name: Discover seed SSM readiness without changes
         shell: bash
         run: |
           set -euo pipefail
           index=0
           for private_ip in $SEED_PRIVATE_IPS; do
             index=$((index + 1))
-            instance_id="$(aws ec2 describe-instances \
-              --filters "Name=private-ip-address,Values=${private_ip}" 'Name=instance-state-name,Values=running' \
-              --query 'Reservations[].Instances[].InstanceId | [0]' \
-              --output text)"
+            set +e
+            record="$(aws ssm describe-instance-information \
+              --query "InstanceInformationList[?IPAddress=='${private_ip}'] | [0].[InstanceId,PingStatus,PlatformName,AgentVersion]" \
+              --output text 2>&1)"
+            status=$?
+            set -e
+
+            if [ "$status" -ne 0 ]; then
+              echo "seed-${index}: SSM discovery not authorized or unavailable" >&2
+              printf '%s\n' "$record" >&2
+              exit "$status"
+            fi
+            if [ -z "$record" ] || [ "$record" = 'None' ]; then
+              echo "seed-${index}: no SSM-managed instance reports private IP ${private_ip}" >&2
+              exit 1
+            fi
+
+            read -r instance_id ping_status platform_name agent_version <<< "$record"
             if [ -z "$instance_id" ] || [ "$instance_id" = 'None' ]; then
-              echo "seed-${index}: running EC2 instance not found" >&2
+              echo "seed-${index}: SSM returned no instance id" >&2
               exit 1
             fi
             echo "::add-mask::$instance_id"
-
-            name="$(aws ec2 describe-instances \
-              --instance-ids "$instance_id" \
-              --query 'Reservations[0].Instances[0].Tags[?Key==`Name`]|[0].Value' \
-              --output text)"
-            profile="$(aws ec2 describe-instances \
-              --instance-ids "$instance_id" \
-              --query 'Reservations[0].Instances[0].IamInstanceProfile.Arn' \
-              --output text)"
-            if [ -n "$profile" ] && [ "$profile" != 'None' ]; then
-              profile_state='present'
-            else
-              profile_state='absent'
-            fi
-
-            set +e
-            ssm_output="$(aws ssm describe-instance-information \
-              --filters "Key=InstanceIds,Values=${instance_id}" \
-              --query 'InstanceInformationList[0].PingStatus' \
-              --output text 2>&1)"
-            ssm_status=$?
-            set -e
-            if [ "$ssm_status" -ne 0 ]; then
-              ssm_state='not-authorized-or-unavailable'
-            elif [ -z "$ssm_output" ] || [ "$ssm_output" = 'None' ]; then
-              ssm_state='not-managed'
-            else
-              ssm_state="$ssm_output"
-            fi
-
-            echo "seed-${index}: name=${name:-unknown} state=running iam-profile=${profile_state} ssm=${ssm_state}"
+            echo "seed-${index}: ssm=${ping_status:-unknown} platform=${platform_name:-unknown} agent=${agent_version:-unknown}"
           done
 
       - name: Record safety boundary
+        if: always()
         shell: bash
         run: |
           echo 'aws-mode=read-only'
