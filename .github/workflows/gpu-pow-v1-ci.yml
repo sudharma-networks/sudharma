@@ -58,6 +58,12 @@ jobs:
       - name: Consensus baseline tests
         run: go test ./blockchain ./consensus -count=1 -v
 
+      - name: Disposable activation and rollback rehearsal
+        run: go test ./testnet ./operations -run 'GPU.*Rehearsal|GPUActivationRunbook' -count=1 -v
+
+      - name: Confirm network activation defaults remain disabled
+        run: go test ./pow -run TestGPUV1NetworkActivationDefaultsRemainDisabled -count=1 -v
+
       - name: Full regression suite
         run: go test ./... -count=1
 
