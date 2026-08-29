@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHandler } from './index.mjs';
 import { matchRoute, normalizeEvent } from './router.mjs';
 import { proxyWithFailover } from './upstream.mjs';
 
@@ -7,6 +8,18 @@ const ADDRESS = '0123456789abcdef0123456789abcdef01234567';
 const HASH = 'a'.repeat(64);
 const TXID = 'b'.repeat(64);
 const seeds = ['http://seed-one.internal', 'http://seed-two.internal'];
+
+function gatewayEvent(method, rawPath, rawQueryString = '') {
+  return {
+    version: '2.0',
+    rawPath,
+    rawQueryString,
+    headers: {},
+    body: null,
+    isBase64Encoded: false,
+    requestContext: { http: { method } },
+  };
+}
 
 test('allows only the documented read-only explorer route shapes', () => {
   const cases = [
@@ -108,4 +121,18 @@ test('forwards the validated explorer query string to the private seed upstream'
   assert.equal(result.statusCode, 200);
   assert.equal(calls.length, 1);
   assert.equal(calls[0], 'http://seed-one.internal/v1/explorer/search?q=42');
+});
+
+test('adds browser CORS to public explorer responses', async () => {
+  const handler = createHandler({
+    seeds,
+    fetchImpl: async () => new Response('{"network":"sudharma","height":42}', {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }),
+    logger: { info() {}, warn() {}, error() {} },
+  });
+  const result = await handler(gatewayEvent('GET', '/v1/explorer/status'));
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.headers['access-control-allow-origin'], '*');
 });
