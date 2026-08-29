@@ -109,7 +109,7 @@ Duplicate tracking is reset on clean work. Reaching the configured duplicate lim
 
 The Stage D package is deliberately transport-independent. `pool/stratum` does not open sockets, construct blocks, persist balances, or modify chain state. The RPC adapter copies the provider block, changes only the validated reward address before issuance, stores the exact returned immutable template and submits only a reconstructed solution based on that template plus nonce.
 
-Deferred work includes a bounded TCP/TLS listener, connection deadlines, rate limiting, proxy/IP policy, production authentication, variable difficulty, accounting, payout thresholds, fees, wallet custody, Kryptex-specific extensions, miner packaging, public deployment and any GPU-PoW activation height.
+Deferred work includes a bounded TCP/TLS listener, proxy/IP policy, production authentication, variable difficulty, accounting, payout thresholds, fees, wallet custody, Kryptex-specific extensions, miner packaging, public deployment and any GPU-PoW activation height.
 
 The permanent offline gate is:
 
@@ -118,3 +118,19 @@ go test ./pool/stratum ./rpc -run 'Stratum|OfflineStratumTranscript' -count=1 -v
 ```
 
 Passing this gate is software interoperability evidence only. It is not physical GPU evidence and is not a Kryptex onboarding or listing claim.
+
+## Stage E injected connection transport
+
+ServeConn accepts exactly one already-open net.Conn, creates exactly one Stage D session, and owns and closes that connection. It does not open a listener or create an accept loop.
+
+The injected transport accepts LF and CRLF framing with a strict 64 KiB request-line bound. Each connection has finite read and write deadlines, cancellation wakes blocked I/O, and all background refresh work is stopped before ServeConn returns.
+
+After successful authorization, work is delivered immediately and then refreshed periodically from the immutable Stage D source. Identical work produces no new notification; changed work produces a serialized mining.set_difficulty and mining.notify pair. All responses and refresh notifications share the same mutex-protected writer.
+
+Each connection has an independent token bucket and a finite recoverable protocol-error budget. Oversized lines fail closed with a best-effort stable invalid-request response. These controls do not change the frozen worker identity, nonce-lane, immutable-job, duplicate-share, stale-share, or block-candidate contracts.
+
+Stage E still has no listener, TLS termination, public endpoint, trusted-proxy or IP admission policy, vardiff, payout/accounting/custody behavior, or Kryptex-specific extension. Passing the Stage E gate is software-only interoperability evidence; it is not physical GPU evidence or Kryptex approval.
+
+The permanent Stage E gate is:
+
+    go test -race ./pool/stratum/... ./rpc -run 'Stratum|Transport|OfflineStratumTranscript' -count=1 -v

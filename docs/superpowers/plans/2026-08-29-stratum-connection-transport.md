@@ -59,7 +59,7 @@ var (
 
 Internal defaults are exactly 30s read timeout, 10s write timeout, 5s refresh interval, 8 recoverable protocol errors, 20 requests/second and burst 40. `maxRequestBytes` is exactly `64 * 1024` and the buffered reader capacity is `maxRequestBytes + 2` so both a maximum-sized LF line and maximum-sized CRLF line fit without unbounded allocation.
 
-- [ ] **Step 1: Write failing configuration tests**
+- [x] **Step 1: Write failing configuration tests**
 
 Add table tests proving zero values resolve to all six defaults and each negative duration is rejected with `errors.Is(err, ErrInvalidConfig)`.
 
@@ -76,17 +76,17 @@ func TestNormalizeConfigDefaults(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the configuration tests and verify RED**
+- [x] **Step 2: Run the configuration tests and verify RED**
 
 Run: `go test ./pool/stratum/transport -run 'TestNormalizeConfig' -count=1`
 
 Expected: FAIL because the transport package/configuration types do not exist.
 
-- [ ] **Step 3: Implement minimal configuration normalization**
+- [x] **Step 3: Implement minimal configuration normalization**
 
 Create `normalizedConfig` with resolved non-zero fields. Treat zero as default and reject only negative duration values. Do not add deployment-specific configuration.
 
-- [ ] **Step 4: Write failing bounded-line tests**
+- [x] **Step 4: Write failing bounded-line tests**
 
 Cover LF, CRLF, a non-empty unterminated final line at EOF, clean empty EOF, exactly 65,536 content bytes, 65,537 content bytes, and an overlong fragmented reader that never presents a delimiter before the fixed buffer fills.
 
@@ -99,17 +99,17 @@ func TestReadRequestLineRejectsOverLimit(t *testing.T) {
 }
 ```
 
-- [ ] **Step 5: Run line tests and verify RED**
+- [x] **Step 5: Run line tests and verify RED**
 
 Run: `go test ./pool/stratum/transport -run 'TestReadRequestLine' -count=1`
 
 Expected: FAIL because the bounded line reader is missing.
 
-- [ ] **Step 6: Implement bounded framing**
+- [x] **Step 6: Implement bounded framing**
 
 Use `bufio.NewReaderSize(r, maxRequestBytes+2)` and `ReadSlice('\n')`. `bufio.ErrBufferFull` maps to `ErrLineTooLong`; trim one LF and then one optional CR; reject post-trim content above 65,536 bytes; return a bounded non-empty EOF fragment as a normal line; return `io.EOF` only for empty EOF. Copy the returned line before the next reader operation.
 
-- [ ] **Step 7: Verify Task 1 GREEN**
+- [x] **Step 7: Verify Task 1 GREEN**
 
 Run:
 
@@ -121,7 +121,7 @@ go vet ./pool/stratum/transport
 
 Expected: PASS with no formatting output.
 
-- [ ] **Step 8: Commit and exact-head verify**
+- [x] **Step 8: Commit and exact-head verify**
 
 Commit: `feat(pool): bound Stratum connection framing`
 
@@ -142,7 +142,7 @@ Then verify both GPU-PoW v1 CI and generic CI succeed on that exact commit befor
 
 Task 2 intentionally has no periodic refresh goroutine yet. It proves the base stream/request lifecycle and immediate work delivery after authorization; Task 4 adds periodic refresh and I/O deadlines test-first.
 
-- [ ] **Step 1: Write failing `net.Pipe` lifecycle tests**
+- [x] **Step 1: Write failing `net.Pipe` lifecycle tests**
 
 Build real Stage D sessions from a fixed source/verifier/lane fixture. Prove:
 
@@ -162,17 +162,17 @@ go func() { done <- ServeConn(context.Background(), server, factory, Config{}) }
 // Write fragmented/coalesced requests on client while concurrently reading complete response lines.
 ```
 
-- [ ] **Step 2: Run lifecycle tests and verify RED**
+- [x] **Step 2: Run lifecycle tests and verify RED**
 
 Run: `go test ./pool/stratum/transport -run 'TestServeConn.*Lifecycle|TestServeConn.*Fragment|TestServeConn.*CRLF' -count=1 -v`
 
 Expected: FAIL because `ServeConn` and the connection writer do not exist.
 
-- [ ] **Step 3: Implement serialized message writing**
+- [x] **Step 3: Implement serialized message writing**
 
 `messageWriter` owns one `net.Conn` plus one `sync.Mutex`. `WriteMessages` first encodes all `stratum.Message` values into one local byte buffer using `stratum.EncodeMessage`, then holds the mutex while writing the complete buffer with a `writeAll` loop. Task 2 does not set write deadlines yet.
 
-- [ ] **Step 4: Implement base `ServeConn` request loop**
+- [x] **Step 4: Implement base `ServeConn` request loop**
 
 Validate non-nil connection/factory and normalized config, defer `conn.Close()`, construct exactly one session, and read bounded lines until clean EOF. Before `Session.Handle`, call `stratum.DecodeRequest` only to capture the method for transport lifecycle decisions; then call `Session.Handle` exactly once. A returned `*stratum.ProtocolError` is framed as:
 
@@ -188,7 +188,7 @@ Non-protocol session errors terminate with operation-only wrapping. Successful s
 
 After a successful `mining.authorize` response whose result is boolean `true`, call `session.RefreshWork(ctx)` immediately and write its messages through the same writer. Do not start a background refresh loop in this task.
 
-- [ ] **Step 5: Verify lifecycle GREEN under race**
+- [x] **Step 5: Verify lifecycle GREEN under race**
 
 Run:
 
@@ -200,7 +200,7 @@ go test ./pool/stratum -run TestOfflineStratumTranscript -count=1 -v
 
 Expected: transport lifecycle tests PASS and the frozen Stage D transcript remains unchanged.
 
-- [ ] **Step 6: Commit and exact-head verify**
+- [x] **Step 6: Commit and exact-head verify**
 
 Commit: `feat(pool): serve one injected Stratum connection`
 
@@ -220,7 +220,7 @@ Then require exact-head GPU-PoW v1 CI and generic CI PASS before Task 3.
 - Consumes: resolved `requestsPerSecond`, `burst`, `maxProtocolErrors`, complete request boundaries from Task 1, Task 2 `ServeConn` loop.
 - Produces: internal `tokenBucket`, `newTokenBucket(rate, burst uint32, now time.Time)`, `(*tokenBucket).Allow(now time.Time) bool`, terminal `ErrRateLimited` and terminal `ErrProtocolBudget` enforcement.
 
-- [ ] **Step 1: Write failing deterministic token-bucket tests**
+- [x] **Step 1: Write failing deterministic token-bucket tests**
 
 Use explicit timestamps, never sleeps. Prove initial capacity equals burst, one request consumes one token, exhaustion rejects, fractional elapsed time replenishes according to `RequestsPerSecond`, refill caps at burst, and a backward timestamp does not mint tokens.
 
@@ -235,17 +235,17 @@ if !b.Allow(start.Add(500 * time.Millisecond)) {
 }
 ```
 
-- [ ] **Step 2: Run limiter tests and verify RED**
+- [x] **Step 2: Run limiter tests and verify RED**
 
 Run: `go test ./pool/stratum/transport -run 'TestTokenBucket' -count=1`
 
 Expected: FAIL because the token bucket does not exist.
 
-- [ ] **Step 3: Implement token bucket**
+- [x] **Step 3: Implement token bucket**
 
 Track `tokens float64`, `rate float64`, `capacity float64`, and `last time.Time`. On `Allow(now)`, refill only when `now.After(last)`, cap at capacity, advance `last`, then consume exactly one token when available.
 
-- [ ] **Step 4: Write failing integration tests for rate and protocol budgets**
+- [x] **Step 4: Write failing integration tests for rate and protocol budgets**
 
 Use `net.Pipe` and a factory counter. With rate 1/burst 1, send two complete requests in one client write and assert the first is handled while the second causes `errors.Is(serveErr, ErrRateLimited)`. Verify the rate-limited request produces no Stage D response and does not create another session.
 
@@ -253,13 +253,13 @@ With `MaxProtocolErrors: 2`, send three bounded malformed requests. Assert all t
 
 Add an oversized-line integration test proving 65,537 bytes cannot bypass the limit by fragmented client writes; it receives one best-effort `-32600` response and terminates with `ErrLineTooLong`.
 
-- [ ] **Step 5: Run abuse tests and verify RED**
+- [x] **Step 5: Run abuse tests and verify RED**
 
 Run: `go test ./pool/stratum/transport -run 'TestServeConn.*Rate|TestServeConn.*ProtocolBudget|TestServeConn.*Oversized' -count=1 -v`
 
 Expected: FAIL because Task 2 has no abuse enforcement.
 
-- [ ] **Step 6: Integrate abuse controls**
+- [x] **Step 6: Integrate abuse controls**
 
 Initialize one token bucket per connection when `ServeConn` starts. Consume one token after a complete bounded line is assembled and before any Stage D decode/handle call. On exhaustion return `ErrRateLimited` without calling `Session.Handle` for that line.
 
@@ -267,7 +267,7 @@ Count only returned `*stratum.ProtocolError` values against the protocol budget.
 
 When `readRequestLine` returns `ErrLineTooLong`, best-effort write an `id:null` response containing `ProtocolError{Code: -32600, Message: "invalid request"}`, then return `ErrLineTooLong` regardless of the protocol-error count.
 
-- [ ] **Step 7: Verify Task 3 GREEN**
+- [x] **Step 7: Verify Task 3 GREEN**
 
 Run:
 
@@ -280,7 +280,7 @@ go vet ./pool/stratum/transport
 
 Expected: all PASS and Stage D transcript unchanged.
 
-- [ ] **Step 8: Commit and exact-head verify**
+- [x] **Step 8: Commit and exact-head verify**
 
 Commit: `feat(pool): bound Stratum connection abuse`
 
@@ -314,7 +314,7 @@ type tickerFactory func(time.Duration) ticker
 
 `ServeConn` calls an internal `serveConn(..., newTicker tickerFactory)` using a real `time.NewTicker` wrapper. Same-package tests call the internal function with a manually triggered ticker.
 
-- [ ] **Step 1: Write failing refresh-pump tests**
+- [x] **Step 1: Write failing refresh-pump tests**
 
 Using a manual ticker and mutable thread-safe Stage D source, prove:
 
@@ -325,19 +325,19 @@ Using a manual ticker and mutable thread-safe Stage D source, prove:
 5. a source refresh error becomes the error returned by `ServeConn` rather than a secondary read error;
 6. simultaneous submit-response traffic and refresh notifications decode as complete, non-interleaved JSON lines.
 
-- [ ] **Step 2: Run refresh tests and verify RED**
+- [x] **Step 2: Run refresh tests and verify RED**
 
 Run: `go test ./pool/stratum/transport -run 'TestServeConn.*Refresh|TestServeConn.*Serialized' -count=1 -v`
 
 Expected: FAIL because periodic refresh/ticker coordination is missing.
 
-- [ ] **Step 3: Implement one refresh pump and terminal-error channel**
+- [x] **Step 3: Implement one refresh pump and terminal-error channel**
 
 Start the pump only after the first successful authorize + immediate refresh. The goroutine owns one ticker, calls `Session.RefreshWork` on each tick and writes through the same `messageWriter`.
 
 Use a buffered one-element terminal-error channel. On the first refresh or refresh-delivery failure, send one operation-wrapped error and call `conn.SetReadDeadline(time.Now())` so a blocked request read wakes. The request loop checks that channel before interpreting the resulting read error and returns the refresh error. A derived context stops the pump; `ServeConn` joins the pump before return.
 
-- [ ] **Step 4: Write failing deadline/cancellation tests**
+- [x] **Step 4: Write failing deadline/cancellation tests**
 
 Use `net.Pipe` plus short, test-only explicit durations. Prove:
 
@@ -348,19 +348,19 @@ Use `net.Pipe` plus short, test-only explicit durations. Prove:
 
 Use channels/select timeouts only as test deadlock guards, not as protocol timing assertions.
 
-- [ ] **Step 5: Run deadline tests and verify RED**
+- [x] **Step 5: Run deadline tests and verify RED**
 
 Run: `go test ./pool/stratum/transport -run 'TestServeConn.*Deadline|TestServeConn.*Cancel' -count=1 -v`
 
 Expected: FAIL because Task 3 does not set I/O deadlines or install a cancellation watcher.
 
-- [ ] **Step 6: Implement I/O deadlines and cancellation watcher**
+- [x] **Step 6: Implement I/O deadlines and cancellation watcher**
 
 Before every blocking request read call `conn.SetReadDeadline(time.Now().Add(readTimeout))`. In `messageWriter.WriteMessages`, while holding the writer mutex and before writing the batch, call `SetWriteDeadline(time.Now().Add(writeTimeout))`.
 
 Create a derived context and one cancellation watcher. When it observes cancellation it calls `conn.SetDeadline(time.Now())` to wake blocked I/O. On any request-loop terminal path cancel the derived context, stop/join refresh, stop/join the watcher, close the owned connection, and prefer `ctx.Err()` when cancellation caused the wakeup.
 
-- [ ] **Step 7: Verify Task 4 GREEN and race safety**
+- [x] **Step 7: Verify Task 4 GREEN and race safety**
 
 Run:
 
@@ -373,7 +373,7 @@ go vet ./pool/stratum/... ./rpc
 
 Expected: PASS with no race report and no formatting output.
 
-- [ ] **Step 8: Commit and exact-head verify**
+- [x] **Step 8: Commit and exact-head verify**
 
 Commit: `feat(pool): refresh bounded Stratum connections safely`
 
@@ -393,7 +393,7 @@ Require exact-head GPU-PoW v1 CI and generic CI PASS before Task 5.
 - Consumes: all Stage E transport APIs plus existing Stage D transcript/RPC tests.
 - Produces: repository-enforced no-listener evidence, `Stage E bounded Stratum transport gate`, operator-facing Stage E boundary documentation and final checkpoint metadata.
 
-- [ ] **Step 1: Write failing architectural source guard**
+- [x] **Step 1: Write failing architectural source guard**
 
 Parse non-test `.go` files in `pool/stratum/transport` with `go/parser`. Walk `ast.CallExpr` nodes and reject selector calls whose package/name resolve textually to any of:
 
@@ -409,13 +409,13 @@ Also reject any production declaration whose type is `net.Listener`. The test mu
 
 To prove the test can fail, place the forbidden-call matcher in a helper and unit-test it against a parsed in-memory source snippet containing `net.Listen("tcp", ":1234")` before scanning the real directory.
 
-- [ ] **Step 2: Run source-guard tests and verify RED**
+- [x] **Step 2: Run source-guard tests and verify RED**
 
 Run: `go test ./pool/stratum/transport -run 'TestForbiddenListenerMatcher' -count=1`
 
 Expected: initial failing matcher assertion until the AST guard helper is implemented; after the helper is implemented, run the real-tree guard and keep it green.
 
-- [ ] **Step 3: Implement/verify the no-listener guard**
+- [x] **Step 3: Implement/verify the no-listener guard**
 
 Complete the AST matcher and real-directory scan, excluding `_test.go` files from the production scan. Then run:
 
@@ -425,7 +425,7 @@ go test ./pool/stratum/transport -run 'TestForbiddenListenerMatcher|TestTranspor
 
 Expected: PASS and no listener primitive detected.
 
-- [ ] **Step 4: Add the permanent Stage E workflow gate**
+- [x] **Step 4: Add the permanent Stage E workflow gate**
 
 Immediately after the existing Stage D offline Stratum protocol gate, add exactly:
 
@@ -436,7 +436,7 @@ Immediately after the existing Stage D offline Stratum protocol gate, add exactl
 
 Do not remove or weaken the Stage D gate, activation/rollback rehearsal, disabled-default gate, full regression or build steps.
 
-- [ ] **Step 5: Update operator protocol documentation**
+- [x] **Step 5: Update operator protocol documentation**
 
 Add a `Stage E injected connection transport` section to `docs/stratum/SUDHARMA_STRATUM_V1.md` recording:
 
@@ -447,7 +447,7 @@ Add a `Stage E injected connection transport` section to `docs/stratum/SUDHARMA_
 - no listener/TLS/public endpoint/IP policy/payout/vardiff/Kryptex-specific extension;
 - passing Stage E remains software-only evidence, not physical GPU or Kryptex approval evidence.
 
-- [ ] **Step 6: Run complete Stage E verification**
+- [x] **Step 6: Run complete Stage E verification**
 
 Run:
 
@@ -466,12 +466,25 @@ fi
 
 Expected: all commands PASS, source grep prints no production match, Stage D transcript remains byte-for-byte green, and activation defaults remain disabled.
 
-- [ ] **Step 7: Mark this plan complete and commit**
+- [x] **Step 7: Mark this plan complete and commit**
 
 Mark every completed checkbox `[x]` and add an execution checkpoint with final commit/run numbers without changing the safety boundary.
 
 Commit: `test(pool): gate bounded Stratum connection transport`
 
-- [ ] **Step 8: Verify exact live head and update PR #25**
+- [x] **Step 8: Verify exact live head and update PR #25**
 
 Require final exact-head GPU-PoW v1 CI and generic CI PASS. Confirm PR #25 remains open/draft/unmerged, then update its checkpoint with Stage E commit/run numbers and these remaining independent gates: RTX 2060 localhost physical round trip; AMD/non-NVIDIA OpenCL ≥4 GiB evidence; public listener/TLS/admission review; vardiff if required by onboarding; payout/accounting/custody design if pursued; Kryptex profile validation and Kryptex-side approval; later explicit consensus-deployment decision.
+
+---
+
+## Execution checkpoint — 2026-08-29
+
+- Task 4 final head: `24e8287ebe04e99211bff2115e56349eda881103`.
+- Task 4 exact-head verification: GPU-PoW v1 CI 464 PASS; generic CI 573 PASS.
+- No-listener guard head: `4604c4f37d69a63a6cd48d8424362438689527c3`.
+- No-listener guard verification: GPU-PoW v1 CI 468 PASS; generic CI 575 PASS.
+- Final checkpoint commit message: `test(pool): gate bounded Stratum connection transport`.
+- The final checkpoint SHA and its exact-head run numbers are recorded on draft PR #25 after GitHub creates and verifies that commit.
+
+Safety boundary remains unchanged: no listener or accept loop, no TLS/public endpoint, no Seed-1/Seed-2 deployment, no finite GPU-PoW activation height, no unrestricted GPU mining, no mainnet activation, and no PR merge.
