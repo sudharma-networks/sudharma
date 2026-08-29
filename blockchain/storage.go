@@ -72,6 +72,20 @@ func (c *Chain) SaveToFile(path string) error {
 
 // LoadChainFromFile loads and validates a Sudharma Network chain from disk.
 func LoadChainFromFile(path string) (*Chain, error) {
+	return LoadChainFromFileWithConsensus(
+		path,
+		LegacyOnlyPoWPolicy(),
+		legacyProofVerifier{},
+	)
+}
+
+// LoadChainFromFileWithConsensus loads and revalidates a stored chain using
+// the supplied immutable policy and proof verifier.
+func LoadChainFromFileWithConsensus(
+	path string,
+	policy PoWPolicy,
+	verifier ProofVerifier,
+) (*Chain, error) {
 	if path == "" {
 		return nil, fmt.Errorf(
 			"storage path cannot be empty",
@@ -113,7 +127,10 @@ func LoadChainFromFile(path string) (*Chain, error) {
 		)
 	}
 
-	chain := NewChain()
+	chain, err := NewChainWithConsensus(policy, verifier)
+	if err != nil {
+		return nil, fmt.Errorf("invalid consensus policy: %w", err)
+	}
 
 	for i := 1; i < len(blocks); i++ {
 		if err := chain.AddBlock(
