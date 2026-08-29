@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/sudharma-networks/sudharma/params"
 )
 
 func TestLoadConfigDefaultsAndOverrides(t *testing.T) {
@@ -26,6 +28,29 @@ func TestLoadConfigDefaultsAndOverrides(t *testing.T) {
 	}
 	if cfg.NodeID != "public-1" || cfg.PersistenceInterval() != 5*time.Second || len(cfg.Peers) != 1 {
 		t.Fatalf("override not applied: %+v", cfg)
+	}
+}
+
+func TestGPUActivationConfigDefaultsDisabledAndAcceptsExplicitHeight(t *testing.T) {
+	cfg, err := LoadConfig("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.GPUV1ActivationHeight != params.GPUV1ActivationDisabled {
+		t.Fatalf("default activation = %d, want disabled", cfg.GPUV1ActivationHeight)
+	}
+
+	path := filepath.Join(t.TempDir(), "node.json")
+	data := []byte(`{"gpu_v1_activation_height":1720}`)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.GPUV1ActivationHeight != 1720 {
+		t.Fatalf("configured activation = %d, want 1720", cfg.GPUV1ActivationHeight)
 	}
 }
 
