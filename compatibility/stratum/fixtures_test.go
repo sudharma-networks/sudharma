@@ -20,10 +20,10 @@ import (
 )
 
 const (
-	compatWallet           = "9ccdc094489874bed888ffe4bdf9b8298f4c5131"
-	compatTargetHex        = "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f"
-	compatHeaderPrefix     = "aabbccdd"
-	compatLaneValue uint32 = 0x01020304
+	compatWallet              = "9ccdc094489874bed888ffe4bdf9b8298f4c5131"
+	compatTargetHex           = "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f"
+	compatHeaderPrefix        = "aabbccdd"
+	compatLaneValue    uint32 = 0x01020304
 )
 
 type compatSource struct {
