@@ -44,13 +44,7 @@ func TestServeListenerGlobalCapRejectsBeforeSessionCreation(t *testing.T) {
 	}()
 
 	waitForServerCalls(t, &calls, 1)
-	if err := clientTwo.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
-		t.Fatal(err)
-	}
-	var one [1]byte
-	if _, err := clientTwo.Read(one[:]); err == nil {
-		t.Fatal("globally rejected connection remained open")
-	}
+	assertConnectionClosed(t, clientTwo, "globally rejected connection remained open")
 	if got := calls.Load(); got != 1 {
 		t.Fatalf("session factory calls = %d, want 1", got)
 	}
@@ -88,13 +82,7 @@ func TestServeListenerPerIPCapAllowsDifferentSource(t *testing.T) {
 	}()
 
 	waitForServerCalls(t, &calls, 2)
-	if err := clientTwo.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
-		t.Fatal(err)
-	}
-	var one [1]byte
-	if _, err := clientTwo.Read(one[:]); err == nil {
-		t.Fatal("per-IP rejected connection remained open")
-	}
+	assertConnectionClosed(t, clientTwo, "per-IP rejected connection remained open")
 	if got := calls.Load(); got != 2 {
 		t.Fatalf("session factory calls = %d, want 2", got)
 	}
@@ -162,5 +150,16 @@ func TestServeListenerPlaintextDelegatesToStageE(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("ServeListener did not stop after cancellation")
+	}
+}
+
+func assertConnectionClosed(t *testing.T, conn net.Conn, message string) {
+	t.Helper()
+	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		return
+	}
+	var one [1]byte
+	if _, err := conn.Read(one[:]); err == nil {
+		t.Fatal(message)
 	}
 }
