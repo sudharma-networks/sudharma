@@ -22,17 +22,24 @@ type Client struct {
 }
 
 type NodeStatus struct {
-	Network      string `json:"network"`
-	Coin         string `json:"coin"`
-	Symbol       string `json:"symbol"`
-	NodeID       string `json:"node_id"`
-	P2PAddress   string `json:"p2p_address"`
-	Height       uint64 `json:"height"`
-	TipHash      string `json:"tip_hash"`
-	TotalWork    string `json:"total_work"`
-	Peers        int    `json:"peers"`
-	Mempool      int    `json:"mempool"`
-	IssuedSupply uint64 `json:"issued_supply"`
+	Network      string              `json:"network"`
+	Coin         string              `json:"coin"`
+	Symbol       string              `json:"symbol"`
+	NodeID       string              `json:"node_id"`
+	P2PAddress   string              `json:"p2p_address"`
+	Height       uint64              `json:"height"`
+	TipHash      string              `json:"tip_hash"`
+	TotalWork    string              `json:"total_work"`
+	Peers        int                 `json:"peers"`
+	Mempool      int                 `json:"mempool"`
+	IssuedSupply uint64              `json:"issued_supply"`
+	GPUV1        GPUActivationStatus `json:"gpu_v1"`
+}
+
+type GPUActivationStatus struct {
+	Phase            string  `json:"phase"`
+	ActivationHeight *uint64 `json:"activation_height,omitempty"`
+	NextBlockVersion uint32  `json:"next_block_version"`
 }
 
 type AccountInfo struct {
