@@ -10,11 +10,35 @@ import (
 // validateBlockCore performs consensus checks that do not depend
 // on the algorithm used to calculate the next difficulty.
 func validateBlockCore(block *Block, previous *Block) error {
+	return validateBlockCoreWithProof(
+		block,
+		previous,
+		LegacyOnlyPoWPolicy(),
+		legacyProofVerifier{},
+	)
+}
+
+func validateBlockCoreWithProof(
+	block *Block,
+	previous *Block,
+	policy PoWPolicy,
+	verifier ProofVerifier,
+) error {
 	if block == nil {
 		return fmt.Errorf("block cannot be nil")
 	}
 	if previous == nil {
 		return fmt.Errorf("previous block cannot be nil")
+	}
+	if !policy.VersionAllowed(block.Version, block.Height) {
+		return fmt.Errorf(
+			"block version %d is not allowed at height %d",
+			block.Version,
+			block.Height,
+		)
+	}
+	if verifier == nil || !verifier.SupportsVersion(block.Version) {
+		return fmt.Errorf("proof verifier does not support block version %d", block.Version)
 	}
 
 	expectedHeight := previous.Height + 1
@@ -36,7 +60,7 @@ func validateBlockCore(block *Block, previous *Block) error {
 	if block.MerkleRoot != block.CalculateMerkleRoot() {
 		return fmt.Errorf("invalid merkle root")
 	}
-	if !validBlockProofOfWorkCore(block) {
+	if !verifier.Verify(block) {
 		return fmt.Errorf("invalid proof of work")
 	}
 
