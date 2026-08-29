@@ -113,3 +113,19 @@ jobs:
             --function-name Sudharma-Testnet-Wallet-Proxy \
             --query '{Runtime:Runtime,Handler:Handler,Timeout:Timeout,MemorySize:MemorySize,State:State,LastUpdateStatus:LastUpdateStatus}' \
             --output json
+
+      - name: Verify public HTTPS Function URL
+        run: |
+          set -euo pipefail
+          public_url="$(aws lambda get-function-url-config \
+            --function-name Sudharma-Testnet-Wallet-Proxy \
+            --query FunctionUrl \
+            --output text)"
+          case "$public_url" in
+            https://*) ;;
+            *) echo "Public wallet RPC Function URL is missing or not HTTPS" >&2; exit 1 ;;
+          esac
+          echo "Public wallet RPC: $public_url"
+          curl --fail --silent --show-error --max-time 10 \
+            "${public_url%/}/v1/status" >/tmp/sudharma-wallet-rpc-status.json
+          node -e 'const fs=require("fs"); const x=JSON.parse(fs.readFileSync("/tmp/sudharma-wallet-rpc-status.json","utf8")); if (!x || typeof x !== "object") process.exit(1); console.log("Public wallet RPC /v1/status verified")'
