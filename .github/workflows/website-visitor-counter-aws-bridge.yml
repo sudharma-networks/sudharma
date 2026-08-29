@@ -1,0 +1,33 @@
+name: Website Visitor Counter AWS Bridge
+
+on:
+  push:
+    branches:
+      - feature/public-testnet-wallet-v2
+    paths:
+      - '.github/workflows/website-visitor-counter-aws-bridge.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  oidc-preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials from GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+
+      - name: Verify authorized AWS session
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws sts get-caller-identity >/dev/null
+          echo 'AWS OIDC session verified for the visitor-counter deployment bridge.'
