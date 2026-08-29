@@ -136,7 +136,7 @@ jobs:
           const payload = {
             chat_id: process.env.TELEGRAM_CHANNEL_ID,
             text,
-            disable_web_page_preview: true,
+            link_preview_options: { is_disabled: true },
           };
           fs.writeFileSync(process.env.RUNNER_TEMP + '/telegram-payload.json', JSON.stringify(payload), { mode: 0o600 });
           NODE
