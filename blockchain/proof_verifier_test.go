@@ -1,6 +1,7 @@
 package blockchain
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/sudharma-networks/sudharma/consensus"
@@ -70,6 +71,43 @@ func TestChainUsesConfiguredProofVerifier(t *testing.T) {
 	}
 	if verifier.calls != 1 {
 		t.Fatalf("proof verifier calls = %d, want 1", verifier.calls)
+	}
+}
+
+func TestConsensusPolicySurvivesStorageCloneAndReplacement(t *testing.T) {
+	policy := PoWPolicy{GPUV1ActivationHeight: 100}
+	verifier := &recordingProofVerifier{supported: map[uint32]bool{1: true, 2: true}, result: true}
+	chain, err := NewChainWithConsensus(policy, verifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(t.TempDir(), "chain.json")
+	if err := chain.SaveToFile(path); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadChainFromFileWithConsensus(path, policy, verifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := loaded.PoWPolicy(); got != policy {
+		t.Fatalf("loaded policy = %+v, want %+v", got, policy)
+	}
+
+	cloned, err := ValidateAndCloneChain(loaded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cloned.PoWPolicy(); got != policy {
+		t.Fatalf("cloned policy = %+v, want %+v", got, policy)
+	}
+
+	candidate := NewChain()
+	if err := loaded.ReplaceWith(candidate); err != nil {
+		t.Fatal(err)
+	}
+	if got := loaded.PoWPolicy(); got != policy {
+		t.Fatalf("replacement changed policy to %+v, want %+v", got, policy)
 	}
 }
 
