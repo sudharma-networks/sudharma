@@ -5,13 +5,15 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/sudharma-networks/sudharma/pool/stratum"
 )
 
 type messageWriter struct {
-	mu   sync.Mutex
-	conn net.Conn
+	mu           sync.Mutex
+	conn         net.Conn
+	writeTimeout time.Duration
 }
 
 func (w *messageWriter) WriteMessages(messages []stratum.Message) error {
@@ -30,6 +32,9 @@ func (w *messageWriter) WriteMessages(messages []stratum.Message) error {
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if err := w.conn.SetWriteDeadline(time.Now().Add(w.writeTimeout)); err != nil {
+		return err
+	}
 	return writeAll(w.conn, encoded.Bytes())
 }
 
