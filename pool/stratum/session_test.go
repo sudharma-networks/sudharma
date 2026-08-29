@@ -26,7 +26,7 @@ func (sessionTestVerifier) MeetsTarget(context.Context, Work, uint64, [32]byte) 
 type sessionTestLanes struct{}
 
 func (sessionTestLanes) Acquire(string, string) (uint32, error) { return 1, nil }
-func (sessionTestLanes) Release(string, string)                {}
+func (sessionTestLanes) Release(string, string)                 {}
 
 func TestNewSessionUsesExactly128BitsOfEntropy(t *testing.T) {
 	entropy := []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
