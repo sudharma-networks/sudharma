@@ -66,6 +66,30 @@ test('dispatches faucet request locally instead of proxying it to a seed', async
   assert.equal(upstreamCalls, 0);
 });
 
+test('dispatches website visitor requests locally without seed access', async () => {
+  let upstreamCalls = 0;
+  const visitorCalls = [];
+  const handler = createHandler({
+    seeds,
+    fetchImpl: async () => { upstreamCalls += 1; throw new Error('must not proxy visitor route'); },
+    visitorHandler: async (request) => {
+      visitorCalls.push(request.kind);
+      return { statusCode: 200, payload: { total: request.kind === 'websiteVisitorsRecord' ? 12 : 11 } };
+    },
+    logger: { info() {}, warn() {}, error() {} },
+  });
+
+  const read = await handler(event('GET', '/v1/website/visitors'));
+  assert.equal(read.statusCode, 200);
+  assert.match(read.body, /"total":11/);
+
+  const record = await handler(event('POST', '/v1/website/visitors', JSON.stringify({ visitorId: '11111111-2222-4333-8444-555555555555' })));
+  assert.equal(record.statusCode, 200);
+  assert.match(record.body, /"total":12/);
+  assert.deepEqual(visitorCalls, ['websiteVisitorsRead', 'websiteVisitorsRecord']);
+  assert.equal(upstreamCalls, 0);
+});
+
 test('returns 503 uncertain response when both seeds are unavailable', async () => {
   const handler = createHandler({
     seeds,
