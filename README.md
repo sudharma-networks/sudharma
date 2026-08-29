@@ -87,17 +87,29 @@ This is the current **development genesis** and may change before mainnet if con
 blockchain/     Blockchain, state, validation and reorganization
 consensus/      Difficulty and reward rules
 miner/          Mining pipeline
+operations/     Production configuration and operational safeguards
 p2p/            Peer-to-peer networking and synchronization
 params/         Network and monetary parameters
 pow/            Proof-of-Work functionality
+rpc/            HTTP API, health, readiness and metrics
+testnet/        Public-testnet configuration and rehearsals
 transactions/   Transaction structures and validation
 wallet/         Wallet and key-management code
 
 cmd/
-  sudharmad/        Sudharma Network node
-  sudharma-wallet/  Sudharma wallet CLI
+  sudharma-rpcd/                 Production full node
+  sudharma-wallet/               Wallet CLI
+  sudharma-testnet-info/         Testnet identity reporter
+  sudharma-testnet-manifest/     Testnet release manifest generator
+  sudharma-gpupow-staging/       Local GPU-PoW staging verifier
+  sudharma-gpu-activation-abort/ Offline pre-activation abort tool
+  sudharmad/                     Legacy development harness
 
 assets/         Official project assets
+compatibility/  CUDA/OpenCL compatibility and validation harnesses
+deployment/     Container and service deployment files
+docs/           Operator guides, safety runbooks and design history
+scripts/        Build, test and hardware-validation scripts
 ```
 
 ## Requirements
@@ -123,7 +135,7 @@ go test ./... -count=1
 ## Build the Node
 
 ```bash
-go build ./cmd/sudharmad
+go build ./cmd/sudharma-rpcd
 ```
 
 ## Build the Wallet
@@ -137,14 +149,19 @@ go build ./cmd/sudharma-wallet
 Example:
 
 ```bash
-go run ./cmd/sudharmad -nodeid node-a -listen 127.0.0.1:18700 -datadir data-node-a
+go run ./cmd/sudharma-rpcd -nodeid node-a -listen 127.0.0.1:18700 -rpc 127.0.0.1:18545 -datadir data-node-a
 ```
 
 Start another node and connect it:
 
 ```bash
-go run ./cmd/sudharmad -nodeid node-b -listen 127.0.0.1:18701 -peer 127.0.0.1:18700 -datadir data-node-b
+go run ./cmd/sudharma-rpcd -nodeid node-b -listen 127.0.0.1:18701 -rpc 127.0.0.1:18546 -peer 127.0.0.1:18700 -datadir data-node-b
 ```
+
+`cmd/sudharmad` is retained only as a legacy development harness. Use
+`cmd/sudharma-rpcd` for production-style nodes and public-testnet operations.
+See [`docs/node-operations.md`](docs/node-operations.md) for configuration,
+monitoring, persistence and exposure guidance.
 
 Runtime blockchain data and private wallet files should never be committed to source control.
 
