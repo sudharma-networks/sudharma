@@ -8,7 +8,13 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
-test("shows a public website visitor counter on the homepage", () => {
+test("shows a public website visitor counter on the homepage without touching the live service", () => {
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    new Response(JSON.stringify({ total: 0 }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    })
+  );
   render(<Home />);
   expect(screen.getByText("Website Visitors")).toBeInTheDocument();
 });
