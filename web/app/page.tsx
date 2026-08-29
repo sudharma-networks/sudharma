@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { EcosystemCard } from "@/components/ecosystem-card";
+import { ProjectActivity } from "@/components/project-activity";
 import { ReadinessBadge } from "@/components/readiness-badge";
 import { StatusChip } from "@/components/status-chip";
 import { SUDH_PARAMETERS } from "@/lib/project";
@@ -52,6 +53,8 @@ export default function Home() {
           <article><StatusChip status="Planned" /><h3>SDKs + application layer</h3><p>Developer SDKs, token standards and higher-level application capabilities follow protocol hardening.</p></article>
         </div>
       </section>
+
+      <ProjectActivity />
 
       <section className="section-shell trust-band">
         <div><p className="eyebrow">SECURITY + TRANSPARENCY</p><h2>Verify, don’t assume.</h2></div>
