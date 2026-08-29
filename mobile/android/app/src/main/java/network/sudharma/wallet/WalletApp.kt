@@ -12,7 +12,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,7 +21,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -54,8 +52,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.fragment.app.FragmentActivity
 import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import android.content.pm.PackageManager
 import android.provider.Settings
 import com.journeyapps.barcodescanner.ScanContract
@@ -69,7 +67,6 @@ import network.sudharma.wallet.chain.sudharma.SudharmaTransaction
 import network.sudharma.wallet.recovery.RecoveryPhrase
 import network.sudharma.wallet.security.BiometricGate
 import network.sudharma.wallet.security.setSensitiveScreen
-import java.math.BigDecimal
 
 @Composable
 fun WalletApp(repository: SudharmaWalletRepository, activity: FragmentActivity) {
@@ -126,6 +123,7 @@ fun WalletApp(repository: SudharmaWalletRepository, activity: FragmentActivity) 
             onConfirmed = {
                 repository.importWallet(generatedPhrase)
                 repository.preferences.backupAcknowledged = true
+                generatedPhrase = ""
                 screen = WalletFlow.transition(screen, WalletFlowEvent.BackupVerified)
             },
         )
