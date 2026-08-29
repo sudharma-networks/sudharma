@@ -10,6 +10,10 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-29-stratum-pool-protocol-foundation-design.md`
 
+## Execution checkpoint
+
+Stage D offline Stratum protocol foundation is implemented through commit `4a0c02d16f4c5cc07f212da75c9909f3e3944024`. Task 7 exact-head GPU-PoW v1 CI run 441 and generic CI run 562 passed, including the permanent offline Stratum protocol gate and race detector. PR #25 remains draft/open/unmerged. This checkpoint does not expose a listener, activate GPU-PoW, deploy consensus to Seed-1/Seed-2, implement payouts, or claim Kryptex onboarding/wire compatibility.
+
 ## Global Constraints
 
 - Do not add a TCP/HTTP listener or wire Stratum into `cmd/sudharma-rpcd`.
@@ -32,7 +36,7 @@
 - Produces: `WorkerIdentity`, `ParseWorkerIdentity(string) (WorkerIdentity, error)`, `Work`, `Candidate`, `SourceResult`, `WorkSource`, `ShareVerifier`, `SubmitStatus`.
 - Consumes: only `context.Context` and standard-library value types.
 
-- [ ] **Step 1: Write the failing worker-identity tests**
+- [x] **Step 1: Write the failing worker-identity tests**
 
 Cover a 40-character lowercase hexadecimal wallet plus `.rig_01`, and reject uppercase wallet hex, wrong wallet length, empty/33-byte workers, additional dots, whitespace, controls and characters outside `[A-Za-z0-9_-]`. Assert parsed wallet and worker separately.
 
@@ -46,13 +50,13 @@ func TestParseWorkerIdentity(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the test and verify RED**
+- [x] **Step 2: Run the test and verify RED**
 
 Run: `go test ./pool/stratum -run 'TestParseWorkerIdentity' -count=1`
 
 Expected: FAIL because `ParseWorkerIdentity` and its types do not exist.
 
-- [ ] **Step 3: Add minimal domain types and identity parsing**
+- [x] **Step 3: Add minimal domain types and identity parsing**
 
 Use these stable shapes:
 
@@ -83,13 +87,13 @@ type ShareVerifier interface {
 
 Parse exactly one dot, exactly 40 lowercase hexadecimal wallet bytes and a 1–32 byte ASCII worker.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run: `gofmt -w pool/stratum/*.go && go test ./pool/stratum -count=1`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Commit: `feat(pool): define Stratum worker and work contracts`
 
@@ -104,17 +108,17 @@ Commit: `feat(pool): define Stratum worker and work contracts`
 - Produces: `Request`, `Response`, `Notification`, `ProtocolError`, `DecodeRequest([]byte) (Request, error)`, `EncodeMessage(any) ([]byte, error)`.
 - Consumes: the 64 KiB limit from `types.go`.
 
-- [ ] **Step 1: Write failing codec tests**
+- [x] **Step 1: Write failing codec tests**
 
 Use table cases for string/integer IDs, `mining.subscribe`, `mining.authorize` and `mining.submit`. Reject empty input, malformed UTF-8, arrays/batches, duplicate keys, unknown top-level fields, fractional/null/boolean IDs, unknown methods, trailing JSON, and 65,537-byte lines. Verify encoded messages end in one newline.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `go test ./pool/stratum -run 'TestDecodeRequest|TestEncodeMessage' -count=1`
 
 Expected: FAIL because the codec is missing.
 
-- [ ] **Step 3: Implement strict decoding**
+- [x] **Step 3: Implement strict decoding**
 
 First validate UTF-8 and byte length. Walk `json.Decoder.Token` over the complete value to reject duplicate keys at every object depth. Then decode into:
 
@@ -128,7 +132,7 @@ type Request struct {
 
 Use `DisallowUnknownFields`, `UseNumber`, an EOF check, exact method allow-listing, and explicit ID validation as either a JSON string or base-10 integer. Return stable JSON-RPC error codes for parse error, invalid request, method not found and invalid params.
 
-- [ ] **Step 4: Add fuzz seeds and verify GREEN**
+- [x] **Step 4: Add fuzz seeds and verify GREEN**
 
 Seed the three supported messages plus duplicate-key, oversized and malformed examples. The fuzz target must never panic and must never return a successful request for invalid UTF-8 or multiple JSON values.
 
@@ -136,7 +140,7 @@ Run: `gofmt -w pool/stratum/*.go && go test ./pool/stratum -count=1`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Commit: `feat(pool): decode bounded Stratum messages strictly`
 
@@ -150,27 +154,27 @@ Commit: `feat(pool): decode bounded Stratum messages strictly`
 - Produces: `NewSession(io.Reader, WorkSource, ShareVerifier, Config) (*Session, error)`, `Session.Handle(context.Context, []byte) ([]Message, error)`, `SessionID()`, and `LaneSource` with `Acquire(workID, sessionID string) (uint32, error)` plus `Release(workID, sessionID string)`.
 - Consumes: identity and codec APIs from Tasks 1–2.
 
-- [ ] **Step 1: Write failing lifecycle tests**
+- [x] **Step 1: Write failing lifecycle tests**
 
 Prove authorization fails before subscribe, empty or `x` passwords are discarded, other passwords fail, repeat authorization to the same identity is idempotent, different reauthorization fails, and an entropy short read prevents session construction. Use a fixed 16-byte reader and assert the 32-character lowercase hexadecimal session ID.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `go test ./pool/stratum -run 'TestSession.*Subscribe|TestSession.*Authorize|TestNewSession' -count=1`
 
 Expected: FAIL because `Session` is missing.
 
-- [ ] **Step 3: Implement the minimal state machine**
+- [x] **Step 3: Implement the minimal state machine**
 
 `Config` contains `ShareDifficulty uint32`, `MaxDuplicateShares int`, an optional entropy reader and a required `LaneSource`. Default entropy is `crypto/rand.Reader`; default duplicate limit is 65,536. Lifecycle tests use a fixed lane-source fixture even though no job is acquired yet. Protect state with one mutex. `mining.subscribe` returns the session ID. `mining.authorize` validates exactly `[username,password]` and returns `true` only after subscription.
 
-- [ ] **Step 4: Verify GREEN and race safety**
+- [x] **Step 4: Verify GREEN and race safety**
 
 Run: `gofmt -w pool/stratum/*.go && go test -race ./pool/stratum -run 'TestSession|TestNewSession' -count=1`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Commit: `feat(pool): enforce Stratum session authorization`
 
@@ -185,27 +189,27 @@ Commit: `feat(pool): enforce Stratum session authorization`
 - Produces: `Session.RefreshWork(context.Context) ([]Message, error)`, `LaneAllocator`, `NewLaneAllocator() *LaneAllocator`, and immutable internal `job` snapshots.
 - Consumes: `WorkSource.CurrentWork`, authorized identity and `Work`.
 
-- [ ] **Step 1: Write failing job tests**
+- [x] **Step 1: Write failing job tests**
 
 Assert that authorized refresh emits `mining.set_difficulty` then `mining.notify`; notification binds job ID, algorithm, height, targets, header prefix, lane and `clean_jobs=true`. Identical work yields no replacement notification. A changed work ID increments generation and stales the old job. Reusing one work ID with any changed immutable field fails closed.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `go test ./pool/stratum -run 'TestSessionRefreshWork' -count=1`
 
 Expected: FAIL because job refresh is missing.
 
-- [ ] **Step 3: Implement job derivation and lane allocation**
+- [x] **Step 3: Implement job derivation and lane allocation**
 
 Derive job ID as SHA-256 over `SUDHARMA-STRATUM-JOB-V1\x00`, source work ID, session ID and big-endian generation. Add a mutex-protected `LaneAllocator` shared through `Config`; allocate the first unused 32-bit lane beginning at the first four bytes of SHA-256 over `SUDHARMA-STRATUM-LANE-V1\x00`, source work ID and session ID, probing upward on collision. Release a session's lane when that work ID becomes stale. `NewSession` rejects a nil allocator so every group of sessions must deliberately share one coordinator. Store at most the current job plus eight bounded stale job IDs.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run: `gofmt -w pool/stratum/*.go && go test -race ./pool/stratum -run 'TestSessionRefreshWork' -count=1`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Commit: `feat(pool): translate immutable work into Stratum jobs`
 
@@ -220,27 +224,27 @@ Commit: `feat(pool): translate immutable work into Stratum jobs`
 - Produces: `mining.submit` handling with `accepted_share`, `accepted_block`, `invalid`, `duplicate`, `stale` and `mutated` outcomes.
 - Consumes: `ShareVerifier.MeetsTarget`, `WorkSource.Submit`, active job and assigned nonce lane.
 
-- [ ] **Step 1: Write failing submission tests**
+- [x] **Step 1: Write failing submission tests**
 
 Cover authorization requirement, exact worker/job binding, unsigned 64-bit hexadecimal nonce decoding, high-32-bit lane enforcement, invalid share, accepted low-difficulty share without source submission, network candidate submitted exactly once, exact source-status mapping, duplicate nonce, stale generation, 65,536-entry bound and concurrent same-nonce submission yielding one winner.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `go test ./pool/stratum -run 'TestSessionSubmit' -count=1`
 
 Expected: FAIL because submission handling is missing.
 
-- [ ] **Step 3: Implement share classification**
+- [x] **Step 3: Implement share classification**
 
 Parse params exactly as `[worker,job_id,nonce_hex]`. Convert configured share difficulty with the same 256-bit target formula used by `pow.TargetFromDifficulty`. Decode the immutable network target from `Work.TargetHex`. Call the verifier first for share target, then network target. Record the duplicate key atomically before forwarding; remove it only when verification returns an operational error, not for a rejected share. Forward only network-target candidates.
 
-- [ ] **Step 4: Verify GREEN under race**
+- [x] **Step 4: Verify GREEN under race**
 
 Run: `gofmt -w pool/stratum/*.go && go test -race ./pool/stratum -run 'TestSessionSubmit' -count=1`
 
 Expected: PASS with exactly one forwarded concurrent candidate.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Commit: `feat(pool): reject duplicate and stale Stratum shares`
 
@@ -254,21 +258,21 @@ Commit: `feat(pool): reject duplicate and stale Stratum shares`
 - Produces: `NewStratumWorkSource(*MiningWorkService, MiningBlockProvider) (*StratumWorkSource, error)` implementing `stratum.WorkSource`.
 - Consumes: `MiningWorkService.Issue`, `MiningWorkService.Submit`, `MiningBlockProvider`, `stratum.Work`, `stratum.Candidate`.
 
-- [ ] **Step 1: Write failing adapter contract tests**
+- [x] **Step 1: Write failing adapter contract tests**
 
 Assert nil dependencies fail, reward address is placed into a copied candidate block before issue, every immutable template field maps exactly, and accepted/invalid/stale/mutated statuses map one-for-one. Assert candidate job/identity metadata cannot mutate the RPC solution.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `go test ./rpc -run 'TestStratumWorkSource' -count=1`
 
 Expected: FAIL because the adapter does not exist.
 
-- [ ] **Step 3: Implement the adapter without node wiring**
+- [x] **Step 3: Implement the adapter without node wiring**
 
 The adapter calls the provider, copies the block, sets only `MinerAddress` from the validated reward address, issues through the service, and stores the exact returned template by work ID in a mutex-protected bounded current snapshot. Submission reconstructs `MiningSolution` exclusively from that stored template plus candidate nonce and calls `MiningWorkService.Submit`.
 
-- [ ] **Step 4: Verify GREEN and dependency direction**
+- [x] **Step 4: Verify GREEN and dependency direction**
 
 Run:
 
@@ -283,7 +287,7 @@ fi
 
 Expected: tests PASS and `pool/stratum` does not depend on `rpc`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Commit: `feat(pool): adapt immutable RPC mining work to Stratum`
 
@@ -299,21 +303,21 @@ Commit: `feat(pool): adapt immutable RPC mining work to Stratum`
 - Produces: canonical offline transcript evidence and `Stage D offline Stratum protocol gate` workflow step.
 - Consumes: all Tasks 1–6 APIs.
 
-- [ ] **Step 1: Write the failing transcript test**
+- [x] **Step 1: Write the failing transcript test**
 
 Freeze exact request/reply lines for subscribe, authorize, difficulty, notify, accepted share, accepted block, duplicate, stale, wrong lane and malformed request. Use fixed entropy, fixed work and deterministic verifier/source fixtures. Compare the full newline-delimited transcript byte-for-byte.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `go test ./pool/stratum -run TestOfflineStratumTranscript -count=1 -v`
 
 Expected: FAIL until the frozen expected transcript matches the complete implementation.
 
-- [ ] **Step 3: Finalize transcript and operator-facing protocol documentation**
+- [x] **Step 3: Finalize transcript and operator-facing protocol documentation**
 
 Document the exact supported methods, 64-bit nonce/lane format, identity rules, result meanings, limits and explicit exclusions. State that the profile is not a public endpoint, payout pool or Kryptex onboarding claim.
 
-- [ ] **Step 4: Add the permanent workflow gate**
+- [x] **Step 4: Add the permanent workflow gate**
 
 Add after the activation rehearsal:
 
@@ -322,7 +326,7 @@ Add after the activation rehearsal:
         run: go test ./pool/stratum ./rpc -run 'Stratum|OfflineStratumTranscript' -count=1 -v
 ```
 
-- [ ] **Step 5: Run complete local verification**
+- [x] **Step 5: Run complete local verification**
 
 Run:
 
@@ -337,14 +341,14 @@ git diff --check
 
 Expected: all commands PASS and both activation defaults remain disabled.
 
-- [ ] **Step 6: Mark completed plan checkboxes and commit**
+- [x] **Step 6: Mark completed plan checkboxes and commit**
 
 Commit: `test(pool): freeze offline Stratum interoperability gate`
 
-- [ ] **Step 7: Push and verify exact live GitHub head**
+- [x] **Step 7: Push and verify exact live GitHub head**
 
 Fast-forward `feature/gpu-pow-v1`, monitor GPU-PoW v1 and generic CI through completion, fix any failure test-first, and verify PR #25 remains draft/open/unmerged.
 
-- [ ] **Step 8: Update PR #25 checkpoint**
+- [x] **Step 8: Update PR #25 checkpoint**
 
 Record the exact commit and workflow run numbers, the offline-only boundary, and remaining physical/Kryptex/listener/payout gates. Do not claim Stage D complete until both exact-head workflows pass.
