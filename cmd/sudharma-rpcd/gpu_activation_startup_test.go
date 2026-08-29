@@ -13,7 +13,7 @@ import (
 type startupLegacyOnlyVerifier struct{}
 
 func (startupLegacyOnlyVerifier) SupportsVersion(version uint32) bool { return version == 1 }
-func (startupLegacyOnlyVerifier) Verify(block *blockchain.Block) bool  { return block != nil }
+func (startupLegacyOnlyVerifier) Verify(block *blockchain.Block) bool { return block != nil }
 
 func TestGPUStartupDisabledLeavesActivationUnarmed(t *testing.T) {
 	directory := t.TempDir()
