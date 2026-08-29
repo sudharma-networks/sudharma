@@ -1,0 +1,78 @@
+{
+  "algorithm": "sudharma-gpu-pow-v1-reference",
+  "status": "pre-activation interoperability fixture",
+  "encoding": {
+    "header": "hex bytes",
+    "nonce": "uint64 shown as hexadecimal; reference input encodes it little-endian",
+    "height": "uint64 decimal",
+    "digest": "32-byte lowercase hexadecimal",
+    "block_header_prefix": "canonical blockchain.Block.HeaderBytes(0) with the final 8 nonce bytes removed"
+  },
+  "cache_note": "cache_nodes=8 is a compact deterministic interoperability fixture only; it is not a frozen production or consensus cache-size parameter.",
+  "vectors": [
+    {
+      "name": "genesis-program-zero",
+      "header_hex": "",
+      "nonce_hex": "0000000000000000",
+      "height": 0,
+      "cache_nodes": 8,
+      "digest_hex": "2a7c15fc6c84a67d43ff7074ac5835aa433145f89d10d1d9e36a99fe22da4b2b"
+    },
+    {
+      "name": "program-zero-max-nonce",
+      "header_hex": "696e7465726f702d61",
+      "nonce_hex": "ffffffffffffffff",
+      "height": 2,
+      "cache_nodes": 8,
+      "digest_hex": "c936cf90a07dc7e63a8245729c2d1739ab51d18c8c6ada5bbf27aa13f65fa5ee"
+    },
+    {
+      "name": "program-one-boundary",
+      "header_hex": "696e7465726f702d62",
+      "nonce_hex": "0000000000000001",
+      "height": 3,
+      "cache_nodes": 8,
+      "digest_hex": "a07fa24d81f154a7ec4381d0482473c164eb8edaafc868cdeb9c493e90a00d5e"
+    },
+    {
+      "name": "epoch-zero-tail",
+      "header_hex": "696e7465726f702d63",
+      "nonce_hex": "0102030405060708",
+      "height": 7499,
+      "cache_nodes": 8,
+      "digest_hex": "53edb109ee5b992123466a1f094f489962b7c5c9bfddd92a6741bf18718db062"
+    },
+    {
+      "name": "epoch-one-head",
+      "header_hex": "696e7465726f702d64",
+      "nonce_hex": "8877665544332211",
+      "height": 7500,
+      "cache_nodes": 8,
+      "digest_hex": "05767a914a67b5b5163c25bf73204bfad62afe7bb22feacd57b79449e97c7e74"
+    },
+    {
+      "name": "locked-reference",
+      "header_hex": "7375646861726d612d6770752d706f772d76312d7265666572656e63652d686561646572",
+      "nonce_hex": "0123456789abcdef",
+      "height": 22501,
+      "cache_nodes": 8,
+      "digest_hex": "b5d8c0c458d37eb551e8e845488fec756ca02c8eba891bc104c4f9c426c96170"
+    }
+  ],
+  "block_vectors": [
+    {
+      "name": "canonical-version-2-block",
+      "version": 2,
+      "height": 22501,
+      "timestamp": 1786924860,
+      "previous_hash": "0123456789abcdef",
+      "merkle_root": "fedcba9876543210",
+      "difficulty": 7,
+      "miner_address": "9ccdc094489874bed888ffe4bdf9b8298f4c5131",
+      "nonce_hex": "0123456789abcdef",
+      "cache_nodes": 8,
+      "header_prefix_hex": "0000000200000000000057e5000000006a824f3c30313233343536373839616263646566666564636261393837363534333231303963636463303934343839383734626564383838666665346264663962383239386634633531333100000007",
+      "digest_hex": "cd5b04ebfebaa01656e34d9a34fb8b2a979d149287515119782477f103e78641"
+    }
+  ]
+}

@@ -25,6 +25,15 @@ func TestClientQueriesServer(t *testing.T) {
 	if status.NodeID != "rpc-test-node" {
 		t.Fatalf("unexpected node ID: %s", status.NodeID)
 	}
+	if status.GPUV1.Phase != "disabled" {
+		t.Fatalf("unexpected GPU v1 phase: %q", status.GPUV1.Phase)
+	}
+	if status.GPUV1.ActivationHeight != nil {
+		t.Fatalf("disabled GPU v1 status exposed activation height: %d", *status.GPUV1.ActivationHeight)
+	}
+	if status.GPUV1.NextBlockVersion != 1 {
+		t.Fatalf("unexpected next block version: %d", status.GPUV1.NextBlockVersion)
+	}
 	account, err := client.Account(context.Background(), "client-account")
 	if err != nil {
 		t.Fatal(err)

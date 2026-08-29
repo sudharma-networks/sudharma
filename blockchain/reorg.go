@@ -25,8 +25,10 @@ func CloneChain(source *Chain) (*Chain, error) {
 	copy(blocks, source.blocks)
 
 	return &Chain{
-		blocks:    blocks,
-		totalWork: new(big.Int).Set(source.totalWork),
+		blocks:        blocks,
+		totalWork:     new(big.Int).Set(source.totalWork),
+		powPolicy:     source.powPolicy,
+		proofVerifier: source.proofVerifier,
 	}, nil
 }
 
@@ -65,7 +67,10 @@ func (c *Chain) ReplaceWith(candidate *Chain) error {
 	// Rebuild a fresh validation chain from canonical genesis. This ensures
 	// every candidate block obeys the same history-derived difficulty rules
 	// used by normal block admission and recomputes cumulative work locally.
-	validated := NewChain()
+	validated, err := NewChainWithConsensus(c.powPolicy, c.proofVerifier)
+	if err != nil {
+		return fmt.Errorf("invalid current consensus policy: %w", err)
+	}
 	for i := 1; i < len(newBlocks); i++ {
 		block := newBlocks[i]
 		if block == nil {
@@ -137,7 +142,11 @@ func ReorganizeToCandidate(current *Chain, currentState *State, candidate *Chain
 	// Never trust a candidate chain's cached cumulative-work value for fork
 	// choice. Rebuild it through normal consensus validation first so both
 	// validity and cumulative work are derived locally from its blocks.
-	validatedCandidate, err := ValidateAndCloneChain(candidate)
+	validatedCandidate, err := validateAndCloneChainWithConsensus(
+		candidate,
+		current.powPolicy,
+		current.proofVerifier,
+	)
 	if err != nil {
 		return false, fmt.Errorf("candidate chain validation failed: %w", err)
 	}

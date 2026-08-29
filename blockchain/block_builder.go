@@ -12,6 +12,20 @@ func NewBlockFromMempool(
 	previousBlock *Block,
 	pool *mempool.Mempool,
 ) (*Block, error) {
+	return NewBlockFromMempoolWithPolicy(
+		previousBlock,
+		pool,
+		LegacyOnlyPoWPolicy(),
+	)
+}
+
+// NewBlockFromMempoolWithPolicy creates a candidate using the block version
+// selected by the chain's immutable proof-of-work policy.
+func NewBlockFromMempoolWithPolicy(
+	previousBlock *Block,
+	pool *mempool.Mempool,
+	policy PoWPolicy,
+) (*Block, error) {
 
 	if previousBlock == nil {
 		return nil, fmt.Errorf("previous block cannot be nil")
@@ -21,9 +35,15 @@ func NewBlockFromMempool(
 		return nil, fmt.Errorf("mempool cannot be nil")
 	}
 
+	height := previousBlock.Height + 1
+	version, err := policy.VersionAtHeight(height)
+	if err != nil {
+		return nil, fmt.Errorf("select block version: %w", err)
+	}
+
 	block := &Block{
-		Version:      1,
-		Height:       previousBlock.Height + 1,
+		Version:      version,
+		Height:       height,
 		Timestamp:    time.Now().Unix(),
 		PreviousHash: previousBlock.Hash(),
 		Difficulty:   previousBlock.Difficulty,

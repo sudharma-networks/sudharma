@@ -14,10 +14,8 @@ const (
 	// 1 SUDH = 100,000,000 base units
 	CoinDecimals uint64 = 100_000_000
 
-	// Maximum monetary supply
-	// Internal identifier will be renamed from SUDH to SUDH
-	// in a later controlled migration step.
-	MaxSupplySUDH uint64 = 100_000_000
+	// Maximum monetary supply (hard cap): 51 billion SUDH.
+	MaxSupplySUDH uint64 = 51_000_000_000
 	MaxSupply     uint64 = MaxSupplySUDH * CoinDecimals
 
 	// Block timing
@@ -28,9 +26,14 @@ const (
 	// At the 60-second target this represents about two hours.
 	MaxAutomaticReorgDepth uint64 = 120
 
+	// GPU-PoW v1 activation is intentionally unarmed by default. The staged
+	// testnet deployment task must replace the testnet sentinel with an explicit
+	// future height only after CUDA interoperability and deployment gates pass.
+	GPUV1ActivationDisabled      uint64 = ^uint64(0)
+	GPUV1TestnetActivationHeight uint64 = GPUV1ActivationDisabled
+	GPUV1MainnetActivationHeight uint64 = GPUV1ActivationDisabled
+
 	// Mining subsidy
-	// Internal identifier will be renamed from SUDH to SUDH
-	// in a later controlled migration step.
 	InitialBlockRewardSUDH uint64 = 50
 	InitialBlockReward     uint64 = InitialBlockRewardSUDH * CoinDecimals
 

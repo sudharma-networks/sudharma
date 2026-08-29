@@ -1,0 +1,88 @@
+name: GPU-PoW v1 CI
+
+on:
+  push:
+    branches:
+      - feature/gpu-pow-v1
+      - feature/gpu-pow-v1-stage-f
+      - feature/gpu-pow-v1-stage-g
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  consensus-baseline:
+    name: Consensus baseline and regression tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Go version
+        run: go version
+
+      - name: Format check for GPU-PoW changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$base" ]; then
+            base="$(git merge-base HEAD origin/main)"
+          fi
+          files="$(git diff --name-only --diff-filter=ACMR "$base" HEAD -- '*.go')"
+          if [ -z "$files" ]; then
+            echo 'No changed Go files.'
+            exit 0
+          fi
+          bad="$(printf '%s\n' "$files" | xargs -r gofmt -l)"
+          if [ -n "$bad" ]; then
+            echo 'Changed files requiring gofmt:'
+            echo "$bad"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Consensus baseline tests
+        run: go test ./blockchain ./consensus -count=1 -v
+
+      - name: Disposable activation and rollback rehearsal
+        run: go test ./testnet ./operations -run 'GPU.*Rehearsal|GPUActivationRunbook' -count=1 -v
+
+      - name: Stage D offline Stratum protocol gate
+        run: go test ./pool/stratum ./rpc -run 'Stratum|OfflineStratumTranscript' -count=1 -v
+
+      - name: Stage E bounded Stratum transport gate
+        run: go test -race ./pool/stratum/... ./rpc -run 'Stratum|Transport|OfflineStratumTranscript' -count=1 -v
+
+      - name: Stage F bounded Stratum listener supervisor gate
+        run: go test -race ./pool/stratum/... ./rpc -run 'Stratum|Transport|Server|OfflineStratumTranscript' -count=1 -v
+
+      - name: Stage G real loopback Stratum interoperability gate
+        run: go test -race ./pool/stratum/... ./compatibility/stratum ./rpc -run 'Stratum|Transport|Server|Loopback|OfflineStratumTranscript' -count=1 -v
+
+      - name: Confirm network activation defaults remain disabled
+        run: go test ./pow -run TestGPUV1NetworkActivationDefaultsRemainDisabled -count=1 -v
+
+      - name: Full regression suite
+        run: go test ./... -count=1
+
+      - name: Build node
+        run: go build -trimpath -o /tmp/sudharma-rpcd ./cmd/sudharma-rpcd
+
+      - name: Record build checksum
+        run: sha256sum /tmp/sudharma-rpcd

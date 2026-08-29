@@ -33,6 +33,13 @@ type NodeStatus struct {
 	Peers        int    `json:"peers"`
 	Mempool      int    `json:"mempool"`
 	IssuedSupply uint64 `json:"issued_supply"`
+	GPUV1        GPUV1  `json:"gpu_v1"`
+}
+
+type GPUV1 struct {
+	Phase            string  `json:"phase"`
+	ActivationHeight *uint64 `json:"activation_height,omitempty"`
+	NextBlockVersion uint32  `json:"next_block_version"`
 }
 
 type AccountInfo struct {
@@ -78,7 +85,7 @@ func NewClient(baseURL string) (*Client, error) {
 	}
 	return &Client{
 		baseURL: strings.TrimRight(parsed.String(), "/"),
-		http: &http.Client{Timeout: 10 * time.Second},
+		http:    &http.Client{Timeout: 10 * time.Second},
 	}, nil
 }
 

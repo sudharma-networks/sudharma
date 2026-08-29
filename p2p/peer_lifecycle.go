@@ -10,11 +10,18 @@ func (n *Node) removePeerConnection(peer *PeerConnection) {
 	}
 
 	n.mu.Lock()
-	defer n.mu.Unlock()
-
 	current, ok := n.peers[peer.Info.NodeID]
 	if !ok || current != peer {
+		n.mu.Unlock()
 		return
 	}
 	delete(n.peers, peer.Info.NodeID)
+	n.mu.Unlock()
+
+	// Closing after removal interrupts any read, write or keepalive goroutine
+	// that already passed its map-membership check. Do not hold n.mu while the
+	// transport is being closed.
+	if peer.conn != nil {
+		_ = peer.conn.Close()
+	}
 }

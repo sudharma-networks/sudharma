@@ -9,20 +9,53 @@ import (
 )
 
 type Chain struct {
-	mu        sync.RWMutex
-	blocks    []*Block
-	totalWork *big.Int
+	mu            sync.RWMutex
+	blocks        []*Block
+	totalWork     *big.Int
+	powPolicy     PoWPolicy
+	proofVerifier ProofVerifier
 }
 
 func NewChain() *Chain {
+	chain, err := NewChainWithConsensus(LegacyOnlyPoWPolicy(), legacyProofVerifier{})
+	if err != nil {
+		panic(err)
+	}
+	return chain
+}
+
+// NewChainWithConsensus constructs a chain with an immutable version policy
+// and a verifier capable of every version that policy may select.
+func NewChainWithConsensus(policy PoWPolicy, verifier ProofVerifier) (*Chain, error) {
+	if verifier == nil {
+		return nil, fmt.Errorf("proof verifier cannot be nil")
+	}
+	if !verifier.SupportsVersion(1) {
+		return nil, fmt.Errorf("proof verifier does not support legacy Version 1")
+	}
+	if policy.GPUV1ActivationHeight != LegacyOnlyPoWPolicy().GPUV1ActivationHeight &&
+		!verifier.SupportsVersion(2) {
+		return nil, fmt.Errorf("finite GPU-PoW activation requires Version 2 verification support")
+	}
+
 	genesis := NewGenesisBlock()
 
 	return &Chain{
 		blocks: []*Block{
 			genesis,
 		},
-		totalWork: blockWork(genesis.Difficulty),
+		totalWork:     blockWork(genesis.Difficulty),
+		powPolicy:     policy,
+		proofVerifier: verifier,
+	}, nil
+}
+
+// PoWPolicy returns a copy of the chain's immutable proof-of-work policy.
+func (c *Chain) PoWPolicy() PoWPolicy {
+	if c == nil {
+		return LegacyOnlyPoWPolicy()
 	}
+	return c.powPolicy
 }
 
 func (c *Chain) Height() uint64 {
@@ -105,7 +138,12 @@ func (c *Chain) AddBlock(block *Block) error {
 		)
 	}
 
-	if err := validateBlockCore(block, previous); err != nil {
+	if err := validateBlockCoreWithProof(
+		block,
+		previous,
+		c.powPolicy,
+		c.proofVerifier,
+	); err != nil {
 		return fmt.Errorf("block validation failed: %w", err)
 	}
 

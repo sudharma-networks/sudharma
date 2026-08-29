@@ -1,0 +1,70 @@
+name: Khushi Staging Verifier Linux
+
+on:
+  push:
+    branches:
+      - feature/gpu-pow-v1
+    paths:
+      - '.github/workflows/khushi-staging-verifier.yml'
+      - 'cmd/sudharma-gpupow-staging/**'
+      - 'rpc/mining_staging*.go'
+      - 'compatibility/gpupowv1/**'
+      - 'deployment/staging/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-staging-verifier:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test staging verifier
+        run: go test ./cmd/sudharma-gpupow-staging ./rpc ./compatibility/gpupowv1 -count=1
+
+      - name: Build staging-only verifier
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          mkdir -p dist/deployment
+          go build -trimpath -ldflags='-s -w' -o dist/sudharma-gpupow-staging ./cmd/sudharma-gpupow-staging
+          cp deployment/staging/sudharma-gpupow-staging.service dist/deployment/
+          cp deployment/staging/nginx-staging.example.conf dist/deployment/
+          cp deployment/staging/install-staging-verifier.sh dist/deployment/
+          chmod 0755 dist/deployment/install-staging-verifier.sh
+
+      - name: Record provenance and checksum
+        run: |
+          cat > dist/build-metadata.txt <<EOF
+          algorithm=Khushi Algorithm
+          protocol_id=sudharma-gpupow-v1
+          purpose=isolated non-consensus staging hardware verifier
+          source_revision=${GITHUB_SHA}
+          platform=linux-amd64
+          consensus_activation=disabled
+          block_creation=none
+          staging_height=0
+          staging_cache_nodes=8
+          EOF
+          (cd dist && sha256sum sudharma-gpupow-staging > SHA256SUMS.txt)
+          cat dist/SHA256SUMS.txt
+
+      - name: Upload staging verifier artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: khushi-staging-verifier-linux-amd64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14

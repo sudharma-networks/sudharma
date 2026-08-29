@@ -10,6 +10,21 @@ func ValidateAndCloneChain(source *Chain) (*Chain, error) {
 	if source == nil {
 		return nil, fmt.Errorf("source chain cannot be nil")
 	}
+	return validateAndCloneChainWithConsensus(
+		source,
+		source.powPolicy,
+		source.proofVerifier,
+	)
+}
+
+func validateAndCloneChainWithConsensus(
+	source *Chain,
+	policy PoWPolicy,
+	verifier ProofVerifier,
+) (*Chain, error) {
+	if source == nil {
+		return nil, fmt.Errorf("source chain cannot be nil")
+	}
 
 	source.mu.RLock()
 	if len(source.blocks) == 0 {
@@ -28,7 +43,10 @@ func ValidateAndCloneChain(source *Chain) (*Chain, error) {
 		return nil, fmt.Errorf("source has wrong genesis block")
 	}
 
-	validated := NewChain()
+	validated, err := NewChainWithConsensus(policy, verifier)
+	if err != nil {
+		return nil, fmt.Errorf("invalid consensus policy: %w", err)
+	}
 	for i := 1; i < len(blocks); i++ {
 		block := blocks[i]
 		if block == nil {

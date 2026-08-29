@@ -1,0 +1,169 @@
+name: Publish Khushi Test Mining Release
+
+on:
+  push:
+    branches:
+      - feature/gpu-pow-v1
+    paths:
+      - '.github/workflows/publish-test-mining-release.yml'
+      - '.github/workflows/khushi-windows-cuda.yml'
+      - '.github/workflows/khushi-windows-opencl.yml'
+      - 'compatibility/cuda/**'
+      - 'compatibility/opencl/**'
+      - 'cmd/sudharma-gpupow-staging/**'
+      - 'rpc/mining_staging*.go'
+      - 'scripts/windows/test-khushi-miner.ps1'
+      - 'scripts/windows/run-local-staging-gate.ps1'
+      - 'docs/gpu-pow-v1-production-memory-vectors.json'
+      - 'docs/test-mining/PUBLIC_TEST_MINING.md'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: test-mining-v0.1.0
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve same-revision successful Windows miner builds
+        id: runs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          resolve_run() {
+            local workflow="$1"
+            local run_id=""
+            for _ in $(seq 1 60); do
+              run_id="$(
+                gh run list \
+                  --repo "$GITHUB_REPOSITORY" \
+                  --workflow "$workflow" \
+                  --branch feature/gpu-pow-v1 \
+                  --limit 20 \
+                  --json databaseId,headSha,conclusion \
+                | jq -r --arg sha "$GITHUB_SHA" '.[] | select(.headSha == $sha and .conclusion == "success") | .databaseId' \
+                | head -n 1
+              )"
+              if [[ -n "$run_id" ]]; then
+                printf '%s\n' "$run_id"
+                return 0
+              fi
+              sleep 10
+            done
+            echo "No successful $workflow run found for release revision $GITHUB_SHA" >&2
+            return 1
+          }
+
+          cuda_run="$(resolve_run khushi-windows-cuda.yml)"
+          opencl_run="$(resolve_run khushi-windows-opencl.yml)"
+          echo "cuda_run=$cuda_run" >> "$GITHUB_OUTPUT"
+          echo "opencl_run=$opencl_run" >> "$GITHUB_OUTPUT"
+          echo "release_revision=$GITHUB_SHA"
+          echo "NVIDIA CUDA run: $cuda_run"
+          echo "OpenCL run: $opencl_run"
+
+      - name: Download verified Windows miner artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/nvidia dist/opencl
+          gh run download "${{ steps.runs.outputs.cuda_run }}" --repo "$GITHUB_REPOSITORY" --name khushi-miner-nvidia-windows --dir dist/nvidia
+          gh run download "${{ steps.runs.outputs.opencl_run }}" --repo "$GITHUB_REPOSITORY" --name khushi-miner-opencl-windows --dir dist/opencl
+          test -f dist/nvidia/khushi-miner-nvidia.exe
+          test -f dist/nvidia/khushi-production-vectors-nvidia.exe
+          test -f dist/nvidia/gpu-pow-v1-production-memory-vectors.json
+          test -f dist/nvidia/sudharma-gpupow-staging.exe
+          test -f dist/nvidia/SHA256SUMS.txt
+          test -f dist/nvidia/build-metadata.txt
+          test -f dist/nvidia/test-khushi-miner.ps1
+          test -f dist/nvidia/run-local-staging-gate.ps1
+          test -f dist/opencl/khushi-miner-opencl.exe
+          test -f dist/opencl/khushi-production-vectors-opencl.exe
+          test -f dist/opencl/khushi_pow.cl
+          test -f dist/opencl/gpupow_v1_production_vectors.cl
+          test -f dist/opencl/gpu-pow-v1-production-memory-vectors.json
+          test -f dist/opencl/sudharma-gpupow-staging.exe
+          test -f dist/opencl/SHA256SUMS.txt
+          test -f dist/opencl/build-metadata.txt
+          test -f dist/opencl/test-khushi-miner.ps1
+          test -f dist/opencl/run-local-staging-gate.ps1
+          grep -F "source_revision=$GITHUB_SHA" dist/nvidia/build-metadata.txt
+          grep -F "source_revision=$GITHUB_SHA" dist/opencl/build-metadata.txt
+          grep -F "staging_verifier_artifact=sudharma-gpupow-staging.exe" dist/nvidia/build-metadata.txt
+          grep -F "staging_verifier_artifact=sudharma-gpupow-staging.exe" dist/opencl/build-metadata.txt
+          grep -F "sudharma-gpupow-staging.exe" dist/nvidia/SHA256SUMS.txt
+          grep -F "sudharma-gpupow-staging.exe" dist/opencl/SHA256SUMS.txt
+
+      - name: Package public release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd dist/nvidia && zip -9 -r ../khushi-miner-nvidia-windows.zip .)
+          (cd dist/opencl && zip -9 -r ../khushi-miner-opencl-windows.zip .)
+          sha256sum dist/khushi-miner-nvidia-windows.zip dist/khushi-miner-opencl-windows.zip | tee dist/RELEASE-SHA256SUMS.txt
+          printf 'source_revision=%s\n' "$GITHUB_SHA" > dist/RELEASE-SOURCE-REVISION.txt
+
+      - name: Confirm release revision is branch head
+        id: freshness
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch_head="$(git ls-remote origin refs/heads/feature/gpu-pow-v1 | awk '{print $1}')"
+          echo "release_revision=$GITHUB_SHA"
+          echo "branch_head=$branch_head"
+          if [[ "$branch_head" == "$GITHUB_SHA" ]]; then
+            echo "release_current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "release_current=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping stale release revision $GITHUB_SHA because branch head is $branch_head"
+          fi
+
+      - name: Create or update public prerelease
+        if: steps.freshness.outputs.release_current == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" \
+              -f sha="$GITHUB_SHA" \
+              -F force=true >/dev/null
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Sudharma Public Test Mining — Khushi Algorithm v0.1" \
+              --notes-file docs/test-mining/PUBLIC_TEST_MINING.md \
+              --prerelease
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Sudharma Public Test Mining — Khushi Algorithm v0.1" \
+              --notes-file docs/test-mining/PUBLIC_TEST_MINING.md \
+              --prerelease
+          fi
+
+          release_tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)"
+          echo "release_tag_sha=$release_tag_sha"
+          if [[ "$release_tag_sha" != "$GITHUB_SHA" ]]; then
+            echo "release tag does not match artifact source revision: tag=$release_tag_sha source=$GITHUB_SHA" >&2
+            exit 1
+          fi
+
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" \
+            dist/khushi-miner-nvidia-windows.zip \
+            dist/khushi-miner-opencl-windows.zip \
+            dist/RELEASE-SHA256SUMS.txt \
+            dist/RELEASE-SOURCE-REVISION.txt \
+            --clobber
+
+      - name: Show public release URL
+        if: steps.freshness.outputs.release_current == 'true'
+        shell: bash
+        run: gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url

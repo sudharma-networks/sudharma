@@ -1,0 +1,49 @@
+name: GPU Staging AWS Preflight
+
+on:
+  push:
+    branches:
+      - feature/gpu-pow-v1
+    paths:
+      - '.github/workflows/gpu-staging-aws-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Configure AWS credentials from GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+
+      - name: Confirm caller identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws sts get-caller-identity --query 'Arn' --output text
+
+      - name: Read-only EC2 staging capability discovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws ec2 describe-vpcs --max-results 5 --query 'Vpcs[].{VpcId:VpcId,State:State,Default:IsDefault}' --output json
+          aws ec2 describe-subnets --max-results 10 --query 'Subnets[].{SubnetId:SubnetId,VpcId:VpcId,Az:AvailabilityZone,PublicIp:MapPublicIpOnLaunch}' --output json
+          aws ec2 describe-security-groups --max-results 10 --query 'SecurityGroups[].{GroupId:GroupId,VpcId:VpcId,Name:GroupName}' --output json
+          aws ec2 describe-instances --max-results 10 --filters 'Name=instance-state-name,Values=pending,running,stopping,stopped' --query 'Reservations[].Instances[].{InstanceId:InstanceId,State:State.Name,VpcId:VpcId,SubnetId:SubnetId,PrivateIp:PrivateIpAddress,PublicIp:PublicIpAddress,Name:Tags[?Key==`Name`]|[0].Value}' --output json
+
+      - name: Record boundary
+        shell: bash
+        run: |
+          echo 'preflight=read-only'
+          echo 'resource-creation=not-attempted'
+          echo 'seed-services=untouched'
+          echo 'consensus-activation=disabled'

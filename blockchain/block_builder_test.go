@@ -65,3 +65,27 @@ func TestNewBlockFromMempool(t *testing.T) {
 		t.Fatal("block should contain transaction data")
 	}
 }
+
+func TestNewBlockFromMempoolWithPolicySelectsActivationVersion(t *testing.T) {
+	policy := PoWPolicy{GPUV1ActivationHeight: 100}
+	pool := mempool.NewMempool()
+
+	before := NewGenesisBlock()
+	before.Height = 98
+	legacy, err := NewBlockFromMempoolWithPolicy(before, pool, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacy.Version != 1 {
+		t.Fatalf("height 99 version = %d, want 1", legacy.Version)
+	}
+
+	before.Height = 99
+	gpu, err := NewBlockFromMempoolWithPolicy(before, pool, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gpu.Version != 2 {
+		t.Fatalf("height 100 version = %d, want 2", gpu.Version)
+	}
+}
