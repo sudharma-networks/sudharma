@@ -21,14 +21,17 @@ object AndroidKeyStoreBox {
         val store = KeyStore.getInstance(KEYSTORE).apply { load(null) }
         (store.getKey(ALIAS, null) as? SecretKey)?.let { return it }
 
-        return if (StrongBoxPolicy.shouldAttemptStrongBox(Build.VERSION.SDK_INT)) {
+        return if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
+            StrongBoxPolicy.shouldAttemptStrongBox(Build.VERSION.SDK_INT)
+        ) {
             generateStrongBoxKeyWithFallback()
         } else {
             generateKey(useStrongBox = false)
         }
     }
 
-    @RequiresApi(28)
+    @RequiresApi(Build.VERSION_CODES.P)
     private fun generateStrongBoxKeyWithFallback(): SecretKey =
         try {
             generateKey(useStrongBox = true)
@@ -47,7 +50,7 @@ object AndroidKeyStoreBox {
             .setKeySize(256)
             .setRandomizedEncryptionRequired(true)
 
-        if (useStrongBox && Build.VERSION.SDK_INT >= 28) {
+        if (useStrongBox && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             builder.setIsStrongBoxBacked(true)
         }
 
