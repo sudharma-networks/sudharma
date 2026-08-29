@@ -1,5 +1,6 @@
 export const PRIMARY_NAV = [
   ["Home", "/"],
+  ["About Us", "/about"],
   ["Network", "/network"],
   ["SUDH", "/sudh"],
   ["Wallet", "/wallet"],
