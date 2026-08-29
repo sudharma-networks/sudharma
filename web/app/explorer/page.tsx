@@ -1,0 +1,3 @@
+import { PageHero } from "@/components/page-hero";
+import { StatusChip } from "@/components/status-chip";
+export default function ExplorerPage() { return <div className="section-shell page-stack"><PageHero eyebrow="EXPLORER" title="Chain visibility is coming next." description="The public explorer frontend and read-only indexing/API layer are being scoped separately so the website never fabricates or exposes unsafe node data." /><section className="notice"><StatusChip status="In Development" /><p>No fake block height, hash rate, transaction count or supply counter is displayed here. Live values will be sourced from reviewed public interfaces.</p></section></div>; }

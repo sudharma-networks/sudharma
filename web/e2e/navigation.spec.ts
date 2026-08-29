@@ -1,0 +1,2 @@
+import { test, expect } from "@playwright/test";
+test("Mining and Downloads navigation opens full pages", async ({ page }) => { await page.goto("/"); await page.getByRole("link", { name: "Mining" }).first().click(); await expect(page).toHaveURL(/\/mining$/); await expect(page.getByRole("heading", { name: /mine sudharma/i })).toBeVisible(); await page.getByRole("link", { name: "Downloads" }).first().click(); await expect(page).toHaveURL(/\/downloads$/); await expect(page.getByRole("heading", { name: /verified software/i })).toBeVisible(); });

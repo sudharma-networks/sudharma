@@ -1,0 +1,3 @@
+import { PageHero } from "@/components/page-hero";
+import { StatusChip } from "@/components/status-chip";
+export default function FaucetPage() { return <div className="section-shell page-stack"><PageHero eyebrow="FAUCET" title="Test SUDH distribution, safely integrated." description="The faucet web flow is being connected as a dedicated testnet integration rather than embedding privileged infrastructure into the public website." /><section className="notice"><StatusChip status="In Development" /><p>When enabled here, the faucet will issue testnet-only SUDH through a reviewed public interface. Testnet coins have no mainnet value.</p></section></div>; }

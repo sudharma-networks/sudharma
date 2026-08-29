@@ -1,0 +1,29 @@
+name: Website CI
+on:
+  push:
+    paths:
+      - 'web/**'
+      - '.github/workflows/website-ci.yml'
+  pull_request:
+    paths:
+      - 'web/**'
+      - '.github/workflows/website-ci.yml'
+permissions:
+  contents: read
+jobs:
+  website:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package.json
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
