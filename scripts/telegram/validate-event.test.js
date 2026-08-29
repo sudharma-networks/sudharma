@@ -102,4 +102,6 @@ test('workflow is least privilege and separates dry-run from publish', () => {
   assert.doesNotMatch(drySection, /TELEGRAM_BOT_TOKEN|api\.telegram\.org/);
   assert.match(publishSection, /TELEGRAM_BOT_TOKEN/);
   assert.match(publishSection, /api\.telegram\.org/);
+  assert.match(publishSection, /link_preview_options/);
+  assert.doesNotMatch(publishSection, /disable_web_page_preview/);
 });
