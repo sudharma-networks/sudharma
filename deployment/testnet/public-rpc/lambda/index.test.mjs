@@ -66,7 +66,7 @@ test('dispatches faucet request locally instead of proxying it to a seed', async
   assert.equal(upstreamCalls, 0);
 });
 
-test('dispatches website visitor requests locally without seed access', async () => {
+test('dispatches website visitor requests locally without seed access and allows cross-origin website reads', async () => {
   let upstreamCalls = 0;
   const visitorCalls = [];
   const handler = createHandler({
@@ -82,10 +82,12 @@ test('dispatches website visitor requests locally without seed access', async ()
   const read = await handler(event('GET', '/v1/website/visitors'));
   assert.equal(read.statusCode, 200);
   assert.match(read.body, /"total":11/);
+  assert.equal(read.headers['access-control-allow-origin'], '*');
 
   const record = await handler(event('POST', '/v1/website/visitors', JSON.stringify({ visitorId: '11111111-2222-4333-8444-555555555555' })));
   assert.equal(record.statusCode, 200);
   assert.match(record.body, /"total":12/);
+  assert.equal(record.headers['access-control-allow-origin'], '*');
   assert.deepEqual(visitorCalls, ['websiteVisitorsRead', 'websiteVisitorsRecord']);
   assert.equal(upstreamCalls, 0);
 });
