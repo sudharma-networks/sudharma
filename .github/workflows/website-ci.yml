@@ -27,7 +27,7 @@ jobs:
           cache-dependency-path: web/package.json
       - name: Test visitor counter backend contract
         working-directory: .
-        run: node --test deployment/website/visitor-counter/logic.test.mjs
+        run: node --test deployment/website/visitor-counter/*.test.mjs
       - run: npm install
       - run: npm run typecheck
       - run: npm test
