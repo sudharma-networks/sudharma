@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const modulePath = path.resolve('deployment/testnet/public-rpc/lambda/visitor-runtime.mjs');
+const here = path.dirname(fileURLToPath(import.meta.url));
+const modulePath = path.join(here, 'visitor-runtime.mjs');
 
 class GetCommand { constructor(input) { this.input = input; this.kind = 'get'; } }
 class TransactWriteCommand { constructor(input) { this.input = input; this.kind = 'transact'; } }
