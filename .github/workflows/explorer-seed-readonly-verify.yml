@@ -1,0 +1,77 @@
+name: Explorer Seed Read-only Verify
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  verify-seeds:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ap-south-1
+      AWS_ROLE_ARN: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+      EXPECTED_BASELINE_SHA256: a0cc493b1d0237245ec1528ab8a0d13682719aa32f60afa4f6818da9e9661b63
+    steps:
+      - name: Configure AWS credentials from GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Discover and verify Seed-1 and Seed-2 without changing them
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          verify_seed() {
+            local label="$1"
+            local private_ip="$2"
+            local instance_id ping_status command_id output status
+
+            instance_id="$(aws ec2 describe-instances \
+              --filters "Name=private-ip-address,Values=${private_ip}" "Name=instance-state-name,Values=running" \
+              --query 'Reservations[].Instances[].InstanceId' \
+              --output text)"
+
+            if [[ -z "$instance_id" || "$instance_id" == *$'\t'* || "$instance_id" == *' '* ]]; then
+              echo "${label}: expected exactly one running EC2 instance at ${private_ip}; got '${instance_id}'" >&2
+              exit 1
+            fi
+
+            ping_status="$(aws ssm describe-instance-information \
+              --filters "Key=InstanceIds,Values=${instance_id}" \
+              --query 'InstanceInformationList[0].PingStatus' \
+              --output text)"
+            if [[ "$ping_status" != "Online" ]]; then
+              echo "${label}: ${instance_id} is not an Online Systems Manager managed node (status=${ping_status})." >&2
+              exit 1
+            fi
+
+            command_id="$(aws ssm send-command \
+              --instance-ids "$instance_id" \
+              --document-name AWS-RunShellScript \
+              --comment "Sudharma Explorer read-only baseline verification: ${label}" \
+              --parameters 'commands=["set -eu","echo SERVICE=$(systemctl is-active sudharma.service)","echo BINARY_SHA=$(sha256sum /usr/local/bin/sudharma-rpcd | awk '\''{print $1}'\'')","test -r /etc/sudharma/node.json && echo CONFIG=present","echo STATUS_JSON=$(curl -fsS http://127.0.0.1:28545/v1/status)","explorer_http=$(curl -sS -o /tmp/sudharma-explorer-probe.json -w '\''%{http_code}'\'' http://127.0.0.1:28545/v1/explorer/status); echo EXPLORER_HTTP=$explorer_http","rm -f /tmp/sudharma-explorer-probe.json"]' \
+              --query 'Command.CommandId' \
+              --output text)"
+
+            aws ssm wait command-executed --command-id "$command_id" --instance-id "$instance_id"
+            status="$(aws ssm get-command-invocation --command-id "$command_id" --instance-id "$instance_id" --query 'Status' --output text)"
+            output="$(aws ssm get-command-invocation --command-id "$command_id" --instance-id "$instance_id" --query 'StandardOutputContent' --output text)"
+
+            printf '%s verification output:\n%s\n' "$label" "$output"
+            [[ "$status" == "Success" ]]
+            grep -Fxq 'SERVICE=active' <<<"$output"
+            grep -Fxq "BINARY_SHA=${EXPECTED_BASELINE_SHA256}" <<<"$output"
+            grep -Fxq 'CONFIG=present' <<<"$output"
+            grep -Fq 'STATUS_JSON={' <<<"$output"
+            grep -Fxq 'EXPLORER_HTTP=404' <<<"$output"
+          }
+
+          verify_seed Seed-1 172.31.10.171
+          verify_seed Seed-2 172.31.32.195
+
+          echo "Both seeds match the documented 5bad4479 binary baseline and are safe to consider for the Explorer-only backport."
