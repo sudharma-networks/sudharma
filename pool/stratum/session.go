@@ -36,9 +36,10 @@ type Session struct {
 	subscribed bool
 	identity   *WorkerIdentity
 
-	generation  uint64
-	currentJob  *job
-	staleJobIDs []string
+	generation      uint64
+	currentJob      *job
+	staleJobIDs     []string
+	duplicateShares map[shareKey]struct{}
 }
 
 func NewSession(entropy io.Reader, source WorkSource, verifier ShareVerifier, config Config) (*Session, error) {
@@ -99,7 +100,7 @@ func (s *Session) Handle(ctx context.Context, line []byte) ([]Message, error) {
 	case "mining.authorize":
 		return s.handleAuthorize(request)
 	case "mining.submit":
-		return nil, newProtocolError(protocolInvalidRequest)
+		return s.handleSubmit(ctx, request)
 	default:
 		return nil, newProtocolError(protocolMethodNotFound)
 	}

@@ -206,6 +206,7 @@ func (s *Session) RefreshWork(ctx context.Context) ([]Message, error) {
 	}
 	s.currentJob = newJob
 	s.generation = generation
+	s.duplicateShares = nil
 	if oldJob != nil {
 		s.config.LaneSource.Release(oldJob.work.WorkID, s.id)
 	}
