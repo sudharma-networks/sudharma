@@ -12,6 +12,10 @@
   <strong>Native Coin:</strong> Sudharma (SUDH)
 </p>
 
+<p align="center">
+  <strong>Website:</strong> <a href="https://feature-website-foundation.d2mqyt0bt8sl9s.amplifyapp.com/">Visit Sudharma Network</a>
+</p>
+
 ---
 
 ## Status
@@ -21,6 +25,14 @@
 > Sudharma Network is currently under active development and security hardening. Consensus rules, network parameters, APIs, wallet formats, and other protocol components may change before mainnet.
 
 Do not treat the current software or development network as production-ready.
+
+## Website
+
+The public Sudharma Network website is available at:
+
+**https://feature-website-foundation.d2mqyt0bt8sl9s.amplifyapp.com/**
+
+The website is currently hosted on AWS Amplify and represents the pre-mainnet / active-development network. Features that are still under development are identified as such on the site.
 
 ## Overview
 
