@@ -43,12 +43,17 @@ function isFaucetRoute(kind) {
   return kind === 'faucetInfo' || kind === 'faucetInitial' || kind === 'faucetChallenge';
 }
 
+function isVisitorRoute(kind) {
+  return kind === 'websiteVisitorsRead' || kind === 'websiteVisitorsRecord';
+}
+
 export function createHandler(options = {}) {
   const seeds = options.seeds || DEFAULT_SEEDS;
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   const timeoutMs = options.timeoutMs;
   const logger = options.logger || console;
   const faucetHandler = options.faucetHandler || null;
+  const visitorHandler = options.visitorHandler || null;
 
   return async function walletProxyHandler(event, context = {}) {
     const started = Date.now();
@@ -73,6 +78,39 @@ export function createHandler(options = {}) {
       route: request.kind,
       request_id: context?.awsRequestId || null,
     });
+
+    if (isVisitorRoute(request.kind)) {
+      if (typeof visitorHandler !== 'function') {
+        return jsonResponse(503, { error: 'website visitor counter is temporarily unavailable' });
+      }
+      try {
+        const result = await visitorHandler(request, { context });
+        const statusCode = Number.isInteger(result?.statusCode) ? result.statusCode : 200;
+        const payload = result?.payload ?? result ?? { total: 0 };
+        safeLog(logger, 'info', {
+          event: 'website_visitor_response',
+          route: request.kind,
+          status_code: statusCode,
+          latency_ms: Date.now() - started,
+          request_id: context?.awsRequestId || null,
+        });
+        return jsonResponse(statusCode, payload);
+      } catch (error) {
+        const statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : 500;
+        safeLog(logger, statusCode >= 500 ? 'error' : 'warn', {
+          event: 'website_visitor_error',
+          route: request.kind,
+          status_code: statusCode,
+          latency_ms: Date.now() - started,
+          request_id: context?.awsRequestId || null,
+        });
+        return jsonResponse(statusCode, {
+          error: statusCode >= 500
+            ? 'website visitor counter is temporarily unavailable'
+            : String(error?.message || 'visitor request rejected'),
+        });
+      }
+    }
 
     if (isFaucetRoute(request.kind)) {
       if (typeof faucetHandler !== 'function') {
@@ -169,8 +207,22 @@ if (process.env.FAUCET_ENABLED === 'true') {
   };
 }
 
+let productionVisitorHandler = null;
+if (process.env.FAUCET_TABLE_NAME) {
+  let visitorHandlerPromise;
+  productionVisitorHandler = async (request) => {
+    if (!visitorHandlerPromise) {
+      visitorHandlerPromise = import('./visitor-runtime.mjs')
+        .then((module) => module.createVisitorHandler({ tableName: process.env.FAUCET_TABLE_NAME }));
+    }
+    const visitorHandler = await visitorHandlerPromise;
+    return visitorHandler(request);
+  };
+}
+
 export const handler = createHandler({
   seeds: configuredSeeds,
   timeoutMs: runtimeTimeoutMs,
   faucetHandler: productionFaucetHandler,
+  visitorHandler: productionVisitorHandler,
 });
