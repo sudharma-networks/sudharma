@@ -86,7 +86,7 @@ func (v *submitVerifier) call(i int) verifyCall {
 type fixedSubmitLane struct{ lane uint32 }
 
 func (f fixedSubmitLane) Acquire(string, string) (uint32, error) { return f.lane, nil }
-func (fixedSubmitLane) Release(string, string)                  {}
+func (fixedSubmitLane) Release(string, string)                   {}
 
 func TestSessionSubmitHandleRoutesRequest(t *testing.T) {
 	s, _, verifier := newSubmitFixture(4)
