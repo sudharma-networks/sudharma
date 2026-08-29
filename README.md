@@ -50,7 +50,7 @@ Our long-term goal is to provide an open blockchain development platform on whic
 | Native Coin | Sudharma |
 | Symbol | SUDH |
 | Decimal Precision | 8 |
-| Maximum Supply | 100,000,000 SUDH |
+| Maximum Supply (Hard Cap) | 51,000,000,000 SUDH |
 | Initial Block Reward | 50 SUDH |
 | Target Block Time | 60 seconds |
 | Halving Interval | 1,000,000 blocks |
@@ -58,6 +58,8 @@ Our long-term goal is to provide an open blockchain development platform on whic
 | Total Transaction Fee | 0.10% |
 | Development Portion | 0.01% |
 | Miner Portion | 0.09% |
+
+The 51,000,000,000 SUDH value is the consensus hard cap. The current pre-mainnet block-subsidy and halving schedule remains subject to controlled revision before mainnet and cannot mint beyond this cap.
 
 ## Current Development Genesis
 
