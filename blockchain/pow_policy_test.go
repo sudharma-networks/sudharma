@@ -8,11 +8,11 @@ import (
 
 func TestPoWPolicyVersionMatrix(t *testing.T) {
 	cases := []struct {
-		name       string
-		activation uint64
-		height     uint64
-		version    uint32
-		allowed    bool
+		name		string
+		activation	uint64
+		height		uint64
+		version		uint32
+		allowed		bool
 	}{
 		{name: "disabled legacy", activation: params.GPUV1ActivationDisabled, height: 0, version: 1, allowed: true},
 		{name: "disabled gpu rejected", activation: params.GPUV1ActivationDisabled, height: 100, version: 2},
@@ -38,10 +38,10 @@ func TestPoWPolicyVersionMatrix(t *testing.T) {
 
 func TestPoWPolicyVersionAtHeight(t *testing.T) {
 	cases := []struct {
-		name       string
-		policy     PoWPolicy
-		height     uint64
-		want       uint32
+		name	string
+		policy	PoWPolicy
+		height	uint64
+		want	uint32
 	}{
 		{name: "disabled", policy: LegacyOnlyPoWPolicy(), height: ^uint64(0), want: 1},
 		{name: "before", policy: PoWPolicy{GPUV1ActivationHeight: 100}, height: 99, want: 1},
@@ -61,4 +61,3 @@ func TestPoWPolicyVersionAtHeight(t *testing.T) {
 		})
 	}
 }
-
