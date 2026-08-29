@@ -5,6 +5,7 @@ const DEFAULT_SEEDS = [
   'http://172.31.10.171:29100',
   'http://172.31.32.195:29100',
 ];
+const EXPLORER_CORS_HEADERS = { 'access-control-allow-origin': '*' };
 
 function jsonResponse(statusCode, payload, extraHeaders = {}) {
   return {
@@ -24,7 +25,7 @@ function visitorJsonResponse(statusCode, payload) {
   return jsonResponse(statusCode, payload, { 'access-control-allow-origin': '*' });
 }
 
-function gatewayResponse(result) {
+function gatewayResponse(result, extraHeaders = {}) {
   const contentType = result.headers['content-type'] || 'application/json; charset=utf-8';
   const textual = /^(application\/json|text\/)/i.test(contentType);
   return {
@@ -33,6 +34,7 @@ function gatewayResponse(result) {
       ...result.headers,
       'cache-control': 'no-store',
       'x-content-type-options': 'nosniff',
+      ...extraHeaders,
     },
     body: textual ? result.body.toString('utf8') : result.body.toString('base64'),
     isBase64Encoded: !textual,
@@ -50,6 +52,14 @@ function isFaucetRoute(kind) {
 
 function isVisitorRoute(kind) {
   return kind === 'websiteVisitorsRead' || kind === 'websiteVisitorsRecord';
+}
+
+function isExplorerRoute(kind) {
+  return typeof kind === 'string' && kind.startsWith('explorer');
+}
+
+function isExplorerPath(path) {
+  return typeof path === 'string' && path.startsWith('/v1/explorer/');
 }
 
 export function createHandler(options = {}) {
@@ -73,7 +83,11 @@ export function createHandler(options = {}) {
         method: event?.requestContext?.http?.method || 'unknown',
         path: event?.rawPath || 'unknown',
       });
-      return jsonResponse(statusCode, { error: error instanceof RequestError ? error.message : 'invalid request' });
+      return jsonResponse(
+        statusCode,
+        { error: error instanceof RequestError ? error.message : 'invalid request' },
+        isExplorerPath(event?.rawPath) ? EXPLORER_CORS_HEADERS : {},
+      );
     }
 
     safeLog(logger, 'info', {
@@ -155,6 +169,7 @@ export function createHandler(options = {}) {
       }
     }
 
+    const responseHeaders = isExplorerRoute(request.kind) ? EXPLORER_CORS_HEADERS : {};
     try {
       const result = await proxyWithFailover(request, { seeds, fetchImpl, timeoutMs });
       safeLog(logger, 'info', {
@@ -166,7 +181,7 @@ export function createHandler(options = {}) {
         latency_ms: Date.now() - started,
         request_id: context?.awsRequestId || null,
       });
-      return gatewayResponse(result);
+      return gatewayResponse(result, responseHeaders);
     } catch (error) {
       const unavailable = error instanceof UpstreamUnavailableError;
       safeLog(logger, unavailable ? 'warn' : 'error', {
@@ -182,9 +197,9 @@ export function createHandler(options = {}) {
           error: request.kind === 'submitTransaction'
             ? 'transaction outcome is uncertain because wallet service is unavailable; check transaction status before retrying'
             : 'wallet service is temporarily unavailable',
-        });
+        }, responseHeaders);
       }
-      return jsonResponse(500, { error: 'internal wallet proxy error' });
+      return jsonResponse(500, { error: 'internal wallet proxy error' }, responseHeaders);
     }
   };
 }
