@@ -154,6 +154,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 				if !responseStarted(w) {
 					writeError(w, http.StatusInternalServerError, "internal server error")
 				}
+			}
 		}()
 		next.ServeHTTP(w, r)
 	})
