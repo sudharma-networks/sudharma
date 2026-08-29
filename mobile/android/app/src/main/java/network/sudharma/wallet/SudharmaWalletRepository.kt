@@ -60,14 +60,7 @@ class SudharmaWalletRepository(context: Context) {
 
     suspend fun transactionStatuses(): List<TransactionStatus> {
         val adapter = adapter()
-        return preferences.transactionIds().map { id ->
-            runCatching { adapter.status(id) }.getOrElse {
-                network.sudharma.wallet.chain.TransactionStatus(
-                    id,
-                    network.sudharma.wallet.chain.TransactionState.FAILED,
-                )
-            }
-        }
+        return TransactionActivityLoader.load(preferences.transactionIds(), adapter::status)
     }
 
     fun resetWallet() {
