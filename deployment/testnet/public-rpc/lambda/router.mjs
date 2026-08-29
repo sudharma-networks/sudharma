@@ -59,6 +59,11 @@ export function matchRoute(methodInput, pathInput) {
     if (method !== 'POST') reject('method not allowed', 405);
     return { kind: 'faucetChallenge', method, path };
   }
+  if (path === '/v1/website/visitors') {
+    if (method === 'GET') return { kind: 'websiteVisitorsRead', method, path };
+    if (method === 'POST') return { kind: 'websiteVisitorsRecord', method, path };
+    reject('method not allowed', 405);
+  }
 
   const accountPrefix = '/v1/accounts/';
   if (path.startsWith(accountPrefix)) {
@@ -101,11 +106,14 @@ export function normalizeEvent(event) {
 
   const route = matchRoute(method, path);
   const body = bodyBuffer(event);
-  const bodyAllowed = route.kind === 'submitTransaction' || route.kind === 'faucetInitial' || route.kind === 'faucetChallenge';
+  const bodyAllowed = route.kind === 'submitTransaction'
+    || route.kind === 'faucetInitial'
+    || route.kind === 'faucetChallenge'
+    || route.kind === 'websiteVisitorsRecord';
   if (!bodyAllowed && body.length !== 0) {
     throw new RequestError(400, 'request body not allowed');
   }
-  if ((route.kind === 'faucetInitial' || route.kind === 'faucetChallenge') && body.length === 0) {
+  if ((route.kind === 'faucetInitial' || route.kind === 'faucetChallenge' || route.kind === 'websiteVisitorsRecord') && body.length === 0) {
     throw new RequestError(400, 'request body is required');
   }
 
