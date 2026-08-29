@@ -58,6 +58,16 @@ func run() error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
+	return runNode(cfg)
+}
+
+func runNode(cfg operations.Config) error {
+	dataDirectoryLock, err := operations.LockDataDirectory(cfg.DataDirectory)
+	if err != nil {
+		return fmt.Errorf("lock node data directory: %w", err)
+	}
+	defer dataDirectoryLock.Close()
+
 	log := operations.NewLogger(os.Stdout, cfg.LogJSON)
 	chainPath := filepath.Join(cfg.DataDirectory, "sudharma-chain.json")
 	statePath := filepath.Join(cfg.DataDirectory, "sudharma-state.json")
