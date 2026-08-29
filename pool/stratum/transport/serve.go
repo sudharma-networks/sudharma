@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"time"
 
 	"github.com/sudharma-networks/sudharma/pool/stratum"
 )
@@ -15,7 +16,8 @@ func ServeConn(ctx context.Context, conn net.Conn, factory SessionFactory, confi
 	if conn == nil || factory == nil {
 		return ErrInvalidConfig
 	}
-	if _, err := normalizeConfig(config); err != nil {
+	normalized, err := normalizeConfig(config)
+	if err != nil {
 		return err
 	}
 	defer conn.Close()
@@ -30,6 +32,8 @@ func ServeConn(ctx context.Context, conn net.Conn, factory SessionFactory, confi
 
 	reader := newRequestReader(conn)
 	writer := &messageWriter{conn: conn}
+	limiter := newTokenBucket(normalized.requestsPerSecond, normalized.burst, time.Now())
+	protocolErrors := 0
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -39,8 +43,20 @@ func ServeConn(ctx context.Context, conn net.Conn, factory SessionFactory, confi
 		if errors.Is(err, io.EOF) {
 			return nil
 		}
+		if errors.Is(err, ErrLineTooLong) {
+			response := stratum.Response{
+				ID:     json.RawMessage("null"),
+				Result: nil,
+				Error:  &stratum.ProtocolError{Code: -32600, Message: "invalid request"},
+			}
+			_ = writer.WriteMessages([]stratum.Message{response})
+			return fmt.Errorf("read Stratum request: %w", err)
+		}
 		if err != nil {
 			return fmt.Errorf("read Stratum request: %w", err)
+		}
+		if !limiter.Allow(time.Now()) {
+			return ErrRateLimited
 		}
 
 		request, _ := stratum.DecodeRequest(line)
@@ -57,6 +73,10 @@ func ServeConn(ctx context.Context, conn net.Conn, factory SessionFactory, confi
 			}
 			if err := writer.WriteMessages([]stratum.Message{response}); err != nil {
 				return fmt.Errorf("write Stratum response: %w", err)
+			}
+			protocolErrors++
+			if protocolErrors > normalized.maxProtocolErrors {
+				return ErrProtocolBudget
 			}
 			continue
 		}
