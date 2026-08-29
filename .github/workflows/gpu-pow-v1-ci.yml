@@ -68,6 +68,9 @@ jobs:
       - name: Stage E bounded Stratum transport gate
         run: go test -race ./pool/stratum/... ./rpc -run 'Stratum|Transport|OfflineStratumTranscript' -count=1 -v
 
+      - name: Stage F bounded Stratum listener supervisor gate
+        run: go test -race ./pool/stratum/... ./rpc -run 'Stratum|Transport|Server|OfflineStratumTranscript' -count=1 -v
+
       - name: Confirm network activation defaults remain disabled
         run: go test ./pow -run TestGPUV1NetworkActivationDefaultsRemainDisabled -count=1 -v
 
