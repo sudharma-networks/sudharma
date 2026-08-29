@@ -1,0 +1,87 @@
+name: Explorer Seed AWS Preflight
+
+on:
+  push:
+    branches:
+      - security/explorer-seed-aws-preflight
+    paths:
+      - '.github/workflows/explorer-seed-aws-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: ap-south-1
+      SEED_PRIVATE_IPS: '172.31.10.171 172.31.32.195'
+    steps:
+      - name: Configure AWS credentials from GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+
+      - name: Discover seed EC2 and SSM readiness without changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          index=0
+          for private_ip in $SEED_PRIVATE_IPS; do
+            index=$((index + 1))
+            instance_id="$(aws ec2 describe-instances \
+              --filters "Name=private-ip-address,Values=${private_ip}" 'Name=instance-state-name,Values=running' \
+              --query 'Reservations[].Instances[].InstanceId | [0]' \
+              --output text)"
+            if [ -z "$instance_id" ] || [ "$instance_id" = 'None' ]; then
+              echo "seed-${index}: running EC2 instance not found" >&2
+              exit 1
+            fi
+            echo "::add-mask::$instance_id"
+
+            name="$(aws ec2 describe-instances \
+              --instance-ids "$instance_id" \
+              --query 'Reservations[0].Instances[0].Tags[?Key==`Name`]|[0].Value' \
+              --output text)"
+            profile="$(aws ec2 describe-instances \
+              --instance-ids "$instance_id" \
+              --query 'Reservations[0].Instances[0].IamInstanceProfile.Arn' \
+              --output text)"
+            if [ -n "$profile" ] && [ "$profile" != 'None' ]; then
+              profile_state='present'
+            else
+              profile_state='absent'
+            fi
+
+            set +e
+            ssm_output="$(aws ssm describe-instance-information \
+              --filters "Key=InstanceIds,Values=${instance_id}" \
+              --query 'InstanceInformationList[0].PingStatus' \
+              --output text 2>&1)"
+            ssm_status=$?
+            set -e
+            if [ "$ssm_status" -ne 0 ]; then
+              ssm_state='not-authorized-or-unavailable'
+            elif [ -z "$ssm_output" ] || [ "$ssm_output" = 'None' ]; then
+              ssm_state='not-managed'
+            else
+              ssm_state="$ssm_output"
+            fi
+
+            echo "seed-${index}: name=${name:-unknown} state=running iam-profile=${profile_state} ssm=${ssm_state}"
+          done
+
+      - name: Record safety boundary
+        shell: bash
+        run: |
+          echo 'aws-mode=read-only'
+          echo 'seed-service-restarts=0'
+          echo 'seed-binaries-changed=0'
+          echo 'rpc-firewall-changes=0'
+          echo 'gpu-pow-deployment=0'
