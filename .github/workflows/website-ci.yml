@@ -3,10 +3,12 @@ on:
   push:
     paths:
       - 'web/**'
+      - 'deployment/website/**'
       - '.github/workflows/website-ci.yml'
   pull_request:
     paths:
       - 'web/**'
+      - 'deployment/website/**'
       - '.github/workflows/website-ci.yml'
 permissions:
   contents: read
@@ -23,6 +25,9 @@ jobs:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: web/package.json
+      - name: Test visitor counter backend contract
+        working-directory: .
+        run: node --test deployment/website/visitor-counter/logic.test.mjs
       - run: npm install
       - run: npm run typecheck
       - run: npm test
