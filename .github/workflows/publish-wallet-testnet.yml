@@ -1,0 +1,48 @@
+name: Publish Testnet Wallet APK
+
+on:
+  push:
+    branches:
+      - feature/website-foundation
+    paths:
+      - '.github/workflows/publish-wallet-testnet.yml'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish-wallet:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download verified Android Wallet artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p wallet
+          gh run download 33158507374 \
+            --repo sudharma-networks/sudharma \
+            --name sudharma-wallet-0.1.0-testnet \
+            --dir wallet
+
+      - name: Verify APK checksum sidecar
+        run: |
+          cd wallet
+          cat Sudharma-Wallet-0.1.0-testnet.apk.sha256
+          sha256sum Sudharma-Wallet-0.1.0-testnet.apk
+
+      - name: Publish public prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete wallet-testnet-v0.1.0 --repo sudharma-networks/sudharma --yes || true
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          gh release create wallet-testnet-v0.1.0 \
+            wallet/Sudharma-Wallet-0.1.0-testnet.apk \
+            wallet/Sudharma-Wallet-0.1.0-testnet.apk.sha256 \
+            --repo sudharma-networks/sudharma \
+            --target 76ae28eaf8d5e9d84ba82302abd471b84304673a \
+            --title "Sudharma Wallet 0.1.0 — Public Testnet" \
+            --notes "Public Android testnet wallet for Sudharma Network testing. This is pre-mainnet software and is not intended for assets of real-world value. Never share a seed phrase or private key. APK source revision: 76ae28eaf8d5e9d84ba82302abd471b84304673a. Verify the APK with the included SHA256 sidecar before installation." \
+            --prerelease
