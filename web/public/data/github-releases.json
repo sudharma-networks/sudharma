@@ -62,27 +62,6 @@
       "releaseTag": "test-mining-v0.1.0",
       "prerelease": true,
       "safetyNote": "Experimental pre-mainnet miner. Unrestricted network mining remains gated."
-    },
-    {
-      "id": "android-wallet:android-wallet-v0.1.0-testnet:Sudharma-Wallet-0.1.0-testnet.apk",
-      "slot": "android-wallet",
-      "kind": "wallet",
-      "name": "Sudharma Android Wallet",
-      "version": "android-wallet-v0.1.0-testnet",
-      "channel": "testnet",
-      "platform": "Android",
-      "architecture": "arm64 / compatible",
-      "fileSize": "20.0 MB",
-      "sha256": "6a8efd19d3c8d102c515dbf81fee299ac10b9f858141d0a5f0f168a9aca543ff",
-      "releaseDate": "2026-08-26T14:20:19Z",
-      "downloadUrl": "https://github.com/sudharma-networks/sudharma/releases/download/android-wallet-v0.1.0-testnet/Sudharma-Wallet-0.1.0-testnet.apk",
-      "releaseNotesUrl": "https://github.com/sudharma-networks/sudharma/releases/tag/android-wallet-v0.1.0-testnet",
-      "sourceUrl": "https://github.com/sudharma-networks/sudharma",
-      "status": "available",
-      "releaseTag": "android-wallet-v0.1.0-testnet",
-      "prerelease": true,
-      "safetyNote": "Public testnet software. Do not use it for assets of real-world value.",
-      "checksumUrl": "https://github.com/sudharma-networks/sudharma/releases/download/android-wallet-v0.1.0-testnet/Sudharma-Wallet-0.1.0-testnet.apk.sha256"
     }
   ]
 }
