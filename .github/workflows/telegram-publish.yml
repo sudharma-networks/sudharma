@@ -20,9 +20,24 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Resolve current issue author association
+        id: issue-trust
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          ASSOCIATION=$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER" --jq '.author_association')
+          if [ -z "$ASSOCIATION" ]; then
+            echo "Could not resolve current issue author association." >&2
+            exit 1
+          fi
+          echo "association=$ASSOCIATION" >> "$GITHUB_OUTPUT"
+
       - name: Validate dry-run request
         env:
           TELEGRAM_MODE: dry-run
+          TELEGRAM_AUTHOR_ASSOCIATION: ${{ steps.issue-trust.outputs.association }}
           TELEGRAM_MESSAGE_FILE: ${{ runner.temp }}/telegram-message.txt
         run: node scripts/telegram/validate-event.js
 
@@ -50,9 +65,24 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Resolve current issue author association
+        id: issue-trust
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          ASSOCIATION=$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER" --jq '.author_association')
+          if [ -z "$ASSOCIATION" ]; then
+            echo "Could not resolve current issue author association." >&2
+            exit 1
+          fi
+          echo "association=$ASSOCIATION" >> "$GITHUB_OUTPUT"
+
       - name: Validate publish request
         env:
           TELEGRAM_MODE: publish
+          TELEGRAM_AUTHOR_ASSOCIATION: ${{ steps.issue-trust.outputs.association }}
           TELEGRAM_MESSAGE_FILE: ${{ runner.temp }}/telegram-message.txt
         run: node scripts/telegram/validate-event.js
 
