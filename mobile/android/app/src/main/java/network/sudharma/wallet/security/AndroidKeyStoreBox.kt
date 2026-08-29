@@ -1,7 +1,10 @@
 package network.sudharma.wallet.security
 
+import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.security.keystore.StrongBoxUnavailableException
+import androidx.annotation.RequiresApi
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -17,18 +20,38 @@ object AndroidKeyStoreBox {
     private fun key(): SecretKey {
         val store = KeyStore.getInstance(KEYSTORE).apply { load(null) }
         (store.getKey(ALIAS, null) as? SecretKey)?.let { return it }
+
+        return if (StrongBoxPolicy.shouldAttemptStrongBox(Build.VERSION.SDK_INT)) {
+            generateStrongBoxKeyWithFallback()
+        } else {
+            generateKey(useStrongBox = false)
+        }
+    }
+
+    @RequiresApi(28)
+    private fun generateStrongBoxKeyWithFallback(): SecretKey =
+        try {
+            generateKey(useStrongBox = true)
+        } catch (_: StrongBoxUnavailableException) {
+            generateKey(useStrongBox = false)
+        }
+
+    private fun generateKey(useStrongBox: Boolean): SecretKey {
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE)
-        generator.init(
-            KeyGenParameterSpec.Builder(
-                ALIAS,
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
-            )
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .setKeySize(256)
-                .setRandomizedEncryptionRequired(true)
-                .build(),
+        val builder = KeyGenParameterSpec.Builder(
+            ALIAS,
+            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
         )
+            .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+            .setKeySize(256)
+            .setRandomizedEncryptionRequired(true)
+
+        if (useStrongBox && Build.VERSION.SDK_INT >= 28) {
+            builder.setIsStrongBoxBacked(true)
+        }
+
+        generator.init(builder.build())
         return generator.generateKey()
     }
 
