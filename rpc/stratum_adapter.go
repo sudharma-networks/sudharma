@@ -6,13 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/sudharma-networks/sudharma/blockchain"
 	"github.com/sudharma-networks/sudharma/pool/stratum"
 )
-
-type MiningBlockProvider interface {
-	MiningBlock(context.Context) (*blockchain.Block, error)
-}
 
 type StratumWorkSource struct {
 	mu       sync.RWMutex
@@ -38,7 +33,7 @@ func (s *StratumWorkSource) CurrentWork(ctx context.Context, rewardAddress strin
 	if rewardAddress == "" {
 		return stratum.Work{}, errors.New("mining reward address is required")
 	}
-	block, err := s.provider.MiningBlock(ctx)
+	block, err := s.provider()
 	if err != nil {
 		return stratum.Work{}, fmt.Errorf("get mining block: %w", err)
 	}

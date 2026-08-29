@@ -15,14 +15,16 @@ type testBlockProvider struct {
 	seen  int
 }
 
-func (p *testBlockProvider) MiningBlock(context.Context) (*blockchain.Block, error) {
-	p.seen++
-	return p.block, p.err
+func (p *testBlockProvider) provider() MiningBlockProvider {
+	return func() (*blockchain.Block, error) {
+		p.seen++
+		return p.block, p.err
+	}
 }
 
 func TestStratumWorkSourceRejectsNilDependencies(t *testing.T) {
 	provider := &testBlockProvider{}
-	if _, err := NewStratumWorkSource(nil, provider); err == nil {
+	if _, err := NewStratumWorkSource(nil, provider.provider()); err == nil {
 		t.Fatal("expected nil mining service to fail")
 	}
 	if _, err := NewStratumWorkSource(NewMiningWorkService(nil), nil); err == nil {
@@ -42,7 +44,7 @@ func TestStratumWorkSourceCurrentWorkCopiesBlockAndMapsTemplateExactly(t *testin
 	}
 	provider := &testBlockProvider{block: original}
 	service := NewMiningWorkService(func(*blockchain.Block, uint64) bool { return true })
-	adapter, err := NewStratumWorkSource(service, provider)
+	adapter, err := NewStratumWorkSource(service, provider.provider())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +86,7 @@ func TestStratumWorkSourceCurrentWorkFailsClosedOnProviderErrors(t *testing.T) {
 	service := NewMiningWorkService(nil)
 
 	provider := &testBlockProvider{err: errors.New("provider unavailable")}
-	adapter, err := NewStratumWorkSource(service, provider)
+	adapter, err := NewStratumWorkSource(service, provider.provider())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +95,7 @@ func TestStratumWorkSourceCurrentWorkFailsClosedOnProviderErrors(t *testing.T) {
 	}
 
 	provider = &testBlockProvider{}
-	adapter, err = NewStratumWorkSource(service, provider)
+	adapter, err = NewStratumWorkSource(service, provider.provider())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +149,7 @@ func TestStratumWorkSourceSubmitMapsMiningStatuses(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			service := NewMiningWorkService(tt.verifier)
 			provider := &testBlockProvider{block: &blockchain.Block{Version: 2, Height: 7500, Difficulty: 1}}
-			adapter, err := NewStratumWorkSource(service, provider)
+			adapter, err := NewStratumWorkSource(service, provider.provider())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -184,7 +186,7 @@ func TestStratumWorkSourceSubmitUsesOnlyStoredTemplateAndNonce(t *testing.T) {
 		return block.Height == 7500 && block.MinerAddress == reward && nonce == 42
 	})
 	provider := &testBlockProvider{block: &blockchain.Block{Version: 2, Height: 7500, Difficulty: 1}}
-	adapter, err := NewStratumWorkSource(service, provider)
+	adapter, err := NewStratumWorkSource(service, provider.provider())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +222,7 @@ func TestStratumWorkSourceSubmitUsesOnlyStoredTemplateAndNonce(t *testing.T) {
 func TestStratumWorkSourceReplacesBoundedCurrentSnapshot(t *testing.T) {
 	service := NewMiningWorkService(func(*blockchain.Block, uint64) bool { return true })
 	provider := &testBlockProvider{block: &blockchain.Block{Version: 2, Height: 7500, Difficulty: 1}}
-	adapter, err := NewStratumWorkSource(service, provider)
+	adapter, err := NewStratumWorkSource(service, provider.provider())
 	if err != nil {
 		t.Fatal(err)
 	}
