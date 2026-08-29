@@ -35,6 +35,10 @@ type Session struct {
 
 	subscribed bool
 	identity   *WorkerIdentity
+
+	generation  uint64
+	currentJob  *job
+	staleJobIDs []string
 }
 
 func NewSession(entropy io.Reader, source WorkSource, verifier ShareVerifier, config Config) (*Session, error) {
