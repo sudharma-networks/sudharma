@@ -47,7 +47,10 @@ async function fetchOnce(seed, request, { fetchImpl, timeoutMs }) {
     if (request.method === 'POST') {
       init.body = Buffer.from(request.body);
     }
-    const response = await fetchImpl(`${seed}${request.path}`, init);
+    const query = typeof request.queryString === 'string' && request.queryString.length > 0
+      ? `?${request.queryString}`
+      : '';
+    const response = await fetchImpl(`${seed}${request.path}${query}`, init);
     const body = await readBounded(response);
     return {
       statusCode: response.status,
