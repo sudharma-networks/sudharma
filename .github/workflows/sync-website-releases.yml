@@ -58,6 +58,6 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add web/public/data/github-releases.json web/public/data/project-status.json
+          git add -f web/public/data/github-releases.json web/public/data/project-status.json
           git commit -m "chore(web): sync public GitHub releases"
           git push origin HEAD:feature/website-foundation
