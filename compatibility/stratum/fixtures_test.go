@@ -20,10 +20,10 @@ import (
 )
 
 const (
-	compatWallet        = "9ccdc094489874bed888ffe4bdf9b8298f4c5131"
-	compatTargetHex     = "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f"
-	compatHeaderPrefix  = "aabbccdd"
-	compatLane   uint32 = 0x01020304
+	compatWallet           = "9ccdc094489874bed888ffe4bdf9b8298f4c5131"
+	compatTargetHex        = "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f"
+	compatHeaderPrefix     = "aabbccdd"
+	compatLaneValue uint32 = 0x01020304
 )
 
 type compatSource struct {
@@ -116,7 +116,7 @@ func newCompatFactory(t *testing.T, source *compatSource, calls *atomic.Int32) t
 			bytes.NewReader(bytes.Repeat([]byte{0x44}, 16)),
 			source,
 			verifier,
-			stratum.Config{ShareDifficulty: 4, MaxDuplicateShares: 16, LaneSource: compatLane(compatLane)},
+			stratum.Config{ShareDifficulty: 4, MaxDuplicateShares: 16, LaneSource: compatLane(compatLaneValue)},
 		)
 	}
 }
@@ -216,7 +216,7 @@ func requireWorkMessages(t *testing.T, reader *bufio.Reader) (string, uint32) {
 	if !ok || len(params) != 10 {
 		t.Fatalf("notify params = %#v, want 10 fields", notify["params"])
 	}
-	if params[1] != "sudharma-gpupow-v1" || params[2] != float64(7600) || params[3] != compatTargetHex || params[4] != compatHeaderPrefix || params[5] != compatWallet || params[6] != float64(2) || params[7] != float64(11) || params[8] != float64(compatLane) || params[9] != true {
+	if params[1] != "sudharma-gpupow-v1" || params[2] != float64(7600) || params[3] != compatTargetHex || params[4] != compatHeaderPrefix || params[5] != compatWallet || params[6] != float64(2) || params[7] != float64(11) || params[8] != float64(compatLaneValue) || params[9] != true {
 		t.Fatalf("unexpected mining.notify params: %#v", params)
 	}
 	jobID, ok := params[0].(string)
@@ -226,5 +226,5 @@ func requireWorkMessages(t *testing.T, reader *bufio.Reader) (string, uint32) {
 	if _, err := hex.DecodeString(jobID); err != nil {
 		t.Fatalf("job ID is not hexadecimal: %q: %v", jobID, err)
 	}
-	return jobID, compatLane
+	return jobID, compatLaneValue
 }
