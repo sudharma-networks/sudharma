@@ -8,7 +8,7 @@ const { spawnSync } = require('node:child_process');
 const VALID_BODY = `<!-- sudharma-telegram-bridge:v1 -->\nTELEGRAM_MESSAGE_BEGIN\nHello from Sudharma\n\nSecond line.\nTELEGRAM_MESSAGE_END`;
 const SCRIPT = path.join(__dirname, 'validate-event.js');
 
-function runValidator({ mode = 'dry-run', association = 'OWNER', label, body = VALID_BODY, pullRequest = false } = {}) {
+function runValidator({ mode = 'dry-run', association = 'OWNER', liveAssociation, label, body = VALID_BODY, pullRequest = false } = {}) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sudharma-telegram-'));
   const eventPath = path.join(tempDir, 'event.json');
   const outputPath = path.join(tempDir, 'message.txt');
@@ -17,15 +17,15 @@ function runValidator({ mode = 'dry-run', association = 'OWNER', label, body = V
   if (pullRequest) issue.pull_request = { url: 'https://example.invalid/pr/77' };
   fs.writeFileSync(eventPath, JSON.stringify({ action: 'labeled', issue, label: { name: expectedLabel } }));
 
-  const result = spawnSync(process.execPath, [SCRIPT], {
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      GITHUB_EVENT_PATH: eventPath,
-      TELEGRAM_MODE: mode,
-      TELEGRAM_MESSAGE_FILE: outputPath,
-    },
-  });
+  const env = {
+    ...process.env,
+    GITHUB_EVENT_PATH: eventPath,
+    TELEGRAM_MODE: mode,
+    TELEGRAM_MESSAGE_FILE: outputPath,
+  };
+  if (liveAssociation !== undefined) env.TELEGRAM_AUTHOR_ASSOCIATION = liveAssociation;
+
+  const result = spawnSync(process.execPath, [SCRIPT], { encoding: 'utf8', env });
 
   return {
     ...result,
@@ -48,6 +48,19 @@ test('publish accepts trusted exact publish label', () => {
 
 test('rejects untrusted issue association', () => {
   const result = runValidator({ association: 'CONTRIBUTOR' });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /trusted/i);
+  assert.equal(result.message, null);
+});
+
+test('trusted live association overrides stale webhook association', () => {
+  const result = runValidator({ association: 'NONE', liveAssociation: 'MEMBER' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.message, 'Hello from Sudharma\n\nSecond line.');
+});
+
+test('untrusted live association overrides trusted webhook association', () => {
+  const result = runValidator({ association: 'OWNER', liveAssociation: 'CONTRIBUTOR' });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /trusted/i);
   assert.equal(result.message, null);
@@ -122,4 +135,19 @@ test('workflow routes jobs only by exact label and leaves trust authorization to
   assert.doesNotMatch(publishIf, /author_association|fromJSON/);
   assert.match(drySection, /run: node scripts\/telegram\/validate-event\.js/);
   assert.match(publishSection, /run: node scripts\/telegram\/validate-event\.js/);
+});
+
+test('workflow resolves current GitHub author association before validation', () => {
+  const workflowPath = path.resolve(__dirname, '../../.github/workflows/telegram-publish.yml');
+  const workflow = fs.readFileSync(workflowPath, 'utf8');
+  const dryStart = workflow.indexOf('  dry-run:');
+  const publishStart = workflow.indexOf('  publish:');
+  const drySection = workflow.slice(dryStart, publishStart);
+  const publishSection = workflow.slice(publishStart);
+
+  for (const section of [drySection, publishSection]) {
+    assert.match(section, /gh api/);
+    assert.match(section, /author_association/);
+    assert.match(section, /TELEGRAM_AUTHOR_ASSOCIATION:\s*\$\{\{ steps\.issue-trust\.outputs\.association \}\}/);
+  }
 });

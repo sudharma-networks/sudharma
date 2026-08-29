@@ -35,7 +35,11 @@ function main() {
   if (event.issue.pull_request) {
     fail('pull request issue payloads are not allowed');
   }
-  if (!isTrustedAssociation(event.issue.author_association)) {
+
+  const association = Object.hasOwn(process.env, 'TELEGRAM_AUTHOR_ASSOCIATION')
+    ? process.env.TELEGRAM_AUTHOR_ASSOCIATION
+    : event.issue.author_association;
+  if (!isTrustedAssociation(association)) {
     fail('issue author association is not trusted');
   }
 
