@@ -8,9 +8,9 @@ import (
 )
 
 type gpuActivationStatus struct {
-	Phase            string
-	ActivationHeight *uint64
-	NextBlockVersion uint32
+	Phase            string  `json:"phase"`
+	ActivationHeight *uint64 `json:"activation_height,omitempty"`
+	NextBlockVersion uint32  `json:"next_block_version"`
 }
 
 func deriveGPUActivationStatus(policy blockchain.PoWPolicy, tipHeight uint64) gpuActivationStatus {
