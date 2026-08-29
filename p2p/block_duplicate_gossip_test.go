@@ -134,6 +134,19 @@ func TestBlockGossipTriangleNoDuplicateCommit(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Connect() completes the outbound side after the handshake response, while
+	// the remote listener stores its inbound peer immediately afterward in its
+	// connection goroutine. Under the race detector that final registration can
+	// still be in flight here, so wait for the intended topology before testing
+	// the block-gossip behavior itself.
+	peerDeadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(peerDeadline) {
+		if nodeA.PeerCount() == 2 && nodeB.PeerCount() == 2 && nodeC.PeerCount() == 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
 	if nodeA.PeerCount() != 2 {
 		t.Fatalf(
 			"expected node A peer count 2, got %d",
