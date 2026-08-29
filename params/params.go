@@ -14,10 +14,8 @@ const (
 	// 1 SUDH = 100,000,000 base units
 	CoinDecimals uint64 = 100_000_000
 
-	// Maximum monetary supply
-	// Internal identifier will be renamed from SUDH to SUDH
-	// in a later controlled migration step.
-	MaxSupplySUDH uint64 = 100_000_000
+	// Maximum monetary supply (hard cap): 51 billion SUDH.
+	MaxSupplySUDH uint64 = 51_000_000_000
 	MaxSupply     uint64 = MaxSupplySUDH * CoinDecimals
 
 	// Block timing
@@ -36,8 +34,6 @@ const (
 	GPUV1MainnetActivationHeight uint64 = GPUV1ActivationDisabled
 
 	// Mining subsidy
-	// Internal identifier will be renamed from SUDH to SUDH
-	// in a later controlled migration step.
 	InitialBlockRewardSUDH uint64 = 50
 	InitialBlockReward     uint64 = InitialBlockRewardSUDH * CoinDecimals
 
