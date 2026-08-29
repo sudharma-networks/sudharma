@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -64,17 +65,17 @@ type explorerBlocksResponse struct {
 }
 
 type explorerTransactionsResponse struct {
-	Transactions     []explorerTransactionResponse `json:"transactions"`
-	NextBeforeHeight *uint64                       `json:"next_before_height,omitempty"`
+	Transactions []explorerTransactionResponse `json:"transactions"`
+	NextCursor   string                        `json:"next_cursor,omitempty"`
 }
 
 type explorerAddressResponse struct {
-	Address          string                        `json:"address"`
-	Balance          uint64                        `json:"balance"`
-	ConfirmedNonce   uint64                        `json:"confirmed_nonce"`
-	NextNonce        uint64                        `json:"next_nonce"`
-	Transactions     []explorerTransactionResponse `json:"transactions"`
-	NextBeforeHeight *uint64                       `json:"next_before_height,omitempty"`
+	Address        string                        `json:"address"`
+	Balance        uint64                        `json:"balance"`
+	ConfirmedNonce uint64                        `json:"confirmed_nonce"`
+	NextNonce      uint64                        `json:"next_nonce"`
+	Transactions   []explorerTransactionResponse `json:"transactions"`
+	NextCursor     string                        `json:"next_cursor,omitempty"`
 }
 
 type explorerSearchResponse struct {
@@ -168,18 +169,17 @@ func (s *Server) handleExplorerTransactions(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
-	confirmed := s.chain.RecentTransactions(limit, before)
+	confirmed, nextCursor, err := s.explorerConfirmedPage("", limit, strings.TrimSpace(r.URL.Query().Get("cursor")), before)
+	if err != nil {
+		writeExplorerCursorError(w, err)
+		return
+	}
 	views := make([]explorerTransactionResponse, 0, len(confirmed))
 	chainHeight := s.chain.Height()
 	for _, item := range confirmed {
 		views = append(views, explorerConfirmedTransaction(item, chainHeight))
 	}
-	var next *uint64
-	if len(confirmed) == limit && len(confirmed) > 0 {
-		height := confirmed[len(confirmed)-1].BlockHeight
-		next = &height
-	}
-	writeJSON(w, http.StatusOK, explorerTransactionsResponse{Transactions: views, NextBeforeHeight: next})
+	writeJSON(w, http.StatusOK, explorerTransactionsResponse{Transactions: views, NextCursor: nextCursor})
 }
 
 func (s *Server) handleExplorerTransaction(w http.ResponseWriter, r *http.Request) {
@@ -237,24 +237,23 @@ func (s *Server) handleExplorerAddress(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
-	confirmed := s.chain.TransactionsForAddress(raw, limit, before)
+	confirmed, nextCursor, err := s.explorerConfirmedPage(raw, limit, strings.TrimSpace(r.URL.Query().Get("cursor")), before)
+	if err != nil {
+		writeExplorerCursorError(w, err)
+		return
+	}
 	views := make([]explorerTransactionResponse, 0, len(confirmed))
 	chainHeight := s.chain.Height()
 	for _, item := range confirmed {
 		views = append(views, explorerConfirmedTransaction(item, chainHeight))
 	}
-	var next *uint64
-	if len(confirmed) == limit && len(confirmed) > 0 {
-		height := confirmed[len(confirmed)-1].BlockHeight
-		next = &height
-	}
 	writeJSON(w, http.StatusOK, explorerAddressResponse{
-		Address:          raw,
-		Balance:          s.state.Balance(raw),
-		ConfirmedNonce:   s.state.AccountNonce(raw),
-		NextNonce:        nextNonce,
-		Transactions:     views,
-		NextBeforeHeight: next,
+		Address:        raw,
+		Balance:        s.state.Balance(raw),
+		ConfirmedNonce: s.state.AccountNonce(raw),
+		NextNonce:      nextNonce,
+		Transactions:   views,
+		NextCursor:     nextCursor,
 	})
 }
 
@@ -333,6 +332,14 @@ func explorerOptionalHeight(w http.ResponseWriter, r *http.Request, key string) 
 		return nil, false
 	}
 	return &value, true
+}
+
+func writeExplorerCursorError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errExplorerStaleCursor) {
+		writeError(w, http.StatusConflict, "explorer cursor is stale; restart pagination")
+		return
+	}
+	writeError(w, http.StatusBadRequest, "invalid explorer cursor")
 }
 
 func explorerTransaction(tx *transactions.Transaction) explorerTransactionView {
