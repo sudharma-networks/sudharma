@@ -148,6 +148,7 @@ jobs:
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           const base = JSON.parse(fs.readFileSync('/tmp/lambda-environment-base.json', 'utf8')) ?? {};
+          if (typeof base !== 'object' || Array.isArray(base)) throw new Error('Lambda environment snapshot must be an object');
           const common = {
             SEED_1_URL: 'http://172.31.10.171:29100',
             SEED_2_URL: 'http://172.31.32.195:29100',
@@ -155,9 +156,27 @@ jobs:
             FAUCET_TABLE_NAME: process.env.FAUCET_TABLE_NAME,
             FAUCET_SECRET_ID: process.env.FAUCET_SECRET_ID,
           };
+          fs.writeFileSync('/tmp/lambda-environment-base-wrapper.json', JSON.stringify({ Variables: base }));
           fs.writeFileSync('/tmp/lambda-environment-disabled.json', JSON.stringify({ Variables: { ...base, ...common, FAUCET_ENABLED: 'false' } }));
           fs.writeFileSync('/tmp/lambda-environment-enabled.json', JSON.stringify({ Variables: { ...base, ...common, FAUCET_ENABLED: 'true' } }));
           NODE
+
+      - name: Snapshot current Lambda code for rollback
+        run: |
+          set -euo pipefail
+          aws lambda get-function \
+            --function-name "$LAMBDA_NAME" \
+            --query 'Code.Location' \
+            --output text > /tmp/lambda-code-location.txt
+          code_location="$(cat /tmp/lambda-code-location.txt)"
+          case "$code_location" in
+            https://*) ;;
+            *) echo 'Lambda rollback code location is invalid.' >&2; exit 1 ;;
+          esac
+          curl --fail --silent --show-error --location \
+            "$code_location" \
+            --output /tmp/lambda-code-rollback.zip
+          test -s /tmp/lambda-code-rollback.zip
 
       - name: Stage faucet disabled
         run: |
@@ -180,12 +199,44 @@ jobs:
       - name: Verify shared public RPC before faucet activation
         run: |
           set -euo pipefail
+          rollback_shared_lambda() {
+            local original_status=$?
+            trap - ERR
+            set +e
+            echo 'Pre-activation shared RPC check failed; restoring previous Lambda code and environment.' >&2
+            aws lambda update-function-code \
+              --function-name "$LAMBDA_NAME" \
+              --zip-file fileb:///tmp/lambda-code-rollback.zip \
+              --no-cli-pager >/dev/null
+            local code_status=$?
+            if [ "$code_status" -eq 0 ]; then
+              aws lambda wait function-updated --function-name "$LAMBDA_NAME"
+              code_status=$?
+            fi
+            aws lambda update-function-configuration \
+              --function-name "$LAMBDA_NAME" \
+              --environment file:///tmp/lambda-environment-base-wrapper.json \
+              --no-cli-pager >/dev/null
+            local env_status=$?
+            if [ "$env_status" -eq 0 ]; then
+              aws lambda wait function-updated --function-name "$LAMBDA_NAME"
+              env_status=$?
+            fi
+            if [ "$code_status" -ne 0 ] || [ "$env_status" -ne 0 ]; then
+              echo "ROLLBACK INCOMPLETE: code_status=$code_status env_status=$env_status" >&2
+            else
+              echo 'Previous Lambda code and environment restored.' >&2
+            fi
+            exit "$original_status"
+          }
+          trap 'rollback_shared_lambda' ERR
           curl -fsS "$RPC_BASE_URL/v1/status" >/tmp/status.json
           node -e "const s=require('/tmp/status.json'); if (!s || s.network !== 'sudharma') process.exit(1); console.log(JSON.stringify({network:s.network,coin:s.coin,symbol:s.symbol,height:s.height,peers:s.peers}))"
           curl -fsS "$RPC_BASE_URL/v1/website/visitors" >/tmp/visitors.json
           node -e "const v=require('/tmp/visitors.json'); if (!Number.isSafeInteger(v.total) || v.total < 0) process.exit(1); console.log(JSON.stringify({website_visitors:v.total}))"
           curl -fsS "$RPC_BASE_URL/v1/explorer/status" >/tmp/explorer-status.json
           node -e "const e=require('/tmp/explorer-status.json'); if (!e || typeof e !== 'object') process.exit(1); console.log(JSON.stringify({explorer_status:'ok'}))"
+          trap - ERR
 
       - name: Activate faucet and smoke-test public readiness
         run: |
