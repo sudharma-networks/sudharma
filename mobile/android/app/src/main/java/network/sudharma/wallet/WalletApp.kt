@@ -12,6 +12,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,6 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -52,6 +54,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
@@ -377,6 +380,9 @@ private fun HomeScreen(
     var balance by remember { mutableStateOf("—") }
     var status by remember { mutableStateOf(if (repository.preferences.rpcUrl.isBlank()) "RPC not configured" else "Connecting…") }
     var recentActivity by remember { mutableStateOf<List<WalletActivityItem>>(emptyList()) }
+    var faucetInfo by remember { mutableStateOf<TestnetFaucetClient.Info?>(null) }
+    var faucetMessage by remember { mutableStateOf("") }
+    var faucetLoading by remember { mutableStateOf(false) }
 
     fun refresh() {
         if (repository.preferences.rpcUrl.isBlank()) { status = "RPC not configured"; return }
@@ -388,7 +394,14 @@ private fun HomeScreen(
                 .onSuccess { recentActivity = it.take(5) }
         }
     }
-    LaunchedEffect(repository.preferences.rpcUrl) { refresh() }
+    LaunchedEffect(repository.preferences.rpcUrl) {
+        refresh()
+        if (repository.preferences.rpcUrl.isNotBlank()) {
+            runCatching { repository.faucetInfo() }
+                .onSuccess { faucetInfo = it }
+                .onFailure { faucetInfo = null }
+        }
+    }
 
     ScreenFrame("Sudharma Wallet") {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -406,6 +419,36 @@ private fun HomeScreen(
             OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.weight(1f)) { Text("Swap") }
         }
         Text("Swap — Coming later", style = MaterialTheme.typography.labelSmall)
+
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Sudharma Testnet Tokens", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("Need test coins? Request the current testnet grant directly to this wallet. Test SUDH has no monetary value.")
+                Button(
+                    enabled = faucetInfo?.enabled == true && account != null && !faucetLoading,
+                    onClick = {
+                        faucetLoading = true
+                        faucetMessage = "Requesting test SUDH…"
+                        scope.launch {
+                            runCatching { repository.requestInitialTestTokens() }
+                                .onSuccess { grant ->
+                                    faucetMessage = "${grant.amountSudh} Test SUDH request submitted. TX: ${grant.transactionId.take(12)}…"
+                                    refresh()
+                                }
+                                .onFailure { failure ->
+                                    faucetMessage = failure.message ?: "Unable to request test SUDH"
+                                }
+                            faucetLoading = false
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(if (faucetLoading) "Requesting…" else "Request Test SUDH") }
+                if (faucetInfo?.enabled != true) {
+                    Text("The protected testnet faucet is currently unavailable. This action enables automatically when the service is online.", style = MaterialTheme.typography.bodySmall)
+                }
+                if (faucetMessage.isNotEmpty()) Text(faucetMessage, style = MaterialTheme.typography.bodySmall)
+            }
+        }
 
         Text("Assets", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Card(Modifier.fillMaxWidth()) {
@@ -462,11 +505,21 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
     val scope = rememberCoroutineScope()
     var recipient by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
+    var challengeMode by remember { mutableStateOf(false) }
+    var challengeInfo by remember { mutableStateOf<TestnetFaucetClient.Info?>(null) }
+    var challengeMessage by remember { mutableStateOf("") }
+    var claiming by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf(false) }
     var pin by remember { mutableStateOf("") }
     var error by remember { mutableStateOf("") }
     var result by remember { mutableStateOf<TransactionStatus?>(null) }
     var sending by remember { mutableStateOf(false) }
+
+    LaunchedEffect(repository.preferences.rpcUrl) {
+        runCatching { repository.faucetInfo() }
+            .onSuccess { challengeInfo = it }
+            .onFailure { challengeInfo = null }
+    }
 
     val scanner = rememberLauncherForActivityResult(ScanContract()) { scan ->
         scan.contents?.let { contents ->
@@ -491,7 +544,7 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
     fun performSend() {
         sending = true; error = ""
         scope.launch {
-            runCatching { repository.send(recipient, amount) }
+            runCatching { repository.send(recipient, amount, challengeMode = challengeMode) }
                 .onSuccess { result = it }
                 .onFailure { error = it.message ?: "Transaction failed" }
             sending = false
@@ -506,12 +559,63 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
             DetailRow(label = "Sent to", value = recipient)
             DetailRow(label = "Status", value = it.state.name)
             TransactionReferenceActions(it.id)
+            if (challengeMode) {
+                Text("Challenge payment submitted. The 50 Test SUDH reward can be claimed after this transaction is confirmed.")
+                Button(
+                    enabled = !claiming,
+                    onClick = {
+                        claiming = true
+                        challengeMessage = "Checking transaction confirmation…"
+                        scope.launch {
+                            runCatching {
+                                val latest = repository.transactionStatus(it.id)
+                                require(latest.state == TransactionState.CONFIRMED) {
+                                    "Transaction is not confirmed yet. Try again after the next testnet block."
+                                }
+                                repository.claimChallengeReward(it.id)
+                            }.onSuccess { reward ->
+                                challengeMessage = "Round ${reward.round} complete — ${reward.rewardSudh} Test SUDH reward submitted."
+                            }.onFailure { failure ->
+                                challengeMessage = failure.message ?: "Unable to claim challenge reward"
+                            }
+                            claiming = false
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (claiming) "Checking…" else "Check Confirmation & Claim ${challengeInfo?.challengeRewardSudh ?: 50} Test SUDH")
+                }
+                if (challengeMessage.isNotEmpty()) Text(challengeMessage, style = MaterialTheme.typography.bodySmall)
+            }
             Text("Saved to Activity. Refresh Home to update confirmations.", style = MaterialTheme.typography.bodySmall)
             Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Done") }
             return@ScreenFrame
         }
         if (!confirm) {
-            OutlinedTextField(recipient, { recipient = it.trim() }, label = { Text("Recipient address") }, modifier = Modifier.fillMaxWidth())
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Testnet Challenge", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("Send ${challengeInfo?.challengeSendSudh ?: 25} test SUDH to the official challenge address. After confirmation, eligible testers receive ${challengeInfo?.challengeRewardSudh ?: 50} test SUDH back. Up to ${challengeInfo?.maxRounds ?: 5} rounds with a ${challengeInfo?.cooldownHours ?: 24}-hour wait between successful rounds.")
+                    Button(
+                        enabled = challengeInfo?.enabled == true && challengeInfo?.challengeAddress?.matches(Regex("^[0-9a-f]{40}$")) == true,
+                        onClick = {
+                            challengeMode = true
+                            recipient = challengeInfo?.challengeAddress.orEmpty()
+                            amount = (challengeInfo?.challengeSendSudh ?: 25).toString()
+                            error = ""
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Use 25 → 50 Testnet Challenge") }
+                    if (challengeInfo?.enabled != true) {
+                        Text("Official challenge service is currently unavailable. It will enable automatically when the protected faucet is online.", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text("TESTNET ONLY — NO MONETARY VALUE", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                }
+            }
+            if (challengeMode) {
+                Text("Challenge mode — official address and 25 SUDH amount are prefilled.", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+            }
+            OutlinedTextField(recipient, { recipient = it.trim(); challengeMode = false }, label = { Text("Recipient address") }, modifier = Modifier.fillMaxWidth())
             OutlinedButton(onClick = {
                 when (
                     ScannerPermissionState.next(
@@ -529,7 +633,7 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
             }, modifier = Modifier.fillMaxWidth()) { Text("Scan QR") }
             OutlinedTextField(
                 amount,
-                { amount = it },
+                { amount = it; challengeMode = false },
                 label = { Text("Amount (SUDH)") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 modifier = Modifier.fillMaxWidth(),
@@ -547,6 +651,7 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
             val fee = runCatching { SudharmaTransaction.calculateFee(atomic) }.getOrDefault(0)
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (challengeMode) Text("Testnet Challenge — Send 25 / Receive 50", fontWeight = FontWeight.Bold)
                     Text("Recipient: ${recipient.take(10)}…${recipient.takeLast(8)}")
                     Text("Amount: $amount SUDH")
                     Text("Fee: ${formatAtomic(fee)} SUDH")
@@ -574,9 +679,14 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
 private fun ActivityScreen(repository: SudharmaWalletRepository, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var items by remember { mutableStateOf<List<WalletActivityItem>>(emptyList()) }
+    var selected by remember { mutableStateOf<WalletActivityItem?>(null) }
     var message by remember { mutableStateOf("") }
+
     fun refresh() {
-        if (repository.preferences.rpcUrl.isBlank()) { message = "Configure Testnet RPC in Settings first."; return }
+        if (repository.preferences.rpcUrl.isBlank()) {
+            message = "Configure Testnet RPC in Settings first."
+            return
+        }
         scope.launch {
             runCatching { repository.activityHistory() }
                 .onSuccess {
@@ -586,21 +696,29 @@ private fun ActivityScreen(repository: SudharmaWalletRepository, onBack: () -> U
                 .onFailure { message = it.message ?: "Unable to load activity" }
         }
     }
+
     LaunchedEffect(Unit) { refresh() }
+
+    selected?.let { item ->
+        TransactionDetailScreen(item = item, onBack = { selected = null })
+        return
+    }
+
     ScreenFrame("Activity", onBack) {
         TestnetBadge()
-        Text("Transaction history includes sends from this wallet and recent received payments discovered from the chain.", style = MaterialTheme.typography.bodySmall)
+        Text("Sent and received transactions are sorted newest first. Tap any record for full transaction details.", style = MaterialTheme.typography.bodySmall)
         OutlinedButton(onClick = { refresh() }) { Text("Refresh") }
         if (message.isNotEmpty()) Text(message)
-        items.forEach { item -> TransactionHistoryCard(item) }
+        items.forEach { item ->
+            TransactionHistoryCard(item = item, onOpen = { selected = item })
+        }
     }
 }
 
 @Composable
-private fun TransactionHistoryCard(item: WalletActivityItem) {
+private fun TransactionHistoryCard(item: WalletActivityItem, onOpen: () -> Unit = {}) {
     val record = item.record
-    val context = LocalContext.current
-    Card(Modifier.fillMaxWidth()) {
+    Card(Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(TransactionDetailFormatter.directionLabel(record.direction), fontWeight = FontWeight.Bold)
@@ -614,36 +732,33 @@ private fun TransactionHistoryCard(item: WalletActivityItem) {
                     "Unavailable"
                 },
             )
-            if (record.direction == TransactionDirection.SENT) {
-                TransactionDetailFormatter.feeLabel(record.feeAtomic)?.let { fee ->
-                    DetailRow(label = "Network fee", value = fee)
-                }
-            }
-            DetailRow(
-                label = TransactionDetailFormatter.counterpartyLabel(record.direction),
-                value = if (TransactionDetailFormatter.hasKnownCounterparty(record.counterparty)) {
-                    record.counterparty
-                } else {
-                    "Unavailable"
-                },
-            )
-            if (TransactionDetailFormatter.hasKnownCounterparty(record.counterparty)) {
-                OutlinedButton(onClick = {
-                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(
-                        ClipData.newPlainText("Sudharma address", record.counterparty),
-                    )
-                }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Copy ${if (record.direction == TransactionDirection.SENT) "recipient" else "sender"} address")
-                }
-            }
-            DetailRow(label = "Network", value = "Sudharma Testnet")
-            DetailRow(label = "Time", value = TransactionDetailFormatter.timestampLabel(record.timestampMs))
-            if (item.state == TransactionState.CONFIRMED) {
-                DetailRow(label = "Confirmations", value = item.confirmations.toString())
-            }
-            TransactionReferenceActions(record.id)
+            DetailRow(label = "Date & time", value = TransactionDetailFormatter.timestampLabel(record.timestampMs))
+            Text("Tap to view full transaction details", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
         }
+    }
+}
+
+@Composable
+private fun TransactionDetailScreen(item: WalletActivityItem, onBack: () -> Unit) {
+    val detail = TransactionDetailPresentation.from(item)
+    val context = LocalContext.current
+    ScreenFrame("Transaction Details", onBack) {
+        TestnetBadge()
+        DetailRow(label = "Direction", value = detail.direction)
+        DetailRow(label = "Amount", value = detail.amount)
+        DetailRow(label = detail.counterpartyLabel, value = detail.counterparty)
+        detail.networkFee?.let { DetailRow(label = "Network fee", value = it) }
+        DetailRow(label = "Network", value = "Sudharma Testnet")
+        DetailRow(label = "Status", value = detail.status)
+        DetailRow(label = "Date & time", value = detail.dateTime)
+        if (item.state == TransactionState.CONFIRMED) {
+            DetailRow(label = "Confirmations", value = detail.confirmations.toString())
+        }
+        TransactionReferenceActions(detail.transactionId)
+        OutlinedButton(
+            onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(detail.explorerUrl))) },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("View on Explorer ↗") }
     }
 }
 
@@ -658,16 +773,29 @@ private fun DetailRow(label: String, value: String) {
 @Composable
 private fun TransactionReferenceActions(transactionId: String) {
     val context = LocalContext.current
+    val explorerUrl = ExplorerLinks.transactionUrl(transactionId)
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(transactionId, style = MaterialTheme.typography.bodySmall)
+        Text("TX ID — tap to verify in Explorer", style = MaterialTheme.typography.labelMedium)
+        SelectionContainer {
+            Text(
+                transactionId,
+                modifier = Modifier.clickable {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(explorerUrl)))
+                },
+                style = MaterialTheme.typography.bodySmall.copy(
+                    color = MaterialTheme.colorScheme.primary,
+                    textDecoration = TextDecoration.Underline,
+                ),
+            )
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = {
                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("Sudharma transaction ID", transactionId))
-            }, modifier = Modifier.weight(1f)) { Text("Copy ID") }
+            }, modifier = Modifier.weight(1f)) { Text("Copy TX ID") }
             OutlinedButton(onClick = {
                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(ExplorerLinks.transactionUrl(transactionId))))
-            }, modifier = Modifier.weight(1f)) { Text("Explorer") }
+            }, modifier = Modifier.weight(1f)) { Text("Open Explorer ↗") }
         }
     }
 }

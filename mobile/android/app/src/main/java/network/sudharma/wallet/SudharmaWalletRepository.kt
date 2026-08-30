@@ -2,6 +2,7 @@ package network.sudharma.wallet
 
 import android.content.Context
 import network.sudharma.wallet.chain.AssetBalance
+import network.sudharma.wallet.chain.TransactionState
 import network.sudharma.wallet.chain.TransactionStatus
 import network.sudharma.wallet.chain.sudharma.SudharmaChainAdapter
 import network.sudharma.wallet.chain.sudharma.SudharmaRpcClient
@@ -16,6 +17,7 @@ class SudharmaWalletRepository(context: Context) {
     val walletStore = WalletStore(context)
     val security = AppSecurityPreferences(context)
     val preferences = WalletPreferences(context)
+    @Volatile private var lastFaucetInfo: TestnetFaucetClient.Info? = null
 
     data class LocalAccount(val address: String, val privateScalar: java.math.BigInteger)
 
@@ -42,12 +44,26 @@ class SudharmaWalletRepository(context: Context) {
 
     suspend fun balance(): AssetBalance = adapter().balance(account().address)
 
-    suspend fun send(to: String, amountText: String): TransactionStatus {
+    suspend fun faucetInfo(): TestnetFaucetClient.Info = faucetClient().info().also { lastFaucetInfo = it }
+
+    suspend fun requestInitialTestTokens(): TestnetFaucetClient.InitialGrant =
+        faucetClient().requestInitial(account().address)
+
+    suspend fun claimChallengeReward(transactionId: String): TestnetFaucetClient.ChallengeReward =
+        faucetClient().claimChallenge(account().address, transactionId)
+
+    suspend fun send(to: String, amountText: String, challengeMode: Boolean = false): TransactionStatus {
         val account = account()
         val adapter = adapter()
         require(adapter.validateAddress(to)) { "Invalid Sudharma address" }
         require(to != account.address) { "Cannot send to the same wallet" }
         val amount = parseCoinAmount(amountText)
+        if (challengeMode) {
+            val info = faucetInfo()
+            require(TestnetChallengePolicy.matchesOfficialChallenge(info, to, amount)) {
+                "Challenge details changed; reopen the challenge and try again"
+            }
+        }
         val remoteAccount = adapter.balance(account.address)
         val fee = adapter.estimateFee(amount).feeAtomic
         require(remoteAccount.amount.atomic >= Math.addExact(amount, fee)) { "Insufficient balance including fee" }
@@ -102,6 +118,11 @@ class SudharmaWalletRepository(context: Context) {
         preferences.lastSyncedChainHeight = network.height
     }
 
+    suspend fun transactionStatus(transactionId: String): TransactionStatus = adapter().status(transactionId)
+
+    suspend fun transactionConfirmed(transactionId: String): Boolean =
+        transactionStatus(transactionId).state == TransactionState.CONFIRMED
+
     suspend fun transactionStatuses(): List<TransactionStatus> =
         activityHistory().map {
             TransactionStatus(it.record.id, it.state, it.confirmations)
@@ -111,6 +132,7 @@ class SudharmaWalletRepository(context: Context) {
         walletStore.clear()
         security.clear()
         preferences.clear()
+        lastFaucetInfo = null
     }
 
     private fun adapter(): SudharmaChainAdapter {
@@ -123,6 +145,12 @@ class SudharmaWalletRepository(context: Context) {
         val url = preferences.rpcUrl
         require(url.isNotBlank()) { "Sudharma Testnet RPC is not configured" }
         return SudharmaRpcClient(url)
+    }
+
+    private fun faucetClient(): TestnetFaucetClient {
+        val url = preferences.rpcUrl
+        require(url.isNotBlank()) { "Sudharma Testnet RPC is not configured" }
+        return TestnetFaucetClient(url)
     }
 
     companion object {
