@@ -313,7 +313,13 @@ jobs:
 
   trigger-faucet-recovery:
     needs: [assess-chain-work, ensure-on-seed]
-    if: always() && needs.assess-chain-work.outputs.should_deploy == 'true' && needs.ensure-on-seed.result == 'success'
+    if: >-
+      always() &&
+      needs.assess-chain-work.outputs.should_attempt_recovery == 'true' &&
+      (
+        needs.assess-chain-work.outputs.should_deploy != 'true' ||
+        needs.ensure-on-seed.result == 'success'
+      )
     runs-on: ubuntu-24.04
     permissions:
       id-token: write
