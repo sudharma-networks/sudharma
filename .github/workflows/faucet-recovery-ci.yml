@@ -47,4 +47,5 @@ jobs:
         run: npm test
       - name: Lambda slice not restored yet
         if: steps.lambda.outputs.present != 'true'
-        run: echo 'Stage 2 RED phase: Lambda slice is not present yet.'
+        run: |
+          echo 'Stage 2 RED phase: Lambda slice is not present yet.'
