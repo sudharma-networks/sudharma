@@ -51,7 +51,7 @@ export function analyzeFaucetPublicState({
     faucet_ready: faucetHealth?.ready ?? null,
     network_height: networkStatus?.height ?? null,
     network_mempool: networkStatus?.mempool ?? null,
-    mempool_route_available: mempool.ok === true,
+    mempool_route_available: mempool?.ok === true,
     signer_mempool_txs: signerMempoolTxs,
     signer: {
       address: FAUCET_SIGNER,
