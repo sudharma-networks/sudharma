@@ -1,4 +1,4 @@
-import { classifyAsset, normalizeReleases } from "../scripts/sync-github-releases.mjs";
+import { classifyAsset, normalizeReleases, withSameSiteWalletUrls } from "../scripts/sync-github-releases.mjs";
 
 const release = {
   tag_name: "wallet-testnet-v0.1.0",
@@ -35,6 +35,15 @@ it("propagates the GitHub SHA256 digest and sidecar URL", () => {
   expect(item.checksumUrl).toContain(".apk.sha256");
 });
 
+it("publishes the newest Android wallet through fixed same-site URLs", () => {
+  const [wallet] = withSameSiteWalletUrls(normalizeReleases([release]));
+  expect(wallet.version).toBe("wallet-testnet-v0.1.0");
+  expect(wallet.sha256).toBe("f4d0ec7898bcfd19a857a9930f71a2433c297112e4b1589b6856c1d397d8ebab");
+  expect(wallet.downloadUrl).toBe("/downloads/Sudharma-Wallet-latest.apk");
+  expect(wallet.checksumUrl).toBe("/downloads/Sudharma-Wallet-latest.apk.sha256");
+  expect(wallet.releaseNotesUrl).toBe(release.html_url);
+});
+
 it("keeps only the newest verified release for each product slot", () => {
   const olderWallet = {
     ...release,
@@ -65,6 +74,9 @@ it("classifies CUDA and OpenCL miner packages as experimental", () => {
   expect(opencl?.slot).toBe("amd-miner");
   expect(cuda?.channel).toBe("experimental");
   expect(opencl?.channel).toBe("experimental");
+
+  const [sameSiteCuda] = withSameSiteWalletUrls([cuda]);
+  expect(sameSiteCuda.downloadUrl).toBe(cuda.browser_download_url ?? cuda.downloadUrl);
 });
 
 it("does not promote unknown binary assets", () => {
