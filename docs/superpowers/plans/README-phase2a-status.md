@@ -1,1 +1,0 @@
-Phase 2A implementation started on `feature/telegram-community-phase2a` after written-spec approval. Development follows the committed implementation plan with test-first RED/GREEN evidence. This file is temporary execution metadata and may be removed before merge if unnecessary.
