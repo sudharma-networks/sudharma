@@ -236,6 +236,7 @@ jobs:
             --function-name "$LAMBDA_NAME" \
             --zip-file fileb://build/public-rpc/sudharma-testnet-wallet-proxy.zip \
             --no-cli-pager >/dev/null
+          aws lambda wait function-updated --function-name "$LAMBDA_NAME"
           aws lambda update-function-configuration \
             --function-name "$LAMBDA_NAME" \
             --environment file:///tmp/lambda-environment-fresh.json \
