@@ -51,7 +51,7 @@ jobs:
           mkdir -p build/public-rpc
           cd deployment/testnet/public-rpc/lambda
           zip -q -9 -r "$GITHUB_WORKSPACE/build/public-rpc/sudharma-testnet-wallet-proxy.zip" \
-            index.mjs router.mjs upstream.mjs faucet.mjs faucet-runtime.mjs package.json node_modules
+            index.mjs router.mjs upstream.mjs faucet.mjs faucet-runtime.mjs visitor-runtime.mjs package.json node_modules
 
       - name: Upload tested Lambda artifact
         uses: actions/upload-artifact@v4
@@ -146,11 +146,17 @@ jobs:
             --no-cli-pager >/dev/null
           aws lambda wait function-updated --function-name "$LAMBDA_NAME"
 
-      - name: Verify normal public RPC before faucet activation
+      - name: Verify shared public RPC before faucet activation
         run: |
           set -euo pipefail
           curl -fsS "$RPC_BASE_URL/v1/status" >/tmp/status.json
           node -e "const s=require('/tmp/status.json'); if (!s || s.network !== 'sudharma') process.exit(1); console.log(JSON.stringify({network:s.network,coin:s.coin,symbol:s.symbol,height:s.height,peers:s.peers}))"
+
+          curl -fsS "$RPC_BASE_URL/v1/website/visitors" >/tmp/visitors.json
+          node -e "const v=require('/tmp/visitors.json'); if (!Number.isSafeInteger(v.total) || v.total < 0) process.exit(1); console.log(JSON.stringify({website_visitors:v.total}))"
+
+          curl -fsS "$RPC_BASE_URL/v1/explorer/status" >/tmp/explorer-status.json
+          node -e "const e=require('/tmp/explorer-status.json'); if (!e || typeof e !== 'object') process.exit(1); console.log(JSON.stringify({explorer_status:'ok'}))"
 
       - name: Activate faucet and smoke-test public readiness
         run: |
@@ -202,10 +208,12 @@ jobs:
 
           trap - ERR
 
-      - name: Verify normal public RPC after faucet activation
+      - name: Verify shared public RPC after faucet activation
         run: |
           set -euo pipefail
           curl -fsS "$RPC_BASE_URL/v1/status" >/dev/null
+          curl -fsS "$RPC_BASE_URL/v1/website/visitors" >/dev/null
+          curl -fsS "$RPC_BASE_URL/v1/explorer/status" >/dev/null
 
       - name: Verify deployed Lambda configuration
         run: |
