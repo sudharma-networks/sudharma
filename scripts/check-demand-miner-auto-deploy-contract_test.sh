@@ -17,13 +17,16 @@ require_literal() {
 
 [ -f "$workflow" ] || fail "$workflow is missing"
 [ -f "$monitor" ] || fail "$monitor is missing"
-[ -f deployment/testnet/remote-ensure-demand-miner.sh ] || fail 'remote ensure script is missing'
+[ -f deployment/testnet/remote-install-demand-miner-from-urls.sh ] || fail 'remote install-from-urls script is missing'
+[ -f scripts/publish-demand-miner-binaries.sh ] || fail 'publish-demand-miner-binaries script is missing'
 
 require_literal "$workflow" 'name: Demand Miner Auto Deploy'
 require_literal "$workflow" 'workflow_call:'
 require_literal "$workflow" 'assess-chain-work:'
 require_literal "$workflow" 'ensure-on-seed:'
-require_literal "$workflow" 'remote-ensure-demand-miner.sh'
+require_literal "$workflow" 'publish-demand-miner-binaries.sh'
+require_literal "$workflow" 'remote-install-demand-miner-from-urls.sh'
+require_literal "$workflow" 'base64 -d | bash'
 require_literal "$workflow" 'aws ssm send-command'
 require_literal "$workflow" 'trigger-faucet-recovery:'
 require_literal "$monitor" 'auto-deploy-demand-miner:'
