@@ -70,3 +70,4 @@ jobs:
           echo 'seed-binaries-changed=0'
           echo 'rpc-firewall-changes=0'
           echo 'gpu-pow-deployment=0'
+          echo 'explorer-preflight=trusted-branch'
