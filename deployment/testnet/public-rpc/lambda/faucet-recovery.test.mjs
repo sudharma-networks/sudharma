@@ -11,7 +11,7 @@ const ADDRESS = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const CHALLENGE_TX_ID = 'c'.repeat(64);
 const NOW = 1_700_000_000_000;
 
-test('prepared initial payout is safely resubmitted with the same transaction id after an uncertain broadcast', async () => {
+test('prepared initial payout is safely resubmitted with the same transaction id under the payout lock after an uncertain broadcast', async () => {
   const signer = createSigner('0'.repeat(63) + '1');
   const prepared = signer.signTransaction(ADDRESS, 100 * COIN, 7);
   const calls = [];
@@ -24,6 +24,8 @@ test('prepared initial payout is safely resubmitted with the same transaction id
         initial_payout: prepared,
       };
     },
+    async acquirePayoutLock() { calls.push(['lock']); return true; },
+    async releasePayoutLock() { calls.push(['unlock']); },
     async markInitialSubmitted(address, txid) { calls.push(['markInitialSubmitted', address, txid]); },
     async completeInitial() { throw new Error('should not complete before confirmation'); },
   };
@@ -45,9 +47,31 @@ test('prepared initial payout is safely resubmitted with the same transaction id
   assert.equal(result.status, 'submitted');
   assert.equal(result.transaction_id, prepared.ID);
   assert.deepEqual(calls, [
+    ['lock'],
     ['submit', prepared.ID],
+    ['unlock'],
     ['markInitialSubmitted', ADDRESS, prepared.ID],
   ]);
+});
+
+test('prepared payout recovery fails closed when the payout lock is busy', async () => {
+  const signer = createSigner('0'.repeat(63) + '1');
+  const prepared = signer.signTransaction(ADDRESS, 100 * COIN, 7);
+  const store = {
+    async reserveInitial() { return false; },
+    async getAddress() {
+      return { initial_status: 'prepared', initial_txid: prepared.ID, initial_payout: prepared };
+    },
+    async acquirePayoutLock() { return false; },
+    async releasePayoutLock() { throw new Error('must not unlock a lock that was not acquired'); },
+  };
+  const rpc = {
+    async transaction() { throw new Error('must not touch RPC without the payout lock'); },
+    async submit() { throw new Error('must not submit without the payout lock'); },
+  };
+
+  const service = createFaucetService({ store, rpc, signer, now: () => NOW });
+  await assert.rejects(service.requestInitial(ADDRESS), /faucet is busy/i);
 });
 
 test('already completed challenge reward is idempotent on retry even during cooldown', async () => {
@@ -76,7 +100,7 @@ test('already completed challenge reward is idempotent on retry even during cool
   assert.equal(result.status, 'submitted');
 });
 
-test('prepared challenge reward is completed from observed pending payout without creating a second reward', async () => {
+test('prepared challenge reward is completed from observed pending payout under the payout lock without creating a second reward', async () => {
   const signer = createSigner('0'.repeat(63) + '1');
   const preparedReward = signer.signTransaction(ADDRESS, 50 * COIN, 8);
   const calls = [];
@@ -90,6 +114,8 @@ test('prepared challenge reward is completed from observed pending payout withou
         reward_payout: preparedReward,
       };
     },
+    async acquirePayoutLock() { calls.push(['lock']); return true; },
+    async releasePayoutLock() { calls.push(['unlock']); },
     async completeChallenge(address, challengeTxId, rewardTxId) {
       calls.push(['completeChallenge', address, challengeTxId, rewardTxId]);
     },
@@ -108,6 +134,8 @@ test('prepared challenge reward is completed from observed pending payout withou
   assert.equal(result.reward_transaction_id, preparedReward.ID);
   assert.equal(result.round, 1);
   assert.deepEqual(calls, [
+    ['lock'],
+    ['unlock'],
     ['completeChallenge', ADDRESS, CHALLENGE_TX_ID, preparedReward.ID],
   ]);
 });
