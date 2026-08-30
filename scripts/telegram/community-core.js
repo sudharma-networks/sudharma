@@ -73,6 +73,12 @@ function neutralizeGithubMentions(value) {
   return String(value).replace(/@/g, '@\u200b');
 }
 
+function neutralizeGithubControlSyntax(value) {
+  return String(value)
+    .replace(/<!--/g, '&lt;!--')
+    .replace(/-->/g, '--&gt;');
+}
+
 function telegramMessageLink(message) {
   if (!isOfficialChat(message)) {
     throw new Error('Telegram message is not from the official community group');
@@ -104,7 +110,7 @@ function quoteMarkdown(value) {
 
 function buildReportIssue({ updateId, reportText, message, now }) {
   const validated = validateReportText(reportText);
-  const safeText = neutralizeGithubMentions(validated);
+  const safeText = neutralizeGithubControlSyntax(neutralizeGithubMentions(validated));
   const sourceLink = telegramMessageLink(message);
   if (!Number.isFinite(message.date)) {
     throw new Error('Telegram message date is invalid');
