@@ -502,9 +502,11 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
         TestnetBadge()
         result?.let {
             Text("Transaction accepted", style = MaterialTheme.typography.titleLarge)
+            DetailRow(label = "Amount", value = "-$amount SUDH")
+            DetailRow(label = "Sent to", value = recipient)
+            DetailRow(label = "Status", value = it.state.name)
             TransactionReferenceActions(it.id)
-            Text("Status: ${it.state}")
-            Text("Saved to Activity. Pull to refresh on Home to update confirmations.", style = MaterialTheme.typography.bodySmall)
+            Text("Saved to Activity. Refresh Home to update confirmations.", style = MaterialTheme.typography.bodySmall)
             Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Done") }
             return@ScreenFrame
         }
@@ -597,31 +599,59 @@ private fun ActivityScreen(repository: SudharmaWalletRepository, onBack: () -> U
 @Composable
 private fun TransactionHistoryCard(item: WalletActivityItem) {
     val record = item.record
-    val directionLabel = when (record.direction) {
-        TransactionDirection.SENT -> "Sent"
-        TransactionDirection.RECEIVED -> "Received"
-    }
-    val amountLabel = if (record.counterparty == PLACEHOLDER_COUNTERPARTY) {
-        "Amount unavailable"
-    } else {
-        "${if (record.direction == TransactionDirection.SENT) "-" else "+"}${formatAtomic(record.amountAtomic)} SUDH"
-    }
+    val context = LocalContext.current
     Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(directionLabel, fontWeight = FontWeight.Bold)
+                Text(TransactionDetailFormatter.directionLabel(record.direction), fontWeight = FontWeight.Bold)
                 Text(item.state.name)
             }
-            Text(amountLabel, style = MaterialTheme.typography.titleMedium)
-            Text(
-                "${if (record.direction == TransactionDirection.SENT) "To" else "From"}: ${record.counterparty.take(10)}…${record.counterparty.takeLast(8)}",
-                style = MaterialTheme.typography.bodySmall,
+            DetailRow(
+                label = "Amount",
+                value = if (TransactionDetailFormatter.hasKnownAmount(record)) {
+                    TransactionDetailFormatter.amountLabel(record.direction, record.amountAtomic)
+                } else {
+                    "Unavailable"
+                },
             )
+            if (record.direction == TransactionDirection.SENT) {
+                TransactionDetailFormatter.feeLabel(record.feeAtomic)?.let { fee ->
+                    DetailRow(label = "Network fee", value = fee)
+                }
+            }
+            DetailRow(
+                label = TransactionDetailFormatter.counterpartyLabel(record.direction),
+                value = if (TransactionDetailFormatter.hasKnownCounterparty(record.counterparty)) {
+                    record.counterparty
+                } else {
+                    "Unavailable"
+                },
+            )
+            if (TransactionDetailFormatter.hasKnownCounterparty(record.counterparty)) {
+                OutlinedButton(onClick = {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(
+                        ClipData.newPlainText("Sudharma address", record.counterparty),
+                    )
+                }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Copy ${if (record.direction == TransactionDirection.SENT) "recipient" else "sender"} address")
+                }
+            }
+            DetailRow(label = "Network", value = "Sudharma Testnet")
+            DetailRow(label = "Time", value = TransactionDetailFormatter.timestampLabel(record.timestampMs))
             if (item.state == TransactionState.CONFIRMED) {
-                Text("Confirmations: ${item.confirmations}", style = MaterialTheme.typography.bodySmall)
+                DetailRow(label = "Confirmations", value = item.confirmations.toString())
             }
             TransactionReferenceActions(record.id)
         }
+    }
+}
+
+@Composable
+private fun DetailRow(label: String, value: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -641,8 +671,6 @@ private fun TransactionReferenceActions(transactionId: String) {
         }
     }
 }
-
-private const val PLACEHOLDER_COUNTERPARTY = "0000000000000000000000000000000000000000"
 
 @Composable
 private fun SettingsScreen(

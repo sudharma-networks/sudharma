@@ -72,7 +72,7 @@ class WalletPreferences(context: Context) {
                 id = id,
                 direction = TransactionDirection.SENT,
                 amountAtomic = 1L,
-                counterparty = "0000000000000000000000000000000000000000",
+                counterparty = PLACEHOLDER_COUNTERPARTY,
                 timestampMs = 0L,
             )
         }

@@ -12,8 +12,8 @@ android {
         applicationId = "network.sudharma.wallet"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.1.2-testnet"
+        versionCode = 4
+        versionName = "0.1.3-testnet"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -15,6 +15,7 @@ on:
     branches:
       - feature/android-wallet-v0.1
       - cursor/wallet-txn-history-83d4
+      - cursor/wallet-txn-details-83d4
     paths:
       - 'mobile/android/**'
       - '.github/workflows/android-wallet.yml'
@@ -105,7 +106,7 @@ jobs:
           gh release view "$tag" >/dev/null 2>&1 && gh release delete "$tag" -y --cleanup-tag || true
           gh release create "$tag" \
             --title "Sudharma Wallet ${tag#wallet-testnet-} (testnet)" \
-            --notes "Testnet wallet with visible transaction history, received-payment discovery, and one-tap transaction ID copy on Activity and Send screens." \
+            --notes "Testnet wallet with detailed transaction history: sent/received direction, amount, counterparty address, network fee, time, confirmations, and one-tap copy for transaction ID and addresses." \
             --prerelease \
             "$apk" \
             "$apk.sha256"
