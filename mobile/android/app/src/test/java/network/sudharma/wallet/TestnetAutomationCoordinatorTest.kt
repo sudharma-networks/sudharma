@@ -66,4 +66,26 @@ class TestnetAutomationCoordinatorTest {
         assertEquals(0, claims)
         assertEquals("b".repeat(64), pending)
     }
+
+    @Test
+    fun `failed pending challenge is cleared so a clean retry is possible`() = runBlocking {
+        var pending: String? = "c".repeat(64)
+        var claims = 0
+        val coordinator = TestnetAutomationCoordinator(
+            walletReady = { true },
+            faucetEnabled = { true },
+            balanceAtomic = { 100L },
+            requestInitial = {},
+            pendingChallengeId = { pending },
+            transactionConfirmed = { false },
+            transactionFailed = { true },
+            claimChallenge = { claims += 1 },
+            clearPendingChallenge = { pending = null },
+        )
+
+        coordinator.tick()
+
+        assertEquals(0, claims)
+        assertNull(pending)
+    }
 }
