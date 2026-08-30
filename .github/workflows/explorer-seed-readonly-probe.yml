@@ -48,7 +48,7 @@ jobs:
               --instance-ids "$instance_id" \
               --document-name AWS-RunShellScript \
               --comment "Sudharma explorer read-only seed probe" \
-              --parameters 'commands=["set -euo pipefail","systemctl is-active sudharma.service","curl -fsS http://127.0.0.1:28545/v1/status","code=$(curl -sS -o /tmp/sudharma-explorer-status.json -w %{http_code} http://127.0.0.1:28545/v1/explorer/status)","echo explorer_http_status=$code","cat /tmp/sudharma-explorer-status.json || true"]' \
+              --parameters 'commands=["set -eu","systemctl is-active sudharma.service","curl -fsS http://127.0.0.1:28545/v1/status","code=$(curl -sS -o /tmp/sudharma-explorer-status.json -w %{http_code} http://127.0.0.1:28545/v1/explorer/status)","echo explorer_http_status=$code","cat /tmp/sudharma-explorer-status.json || true"]' \
               --query 'Command.CommandId' \
               --output text)"
             echo "::add-mask::$command_id"
