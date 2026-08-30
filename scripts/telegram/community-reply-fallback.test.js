@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { createWorker } = require('./community-worker.js');
+const { withReplyTargetFallback } = require('./community-observed-worker.js');
 
 function fakeTelegram() {
   const state = { sent: [], getUpdatesCalls: [] };
@@ -42,7 +43,8 @@ const fakeGithub = {
 };
 
 test('community replies allow delivery when the original reply target is no longer available', async () => {
-  const telegram = fakeTelegram();
+  const rawTelegram = fakeTelegram();
+  const telegram = withReplyTargetFallback(rawTelegram);
   const result = await createWorker({
     telegram,
     github: fakeGithub,
@@ -51,14 +53,26 @@ test('community replies allow delivery when the original reply target is no long
   }).poll();
 
   assert.equal(result.replies, 1);
-  assert.equal(telegram.state.sent.length, 1);
-  assert.deepEqual(telegram.state.sent[0].reply_parameters, {
+  assert.equal(rawTelegram.state.sent.length, 1);
+  assert.deepEqual(rawTelegram.state.sent[0].reply_parameters, {
     message_id: 44,
     allow_sending_without_reply: true,
   });
-  assert.deepEqual(telegram.state.getUpdatesCalls.at(-1), {
+  assert.deepEqual(rawTelegram.state.getUpdatesCalls.at(-1), {
     offset: 689350005,
     limit: 1,
     timeout: 0,
+  });
+});
+
+test('reply-target fallback does not add reply parameters to non-reply sends', async () => {
+  const rawTelegram = fakeTelegram();
+  const telegram = withReplyTargetFallback(rawTelegram);
+
+  await telegram.sendMessage({ chat_id: -1001234567890, text: 'plain send' });
+
+  assert.deepEqual(rawTelegram.state.sent[0], {
+    chat_id: -1001234567890,
+    text: 'plain send',
   });
 });
