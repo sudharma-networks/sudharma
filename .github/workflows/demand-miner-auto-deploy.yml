@@ -33,6 +33,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       should_deploy: ${{ steps.gate.outputs.should_deploy }}
+      should_attempt_recovery: ${{ steps.gate.outputs.should_attempt_recovery }}
       network_mempool: ${{ steps.gate.outputs.network_mempool }}
       network_height: ${{ steps.gate.outputs.network_height }}
       chain_advancement_required: ${{ steps.gate.outputs.chain_advancement_required }}
@@ -67,7 +68,13 @@ jobs:
             const payload = JSON.parse(fs.readFileSync('/tmp/demand-miner-assess.json', 'utf8'));
             process.stdout.write(payload.snapshot?.chain_advancement_required === true ? 'true' : 'false');
           ")"
+          should_attempt_recovery="$(node --input-type=module -e "
+            const fs = await import('node:fs');
+            const payload = JSON.parse(fs.readFileSync('/tmp/demand-miner-assess.json', 'utf8'));
+            process.stdout.write(payload.readiness?.should_attempt_recovery === true ? 'true' : 'false');
+          ")"
           echo "should_deploy=$should_deploy" >> "$GITHUB_OUTPUT"
+          echo "should_attempt_recovery=$should_attempt_recovery" >> "$GITHUB_OUTPUT"
           echo "network_mempool=$network_mempool" >> "$GITHUB_OUTPUT"
           echo "network_height=$network_height" >> "$GITHUB_OUTPUT"
           echo "chain_advancement_required=$chain_advancement_required" >> "$GITHUB_OUTPUT"
