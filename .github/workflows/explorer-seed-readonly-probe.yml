@@ -1,0 +1,100 @@
+name: Explorer Seed Read-Only Probe
+
+on:
+  push:
+    branches:
+      - feature/public-testnet-wallet-v2
+    paths:
+      - '.github/workflows/explorer-seed-readonly-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: ap-south-1
+      SEED_PRIVATE_IPS: '172.31.10.171 172.31.32.195'
+    steps:
+      - name: Configure AWS credentials from GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+
+      - name: Probe seed services and local RPC without changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          index=0
+          for private_ip in $SEED_PRIVATE_IPS; do
+            index=$((index + 1))
+            instance_id="$(aws ssm describe-instance-information \
+              --query "InstanceInformationList[?IPAddress=='${private_ip}'] | [0].InstanceId" \
+              --output text)"
+            if [ -z "$instance_id" ] || [ "$instance_id" = 'None' ]; then
+              echo "seed-${index}: SSM instance id not found" >&2
+              exit 1
+            fi
+            echo "::add-mask::$instance_id"
+
+            command_id="$(aws ssm send-command \
+              --instance-ids "$instance_id" \
+              --document-name AWS-RunShellScript \
+              --comment "Sudharma explorer read-only seed probe" \
+              --parameters 'commands=["set -euo pipefail","systemctl is-active sudharma.service","curl -fsS http://127.0.0.1:28545/v1/status","code=$(curl -sS -o /tmp/sudharma-explorer-status.json -w %{http_code} http://127.0.0.1:28545/v1/explorer/status)","echo explorer_http_status=$code","cat /tmp/sudharma-explorer-status.json || true"]' \
+              --query 'Command.CommandId' \
+              --output text)"
+            echo "::add-mask::$command_id"
+
+            for attempt in $(seq 1 30); do
+              status="$(aws ssm get-command-invocation \
+                --command-id "$command_id" \
+                --instance-id "$instance_id" \
+                --query 'Status' \
+                --output text 2>/dev/null || true)"
+              case "$status" in
+                Success)
+                  break
+                  ;;
+                Failed|Cancelled|TimedOut|Cancelling)
+                  echo "seed-${index}: read-only probe ended with ${status}" >&2
+                  aws ssm get-command-invocation \
+                    --command-id "$command_id" \
+                    --instance-id "$instance_id" \
+                    --query '{status:Status,stdout:StandardOutputContent,stderr:StandardErrorContent}' \
+                    --output json || true
+                  exit 1
+                  ;;
+              esac
+              sleep 2
+            done
+
+            result="$(aws ssm get-command-invocation \
+              --command-id "$command_id" \
+              --instance-id "$instance_id" \
+              --query '{status:Status,stdout:StandardOutputContent,stderr:StandardErrorContent}' \
+              --output json)"
+            echo "seed-${index}: ${result}"
+            if [ "$(printf '%s' "$result" | jq -r '.status')" != 'Success' ]; then
+              echo "seed-${index}: read-only probe did not complete successfully" >&2
+              exit 1
+            fi
+          done
+
+      - name: Record safety boundary
+        if: always()
+        shell: bash
+        run: |
+          echo 'probe-mode=read-only'
+          echo 'seed-service-restarts=0'
+          echo 'seed-binaries-changed=0'
+          echo 'seed-config-changed=0'
+          echo 'rpc-firewall-changes=0'
+          echo 'gpu-pow-deployment=0'
