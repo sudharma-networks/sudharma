@@ -8,6 +8,7 @@ on:
       - 'security/**'
       - feature/android-wallet-v0.1
       - feature/public-testnet-wallet-v2
+      - feature/wallet-auto-testnet-flow
     paths:
       - 'deployment/testnet/public-rpc/lambda/**'
       - 'deployment/testnet/public-rpc/**.json'
@@ -124,7 +125,7 @@ jobs:
         run: |
           set -euo pipefail
           curl -fsS "${RPC_BASE_URL}/v1/website/visitors" | jq -e '.total | numbers' >/dev/null
-      - name: Activate faucet and smoke-test public info
+      - name: Activate faucet and deep smoke-test protected dependencies
         shell: bash
         run: |
           set -euo pipefail
@@ -134,16 +135,28 @@ jobs:
           }
           aws lambda update-function-configuration --function-name Sudharma-Testnet-Wallet-Proxy --environment 'Variables={SEED_1_URL=http://172.31.10.171:29100,SEED_2_URL=http://172.31.32.195:29100,UPSTREAM_TIMEOUT_MS=3500,FAUCET_ENABLED=true,FAUCET_TABLE_NAME=Sudharma-Testnet-Faucet,FAUCET_SECRET_ID=sudharma/testnet/faucet-wallet}' --no-cli-pager >/dev/null
           aws lambda wait function-updated --function-name Sudharma-Testnet-Wallet-Proxy
-          response="$(curl -sS -w '\n%{http_code}' "${RPC_BASE_URL}/v1/faucet/info")"
+
+          response="$(curl -sS -w '\n%{http_code}' "${RPC_BASE_URL}/v1/faucet/health")"
           status="$(printf '%s\n' "$response" | tail -n1)"
           body="$(printf '%s\n' "$response" | sed '$d')"
-          if [ "$status" != '200' ]; then
-            echo "Faucet smoke test returned HTTP ${status}; disabling faucet again."
+          if [ "$status" != '200' ] || ! printf '%s\n' "$body" | jq -e '.ready == true' >/dev/null; then
+            echo "Faucet deep health check failed with HTTP ${status}; disabling faucet again."
             printf '%s\n' "$body"
             disable_faucet
             exit 1
           fi
-          printf '%s\n' "$body" | jq '{enabled,challenge_address,initial_grant_sudh,challenge_send_sudh,challenge_reward_sudh,max_rounds,cooldown_hours,testnet_only}'
+          printf '%s\n' "$body" | jq '{ready}'
+
+          info_response="$(curl -sS -w '\n%{http_code}' "${RPC_BASE_URL}/v1/faucet/info")"
+          info_status="$(printf '%s\n' "$info_response" | tail -n1)"
+          info_body="$(printf '%s\n' "$info_response" | sed '$d')"
+          if [ "$info_status" != '200' ]; then
+            echo "Faucet info smoke test returned HTTP ${info_status}; disabling faucet again."
+            printf '%s\n' "$info_body"
+            disable_faucet
+            exit 1
+          fi
+          printf '%s\n' "$info_body" | jq '{enabled,challenge_address,initial_grant_sudh,challenge_send_sudh,challenge_reward_sudh,max_rounds,cooldown_hours,testnet_only}'
       - name: Verify normal public RPC after faucet activation
         shell: bash
         run: |
