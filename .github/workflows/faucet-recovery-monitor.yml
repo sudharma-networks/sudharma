@@ -2,6 +2,8 @@ name: Faucet Recovery Monitor
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '*/15 * * * *'
   push:
     branches:
       - feature/faucet-recovery-stage2
