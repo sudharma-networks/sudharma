@@ -6,11 +6,9 @@ import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import network.sudharma.wallet.chain.sudharma.SudharmaCrypto
 import org.bouncycastle.crypto.generators.SCrypt
 import java.math.BigInteger
-import java.nio.ByteBuffer
 import java.nio.CharBuffer
 import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
-import java.util.HexFormat
 import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
@@ -131,10 +129,15 @@ object LegacyEncryptedWalletImporter {
         if (value.isEmpty() || value.length % 2 != 0 || !lowerHex.matches(value)) {
             throw LegacyWalletImportException("Invalid encrypted wallet file.")
         }
-        val decoded = try {
-            HexFormat.of().parseHex(value)
-        } catch (error: IllegalArgumentException) {
-            throw LegacyWalletImportException("Invalid encrypted wallet file.", error)
+        val decoded = ByteArray(value.length / 2)
+        for (index in decoded.indices) {
+            val high = value[index * 2].digitToIntOrNull(16)
+            val low = value[index * 2 + 1].digitToIntOrNull(16)
+            if (high == null || low == null) {
+                decoded.fill(0)
+                throw LegacyWalletImportException("Invalid encrypted wallet file.")
+            }
+            decoded[index] = ((high shl 4) or low).toByte()
         }
         if (expectedBytes != null && decoded.size != expectedBytes) {
             decoded.fill(0)
