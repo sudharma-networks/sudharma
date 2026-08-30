@@ -63,6 +63,8 @@ jobs:
           done
           echo 'nginx_route_snippets:'
           grep -RnsE 'listen[[:space:]]+29100|location|proxy_pass|v1/(status|explorer)' /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null | head -n 240 || true
+          echo 'active_wallet_proxy_config:'
+          sed -n '1,180p' /etc/nginx/sites-enabled/sudharma-wallet-proxy 2>/dev/null || true
           EOF
           )"
             parameters="$(jq -cn --arg command "$remote_script" '{commands:[$command]}')"
