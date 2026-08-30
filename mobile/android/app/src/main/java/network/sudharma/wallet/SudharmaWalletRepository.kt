@@ -92,6 +92,9 @@ class SudharmaWalletRepository(context: Context) {
     suspend fun transactionConfirmed(transactionId: String): Boolean =
         transactionStatus(transactionId).state == TransactionState.CONFIRMED
 
+    suspend fun transactionFailed(transactionId: String): Boolean =
+        transactionStatus(transactionId).state == TransactionState.FAILED
+
     suspend fun transactionStatuses(): List<TransactionStatus> {
         val adapter = adapter()
         return preferences.transactionIds().map { id ->
