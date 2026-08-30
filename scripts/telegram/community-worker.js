@@ -10,7 +10,8 @@ const {
 } = require('./community-core.js');
 
 const MAX_REPLIES_PER_RUN = 20;
-const REPORT_WINDOW_MS = 60 * 60 * 1000;
+const REPORT_RATE_WINDOW_MS = 60 * 60 * 1000;
+const REPORT_DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000;
 const COMMUNITY_REPORT_MARKER_RE = /<!-- sudharma-telegram-community-report:v1 update_id=\d+ -->/;
 const GITHUB_ACTIONS_BOT_LOGIN = 'github-actions[bot]';
 
@@ -249,7 +250,7 @@ function createWorker({ telegram, github, now = () => new Date(), logger = conso
     let replies = 0;
     let createdReports = 0;
     let recentIssues = null;
-    let reportWindowStart = null;
+    let rateLimitWindowStart = null;
     let lastConfirmed = null;
 
     function ensureReplyBudget() {
@@ -271,14 +272,16 @@ function createWorker({ telegram, github, now = () => new Date(), logger = conso
       if (Number.isNaN(currentDate.getTime())) {
         throw new Error('Current time is invalid');
       }
-      reportWindowStart = currentDate.getTime() - REPORT_WINDOW_MS;
+      const currentMs = currentDate.getTime();
+      const dedupWindowStart = currentMs - REPORT_DEDUP_WINDOW_MS;
+      rateLimitWindowStart = currentMs - REPORT_RATE_WINDOW_MS;
       const listRecent = typeof github.listRecentAutomationIssues === 'function'
         ? github.listRecentAutomationIssues.bind(github)
         : (typeof github.listRecentIssues === 'function' ? github.listRecentIssues.bind(github) : null);
       if (!listRecent) {
         throw new Error('GitHub recent issue listing is unavailable');
       }
-      recentIssues = await listRecent({ since: new Date(reportWindowStart).toISOString() });
+      recentIssues = await listRecent({ since: new Date(dedupWindowStart).toISOString() });
       if (!Array.isArray(recentIssues)) {
         throw new Error('GitHub recent issue listing is invalid');
       }
@@ -303,7 +306,7 @@ function createWorker({ telegram, github, now = () => new Date(), logger = conso
         return;
       }
 
-      const createdLastHour = issues.filter((issue) => isRecentCommunityReport(issue, reportWindowStart)).length;
+      const createdLastHour = issues.filter((issue) => isRecentCommunityReport(issue, rateLimitWindowStart)).length;
       const decision = canCreateReport({ createdThisRun: createdReports, createdLastHour });
       if (!decision.allowed) {
         await sendReply(action.message, staticReply('throttle'));
