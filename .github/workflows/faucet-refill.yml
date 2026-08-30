@@ -7,9 +7,11 @@ on:
   push:
     branches:
       - feature/faucet-recovery-stage2
+      - cursor/dual-seed-demand-miner-83d4
     paths:
       - .github/workflows/faucet-refill.yml
       - deployment/testnet/remote-mine-faucet-refill.sh
+      - deployment/testnet/resolve-seed-instance-id.sh
       - scripts/evaluate-faucet-funding-readiness.mjs
 
 permissions:
@@ -20,8 +22,6 @@ env:
   AWS_REGION: ap-south-1
   LAMBDA_NAME: Sudharma-Testnet-Wallet-Proxy
   FAUCET_SIGNER: 9ccdc094489874bed888ffe4bdf9b8298f4c5131
-  SEED1_PRIVATE_IP: 172.31.10.171
-  TESTNET_SEED1_INSTANCE_ID: ${{ vars.TESTNET_SEED1_INSTANCE_ID }}
 
 jobs:
   assess-funding:
@@ -55,8 +55,18 @@ jobs:
     needs: assess-funding
     if: needs.assess-funding.outputs.should_refill == 'true'
     runs-on: ubuntu-24.04
-    outputs:
-      refilled: ${{ steps.wait.outputs.refilled }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - seed_name: seed1
+            seed_private_ip: 172.31.10.171
+            seed_instance_id: ${{ vars.TESTNET_SEED1_INSTANCE_ID }}
+            seed_fallback_instance_id: i-06e7ddb174e4941de
+          - seed_name: seed2
+            seed_private_ip: 172.31.32.195
+            seed_instance_id: ${{ vars.TESTNET_SEED2_INSTANCE_ID }}
+            seed_fallback_instance_id: ''
     permissions:
       id-token: write
       contents: read
@@ -67,23 +77,25 @@ jobs:
           role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
           aws-region: ap-south-1
 
-      - name: Resolve Seed-1 instance id
+      - name: Resolve seed instance id
         id: seed
         run: |
           set -euo pipefail
-          instance_id="${TESTNET_SEED1_INSTANCE_ID:-}"
+          instance_id="$(bash deployment/testnet/resolve-seed-instance-id.sh \
+            "${{ matrix.seed_private_ip }}" \
+            "${{ matrix.seed_instance_id }}" \
+            "${{ matrix.seed_fallback_instance_id }}" 2>/dev/null || true)"
           if [ -z "$instance_id" ]; then
-            instance_id="$(aws ssm describe-instance-information \
-              --query "InstanceInformationList[?IPAddress==\`${SEED1_PRIVATE_IP}\`].InstanceId | [0]" \
-              --output text 2>/dev/null || true)"
+            echo "seed_instance_found=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Faucet refill::No ${{ matrix.seed_name }} instance id for ${{ matrix.seed_private_ip }}"
+            exit 0
           fi
-          if [ -z "$instance_id" ] || [ "$instance_id" = "None" ]; then
-            instance_id="i-06e7ddb174e4941de"
-          fi
+          echo "seed_instance_found=true" >> "$GITHUB_OUTPUT"
           echo "instance_id=$instance_id" >> "$GITHUB_OUTPUT"
-          printf '{"seed_instance_id":"%s","seed_private_ip":"%s"}\n' "$instance_id" "$SEED1_PRIVATE_IP"
+          printf '{"seed":"%s","seed_instance_id":"%s"}\n' "${{ matrix.seed_name }}" "$instance_id"
 
-      - name: Mine faucet refill blocks on Seed-1
+      - name: Mine faucet refill blocks
+        if: steps.seed.outputs.seed_instance_found == 'true'
         run: |
           set -euo pipefail
           script_b64="$(base64 -w0 deployment/testnet/remote-mine-faucet-refill.sh)"
@@ -112,9 +124,17 @@ jobs:
             fi
             sleep 10
           done
-          echo 'SSM faucet refill timed out' >&2
+          echo "SSM faucet refill timed out on ${{ matrix.seed_name }}" >&2
           exit 1
 
+  wait-for-funding:
+    needs: [assess-funding, mine-refill]
+    if: needs.assess-funding.outputs.should_refill == 'true'
+    runs-on: ubuntu-24.04
+    outputs:
+      refilled: ${{ steps.wait.outputs.refilled }}
+    steps:
+      - uses: actions/checkout@v4
       - name: Wait for faucet funding readiness
         id: wait
         run: |
@@ -131,12 +151,12 @@ jobs:
           exit 1
 
   verify-live:
-    needs: [assess-funding, mine-refill]
+    needs: [assess-funding, wait-for-funding]
     if: >-
       always() &&
       (
         needs.assess-funding.outputs.should_refill != 'true' ||
-        needs.mine-refill.outputs.refilled == 'true'
+        needs.wait-for-funding.outputs.refilled == 'true'
       )
     runs-on: ubuntu-24.04
     steps:
@@ -159,3 +179,5 @@ jobs:
             exit 1
           fi
           echo "{\"faucet_live\":true,\"test_address\":\"$test_address\"}"
+        env:
+          RPC_BASE_URL: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com
