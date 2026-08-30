@@ -7,6 +7,7 @@ class TestnetAutomationCoordinator(
     private val requestInitial: suspend () -> Unit,
     private val pendingChallengeId: () -> String?,
     private val transactionConfirmed: suspend (String) -> Boolean,
+    private val transactionFailed: suspend (String) -> Boolean = { false },
     private val claimChallenge: suspend (String) -> Unit,
     private val clearPendingChallenge: () -> Unit,
     private val now: () -> Long = System::currentTimeMillis,
@@ -36,9 +37,14 @@ class TestnetAutomationCoordinator(
 
         val transactionId = pendingChallengeId() ?: return
         val confirmed = runCatching { transactionConfirmed(transactionId) }.getOrDefault(false)
+        if (!confirmed) {
+            val failed = runCatching { transactionFailed(transactionId) }.getOrDefault(false)
+            if (failed) clearPendingChallenge()
+            return
+        }
         if (!TestnetAutomationPolicy.shouldClaimChallengeReward(
                 challengeMode = true,
-                transactionConfirmed = confirmed,
+                transactionConfirmed = true,
                 claimAlreadyAttempted = false,
             )
         ) return
