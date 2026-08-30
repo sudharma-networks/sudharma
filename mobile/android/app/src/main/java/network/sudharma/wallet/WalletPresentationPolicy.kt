@@ -28,6 +28,24 @@ object SplashPresentationPolicy {
     }
 }
 
+data class TestnetAutomationPresentation(
+    val showManualInitialRequest: Boolean,
+    val showManualChallengeClaim: Boolean,
+    val initialFundingMessage: String,
+    val challengeRewardMessage: String,
+    val homeRefreshMillis: Long,
+)
+
+object TestnetAutomationPresentationPolicy {
+    fun automatic(): TestnetAutomationPresentation = TestnetAutomationPresentation(
+        showManualInitialRequest = false,
+        showManualChallengeClaim = false,
+        initialFundingMessage = "Eligible zero-balance wallets request Test SUDH automatically. The wallet keeps retrying safely and updates the balance after the network sees the payout.",
+        challengeRewardMessage = "After you authorize the official challenge payment, the wallet automatically waits for confirmation and claims the eligible Test SUDH reward.",
+        homeRefreshMillis = 5_000L,
+    )
+}
+
 object WalletPresentationPolicy {
     fun isSensitive(screen: WalletScreen): Boolean = screen in setOf(
         WalletScreen.RECOVERY,
