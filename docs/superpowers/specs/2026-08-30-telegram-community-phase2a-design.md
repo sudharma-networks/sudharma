@@ -1,6 +1,6 @@
 # Telegram Community Bot Phase 2A Design
 
-Status: approved in chat; written-spec review pending
+Status: approved in chat; implementation-reviewed and hardened
 Date: 2026-08-30
 Project: Sudharma Network
 
@@ -18,7 +18,7 @@ Use the existing Sudharma Telegram bot token stored in the GitHub Actions enviro
 
 The first production version uses GitHub Actions rather than an AWS webhook. This intentionally trades near-real-time responses for a smaller attack surface, no new always-on server, no new public webhook endpoint, and no additional credential.
 
-Once enabled, the scheduled workflow polls approximately every five minutes. A manual `workflow_dispatch` path remains available for bootstrap and controlled smoke tests.
+Initial rollout is manual-only. After controlled bootstrap and smoke tests, a separate activation change may schedule polling approximately every five minutes. A manual `workflow_dispatch` path remains available for bootstrap and controlled tests.
 
 ### Why polling is acceptable for Phase 2A
 
@@ -26,7 +26,7 @@ Telegram Bot API `getUpdates` is a durable update queue. Updates are confirmed w
 
 The worker processes a returned batch in ascending `update_id` order and stops at the first actionable update that cannot be completed. It tracks the highest contiguous successfully handled or deliberately ignored update in memory, then advances Telegram's offset past only that contiguous prefix. If an actionable update fails before completion, the offset never moves past it, so Telegram can return it on the next run.
 
-This design is intentionally simple and auditable. It avoids GitHub-side cursor state and keeps GitHub permissions focused on the only persistent side effect Phase 2A needs: issue creation for tester reports.
+Telegram retains pending bot updates for no longer than 24 hours. Report deduplication therefore inspects a 24-hour trusted GitHub issue history, while the abuse-rate window remains independently limited to one hour.
 
 Telegram reference: https://core.telegram.org/bots/api#getupdates
 
@@ -34,7 +34,7 @@ Telegram reference: https://core.telegram.org/bots/api#getupdates
 
 The bot must be added to `@sudharma_community` as a normal member, not as a group administrator.
 
-Group Privacy Mode must remain enabled in BotFather. Telegram privacy mode is a defense-in-depth control so the bot normally receives only messages relevant to it, such as explicit commands and replies, plus service messages. Making the bot a group administrator would broaden what Telegram delivers, so Phase 2A explicitly forbids group-admin status.
+Group Privacy Mode must remain enabled in BotFather. Telegram privacy mode is a defense-in-depth control so the bot normally receives only messages relevant to it, such as explicit commands and service messages. Making the bot a group administrator would broaden what Telegram delivers, so Phase 2A explicitly forbids group-admin status.
 
 The worker also enforces its own application-level filter. It ignores all updates unless the chat is the official public group with username exactly `sudharma_community` and the chat type is `group` or `supergroup`.
 
@@ -76,21 +76,23 @@ Validation rules:
 - the bot reminds users that accepted report text is mirrored into the project's public GitHub repository and that secrets, seed phrases, private keys, passwords, tokens, personal information, and other sensitive data must not be included;
 - attachments are not copied to GitHub in Phase 2A.
 
-If the report command is attached to or replies around a screenshot/video, the GitHub issue links back to the original public Telegram message. The media remains in Telegram.
+If the report command is attached to or accompanies a screenshot/video, the GitHub issue links back to the original public Telegram message. The media remains in Telegram.
 
-### GitHub issue format
+### GitHub issue format and integrity
 
 The worker creates a GitHub issue with a title derived from a short normalized prefix of the report and a structured body containing:
 
-- a Phase 2A source marker;
-- a machine-readable Telegram `update_id` marker for retry deduplication;
+- a machine-readable Phase 2A Telegram `update_id` marker for retry deduplication;
 - the user-provided report text;
 - the Telegram source message link;
 - the Telegram message timestamp in UTC;
+- the ingestion timestamp in UTC;
 - a note that attachments remain in Telegram;
 - a pre-mainnet/public-testnet context notice.
 
-The issue must not copy the reporter's Telegram numeric user ID. The worker also neutralizes GitHub `@mention` syntax in user-provided report text so untrusted Telegram content cannot generate arbitrary GitHub mention notifications.
+The issue must not copy the reporter's Telegram numeric user ID or profile name. The worker neutralizes GitHub `@mention` syntax and raw HTML-comment delimiters in user-provided text so untrusted Telegram content cannot generate arbitrary GitHub mention notifications or inject a fake machine dedup marker.
+
+Deduplication and rolling-rate state trust only qualifying report issues authored by `github-actions[bot]`. An ordinary public GitHub user cannot satisfy the worker's trusted processed-update state merely by copying a marker into an issue they created.
 
 A successful report reply contains the created GitHub issue URL.
 
@@ -101,7 +103,7 @@ The community group is public, so `/report` cannot be allowed to create unbounde
 Phase 2A applies simple global intake limits rather than persisting per-user identity data:
 
 - maximum 3 new GitHub reports processed in one polling run;
-- maximum 10 Telegram-created report issues in a rolling one-hour window;
+- maximum 10 trusted Telegram-created report issues in a rolling one-hour window;
 - maximum 20 bot replies in one polling run, including command, throttle, validation, unknown-command, and welcome responses.
 
 When the report limit is reached, the bot does not create another issue. It replies with a concise throttle notice and the normal GitHub Issues location so a genuine user can report manually.
@@ -120,17 +122,7 @@ The bot does not send direct messages to new members.
 
 ### `scripts/telegram/community-core.js`
 
-Pure, unit-testable logic for:
-
-- official-chat validation;
-- command parsing;
-- bot-username targeting;
-- Unicode length validation;
-- safe GitHub issue title/body construction;
-- GitHub mention neutralization;
-- static command/welcome response construction;
-- report-rate decision helpers;
-- Telegram `update_id` marker construction and matching.
+Pure, unit-testable logic for official-chat validation, command parsing, bot-username targeting, Unicode report validation, safe GitHub issue construction, untrusted-text neutralization, static replies, rate-limit decisions, and Telegram `update_id` marker construction/matching.
 
 This module performs no network I/O and reads no secrets.
 
@@ -143,25 +135,25 @@ Network orchestration for one polling/bootstrap execution:
 - for polling, call Telegram `getUpdates`;
 - filter/process updates sequentially;
 - call Telegram `sendMessage` for replies;
-- call GitHub REST API to create `/report` issues, count recent Telegram-created reports, and find an existing issue for retry deduplication;
+- call GitHub REST API to create `/report` issues;
+- inspect only `github-actions[bot]`-authored report issues for trusted dedup/rate state;
+- use a 24-hour dedup lookup and a separate one-hour rate window;
 - confirm only the contiguous successfully handled/ignored Telegram update prefix by advancing the `getUpdates` offset.
 
-The worker uses Node's built-in HTTP/fetch APIs and receives credentials only through environment variables at runtime.
+The worker uses Node's built-in `fetch` and receives credentials only through environment variables at runtime. API errors must not echo the Telegram or GitHub token.
 
 ### `.github/workflows/telegram-community.yml`
 
 GitHub Actions entry point.
 
-Initial rollout mode has `workflow_dispatch` for bootstrap and smoke testing. Scheduled polling is enabled only after bootstrap and controlled live command/report tests succeed.
+Initial rollout mode has only `workflow_dispatch` for bootstrap and smoke testing. Scheduled polling is enabled only after bootstrap and controlled live command/report tests succeed.
 
-Final scheduled mode runs no more frequently than every five minutes and uses fixed concurrency so two pollers cannot process the same queue at the same time.
-
-Required permissions:
+The job is serialized under a fixed concurrency group, uses a five-minute job timeout, and has only:
 
 - `contents: read`
 - `issues: write`
 
-The workflow uses environment `telegram-publishing` only to obtain the already-configured `TELEGRAM_BOT_TOKEN`. It introduces no new secret.
+The workflow uses environment `telegram-publishing` only to obtain the already-configured `TELEGRAM_BOT_TOKEN`. It introduces no new Telegram secret or AWS dependency.
 
 ## Bootstrap and rollout safety
 
@@ -171,8 +163,8 @@ Bootstrap performs these operations in order:
 
 1. Call Telegram `getMe` to verify the existing bot token.
 2. Call `getWebhookInfo`.
-3. If a webhook URL is non-empty, fail closed and make no update-mode change. This prevents Phase 2A from silently disabling an unknown integration.
-4. If no webhook is configured, call `deleteWebhook` with `drop_pending_updates=true`. Telegram documents this as a supported way to clear pending updates when switching/ensuring `getUpdates` mode.
+3. If a webhook URL is non-empty, fail closed and make no update-mode change.
+4. If no webhook is configured, call `deleteWebhook` with `drop_pending_updates=true` to clear pre-activation queued updates.
 5. Exit without creating GitHub issues and without sending Telegram replies.
 
 Telegram bootstrap references:
@@ -207,59 +199,47 @@ The bot never posts user-supplied text to the announcements channel. Phase 1 ann
 - Unknown explicit bot command: send concise help, then confirm only after the reply succeeds.
 - Invalid `/report`: send usage/privacy guidance, then confirm only after the reply succeeds.
 - GitHub issue creation failure: do not confirm that report update; retry on a future poll.
-- Telegram acknowledgment failure after GitHub issue creation: before creating a retry issue, detect the existing Phase 2A update marker in recent GitHub issues and reuse that issue instead of creating a duplicate.
-- Rate-limit/throttle decision: send the throttle response and confirm only after the reply succeeds.
-- Generic command/help replies have at-least-once delivery semantics around an extremely narrow crash window after Telegram accepts `sendMessage` but before `getUpdates` offset confirmation. A duplicate informational reply is preferable to losing an actionable queue position. `/report` issue creation has explicit retry deduplication because duplicate public issues are more harmful.
+- Telegram reply/acknowledgment failure after GitHub issue creation: before creating a retry issue, search the previous 24 hours of trusted automation-authored report issues for the exact update marker and reuse that issue instead of creating a duplicate.
+- Rate-limit/throttle decision: count only trusted report issues created during the previous hour, send the throttle response, and confirm only after the reply succeeds.
+- Generic command/help replies have at-least-once delivery semantics around the narrow crash window after Telegram accepts `sendMessage` but before offset confirmation. A duplicate informational reply is preferable to losing an actionable queue position.
 
-On a `/report` retry, the worker inspects recent Phase 2A report issues directly through GitHub's REST issue listing rather than relying on eventually consistent search indexing. This provides practical duplicate protection around the GitHub-create/Telegram-reply boundary.
+The worker uses GitHub's direct REST issue listing rather than eventually consistent search indexing for retry deduplication.
 
 ## Testing strategy
 
 All new logic is developed test-first.
 
-Unit tests cover at minimum:
+Unit/integration tests cover at minimum:
 
 - official group accepted; other groups/private chats rejected;
 - ordinary messages ignored;
 - `/help`, `/rules`, `/testnet`, `/miner`, `/report` parsing;
-- bot-targeted command parsing;
-- commands addressed to another bot rejected;
-- unknown explicit bot command maps to help;
+- bot-targeted command parsing and other-bot rejection;
 - report min/max Unicode lengths;
-- GitHub mention neutralization;
-- report body source marker, `update_id` marker, and message link;
-- no Telegram user numeric ID in GitHub issue content;
-- per-run and rolling-hour rate-limit decisions;
-- generic welcome service-message behavior and reply-cap accounting;
-- retry lookup by `update_id` marker;
-- offset confirmation advances only across a contiguous successfully handled/ignored prefix.
+- GitHub mention and raw marker-injection neutralization;
+- report body update marker and Telegram source link;
+- no Telegram user numeric ID/profile identity in GitHub issue content;
+- production trusted-state filtering to `github-actions[bot]`;
+- 24-hour retry deduplication and independent one-hour abuse counting;
+- per-run report and reply caps;
+- generic welcome service-message behavior;
+- retry lookup by exact `update_id` marker;
+- offset confirmation only across a contiguous successfully handled/ignored prefix.
 
 Workflow contract tests verify:
 
 - no `contents: write` permission;
 - environment secret is referenced but never printed;
-- official group is pinned in code/config rather than accepted from Telegram input;
-- bootstrap checks webhook state before dropping pending updates;
-- bootstrap cannot create issues or send replies;
-- initial rollout has no recurring schedule until smoke tests pass;
-- poll runs are serialized with concurrency;
-- Phase 1 announcement workflow remains unchanged by Phase 2A.
+- initial rollout has no recurring schedule;
+- poll runs are serialized;
+- each job is bounded by a five-minute timeout;
+- Phase 1 announcement workflow remains present and operational.
 
 Repository CI continues to run the full existing Go/testnet/container/race suite in addition to Telegram Node tests.
 
 ## Deliberate exclusions
 
-Phase 2A does not include:
-
-- reading or classifying ordinary conversation;
-- AI moderation or automatic sentiment analysis;
-- bans, mutes, message deletion, or admin actions;
-- downloading/copying Telegram photos, videos, documents, voice notes, or files to GitHub;
-- private-message support;
-- personal Telegram account/session automation;
-- AWS webhook infrastructure;
-- investment, price, earnings, or mining-profitability promotion;
-- mainnet or GPU consensus deployment changes.
+Phase 2A does not include ordinary-chat monitoring, AI moderation or sentiment analysis, bans/mutes/message deletion, attachment ingestion, private-message support, personal Telegram account/session automation, AWS webhook infrastructure, investment or profitability promotion, mainnet activation, unrestricted GPU mining, or GPU-PoW deployment to Seed-1/Seed-2.
 
 ## Future Phase 2B options
 
@@ -275,7 +255,8 @@ Phase 2A is complete only when:
 - ordinary conversation does not trigger bot behavior;
 - generic welcome behavior works without exposing member identity data;
 - `/report` creates one structured GitHub issue and replies with its URL;
-- retries do not create duplicate report issues;
+- retries do not create duplicate report issues across Telegram's 24-hour pending-update lifetime;
+- public GitHub users cannot spoof trusted processed-update state;
 - report and reply abuse limits work;
 - no personal Telegram session or new secret is introduced;
 - the bot has no group-admin/moderation powers;
