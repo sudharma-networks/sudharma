@@ -125,6 +125,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate deployment mode
+        if: inputs.deploy == true && inputs.diagnostics_only == true
+        run: |
+          echo 'Full deployment and diagnostics-only deployment are mutually exclusive.' >&2
+          exit 1
+
       - name: Download exact tested artifact
         uses: actions/download-artifact@v4
         with:
@@ -245,7 +251,7 @@ jobs:
           trap - ERR
 
       - name: Activate faucet and smoke-test public readiness
-        if: inputs.diagnostics_only != true
+        if: inputs.deploy == true && inputs.diagnostics_only != true
         run: |
           set -euo pipefail
           disable_faucet() {
@@ -286,6 +292,7 @@ jobs:
           trap - ERR
 
       - name: Verify shared public RPC after faucet activation
+        if: inputs.deploy == true && inputs.diagnostics_only != true
         run: |
           set -euo pipefail
           rollback_shared_lambda() {
@@ -342,6 +349,58 @@ jobs:
           node -e "const e=require('/tmp/explorer-status-post.json'); if (!e || typeof e !== 'object' || Array.isArray(e)) process.exit(1); console.log(JSON.stringify({explorer_status:'ok'}))"
           trap - ERR
 
+      - name: Verify diagnostics-only deployment remains fail-closed
+        if: inputs.diagnostics_only == true
+        run: |
+          set -euo pipefail
+          rollback_shared_lambda() {
+            local original_status=$?
+            trap - ERR
+            set +e
+            echo 'Diagnostics-only verification failed; restoring previous Lambda code and environment.' >&2
+            aws lambda update-function-code \
+              --function-name "$LAMBDA_NAME" \
+              --zip-file fileb:///tmp/lambda-code-rollback.zip \
+              --no-cli-pager >/dev/null
+            local code_status=$?
+            if [ "$code_status" -eq 0 ]; then
+              aws lambda wait function-updated --function-name "$LAMBDA_NAME"
+              code_status=$?
+            fi
+            aws lambda update-function-configuration \
+              --function-name "$LAMBDA_NAME" \
+              --environment file:///tmp/lambda-environment-base-wrapper.json \
+              --no-cli-pager >/dev/null
+            local env_status=$?
+            if [ "$env_status" -eq 0 ]; then
+              aws lambda wait function-updated --function-name "$LAMBDA_NAME"
+              env_status=$?
+            fi
+            if [ "$code_status" -ne 0 ] || [ "$env_status" -ne 0 ]; then
+              echo "ROLLBACK INCOMPLETE: code_status=$code_status env_status=$env_status" >&2
+            else
+              echo 'Previous Lambda code and environment restored.' >&2
+            fi
+            exit "$original_status"
+          }
+          trap 'rollback_shared_lambda' ERR
+          expected_code_sha256="$(openssl dgst -sha256 -binary build/public-rpc/sudharma-testnet-wallet-proxy.zip | openssl base64 -A)"
+          deployed_code_sha256="$(aws lambda get-function --function-name "$LAMBDA_NAME" --query 'Configuration.CodeSha256' --output text)"
+          if [ "$deployed_code_sha256" != "$expected_code_sha256" ]; then
+            echo 'Diagnostics-only deployed Lambda code identity does not match the tested artifact.' >&2
+            exit 1
+          fi
+          faucet_enabled="$(aws lambda get-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --query 'Environment.Variables.FAUCET_ENABLED' \
+            --output text)"
+          if [ "$faucet_enabled" != 'false' ]; then
+            echo 'FAUCET_ENABLED must remain false in diagnostics-only mode' >&2
+            exit 1
+          fi
+          echo '{"diagnostics_only":true,"artifact_identity":"verified","faucet_enabled":false}'
+          trap - ERR
+
       - name: Verify diagnostics-only faucet remains disabled
         if: inputs.diagnostics_only == true
         run: |
@@ -351,7 +410,7 @@ jobs:
             --query 'Environment.Variables.FAUCET_ENABLED' \
             --output text)"
           if [ "$faucet_enabled" != 'false' ]; then
-            echo "Diagnostics-only rollout did not remain fail-closed." >&2
+            echo 'Diagnostics-only rollout did not remain fail-closed.' >&2
             exit 1
           fi
           echo '{"diagnostics_only":true,"faucet_enabled":false}'
