@@ -4,11 +4,11 @@
 
 **Goal:** Restore a testable, promotable public-testnet faucet slice on top of the canonical project without importing unrelated diverged work or deploying automatically.
 
-**Architecture:** Start from `integration/canonical-project` and copy only the hardened public-RPC/faucet runtime slice that is required for faucet operation. A dedicated deployment workflow must build and test the artifact on branch pushes, but AWS mutation is manual-only; the exact artifact produced by the successful build job is the artifact eligible for promotion. Deployment keeps the faucet disabled until normal RPC health succeeds, then enables it and rolls back to disabled if `/v1/faucet/info` fails.
+**Architecture:** Start from `integration/canonical-project` and copy only the hardened public-RPC/faucet runtime slice that is required for faucet operation. The public RPC Lambda is shared with website visitor counting and explorer reads, so recovery must preserve those capabilities too. A dedicated deployment workflow builds and tests the artifact on branch pushes, but AWS mutation is manual-only; the exact artifact produced by the successful build job is the artifact eligible for promotion. Deployment forces the faucet disabled before installing code, verifies shared public routes, then enables the faucet under fail-closed readiness checks.
 
 **Tech Stack:** GitHub Actions, Node.js 24, AWS Lambda/API Gateway, DynamoDB, AWS Secrets Manager, Sudharma RPC.
 
-**Spec:** `docs/superpowers/specs/2026-08-26-public-testnet-wallet-faucet-design.md` from the historical faucet branch; Stage 2 intentionally implements only the server-side public-RPC/faucet recovery slice.
+**Spec:** `docs/superpowers/specs/2026-08-26-public-testnet-wallet-faucet-design.md` from the historical faucet branch; Stage 2 intentionally implements only the server-side public-RPC/faucet recovery slice plus the shared-Lambda compatibility required to avoid regressions.
 
 ## Global Constraints
 
@@ -18,6 +18,8 @@
 - Never store a faucet private key in the repository or GitHub Actions inputs; load it from AWS Secrets Manager at runtime.
 - Persist grant/claim/idempotency state in DynamoDB.
 - Preserve normal public RPC availability if faucet activation fails.
+- Preserve existing Lambda environment variables when toggling faucet state.
+- Preserve shared `/v1/website/visitors` and `/v1/explorer/*` behavior.
 - A tested artifact and a deployed artifact must come from the same workflow run.
 
 ---
@@ -28,166 +30,55 @@
 - Create: `scripts/check-faucet-deploy-contract_test.sh`
 - Create: `.github/workflows/faucet-recovery-ci.yml`
 
-**Interfaces:**
-- Consumes: repository files only.
-- Produces: an executable contract test that fails until the Stage 2 deployment workflow has manual-only deployment semantics.
-
-- [ ] **Step 1: Write the failing test**
-
-The shell test must require `.github/workflows/testnet-public-rpc.yml` to exist and assert all of the following strings are present:
-
-```text
-workflow_dispatch:
-deploy:
-if: github.event_name == 'workflow_dispatch' && inputs.deploy == true
-uses: actions/download-artifact@v4
-FAUCET_ENABLED=false
-/v1/faucet/info
-```
-
-It must also fail if the deploy job contains a `push`-only branch equality such as `github.ref == 'refs/heads/feature/public-testnet-wallet-v2'`.
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run:
-
-```bash
-bash ./scripts/check-faucet-deploy-contract_test.sh
-```
-
-Expected: FAIL because canonical has no Stage 2 public-RPC deployment workflow.
-
-- [ ] **Step 3: Commit the red test**
-
-```bash
-git add scripts/check-faucet-deploy-contract_test.sh .github/workflows/faucet-recovery-ci.yml
-git commit -m "test(faucet): lock safe deployment contract"
-```
+- [x] Require manual-only `workflow_dispatch` deployment.
+- [x] Require same-run artifact download.
+- [x] Require faucet disabled before code installation.
+- [x] Require preserved Lambda environment variables.
+- [x] Require `/v1/faucet/info` and deep `/v1/faucet/health` readiness checks.
+- [x] Require unexpected-error rollback after activation.
+- [x] Require visitor runtime packaging, visitor route preservation, explorer route/query preservation, and shared-route smoke checks.
 
 ### Task 2: Restore the hardened faucet Lambda slice
 
 **Files:**
-- Create: `deployment/testnet/public-rpc/lambda/package.json`
-- Create: `deployment/testnet/public-rpc/lambda/router.mjs`
-- Create: `deployment/testnet/public-rpc/lambda/router.test.mjs`
-- Create: `deployment/testnet/public-rpc/lambda/upstream.mjs`
-- Create: `deployment/testnet/public-rpc/lambda/upstream.test.mjs`
-- Create: `deployment/testnet/public-rpc/lambda/faucet.mjs`
-- Create: `deployment/testnet/public-rpc/lambda/faucet.test.mjs`
-- Create: `deployment/testnet/public-rpc/lambda/faucet-runtime.mjs`
-- Create: `deployment/testnet/public-rpc/lambda/faucet-runtime.test.mjs`
-- Create: `deployment/testnet/public-rpc/lambda/index.mjs`
-- Create: `deployment/testnet/public-rpc/lambda/index.test.mjs`
+- `deployment/testnet/public-rpc/lambda/package.json`
+- `router.mjs`, `router.test.mjs`
+- `upstream.mjs`, `upstream.test.mjs`
+- `faucet.mjs`, `faucet.test.mjs`
+- `faucet-runtime.mjs`, `faucet-runtime.test.mjs`
+- `index.mjs`, `index.test.mjs`
+- `visitor-runtime.mjs`, `visitor-runtime.test.mjs`
+- `shared-routes-regression.test.mjs`
 
-**Interfaces:**
-- Consumes: Sudharma seed RPC account/transaction endpoints, AWS Secrets Manager, DynamoDB.
-- Produces: `GET /v1/faucet/info`, `POST /v1/faucet/request`, `POST /v1/faucet/challenge`, plus the existing public RPC proxy routes.
+- [x] Restore hardened faucet runtime selectively; no wholesale diverged branch merge.
+- [x] Keep `/v1/faucet/health` local to the faucet runtime.
+- [x] Preserve website visitor read/write handling locally.
+- [x] Preserve read-only explorer routing, validated query forwarding, and browser CORS.
+- [x] Run the full Node test suite and tracked-secret safety tests in CI.
 
-- [ ] **Step 1: Import only the already-tested hardened Lambda files**
+### Task 3: Make artifact promotion manual, same-run, and fail-closed
 
-Copy the matching files from `codex/faucet-hardening-integration`, not the entire diverged branch.
-
-- [ ] **Step 2: Run Lambda tests**
-
-```bash
-cd deployment/testnet/public-rpc/lambda
-npm install --ignore-scripts --no-audit --no-fund
-npm test
-```
-
-Expected: PASS.
-
-- [ ] **Step 3: Run tracked-secret safety test**
-
-```bash
-bash ./scripts/check-tracked-secrets_test.sh
-```
-
-Expected: PASS.
-
-- [ ] **Step 4: Commit the restored slice**
-
-```bash
-git add deployment/testnet/public-rpc/lambda
-git commit -m "feat(faucet): restore hardened public rpc slice"
-```
-
-### Task 3: Make artifact promotion manual and same-run
-
-**Files:**
-- Create: `.github/workflows/testnet-public-rpc.yml`
-- Test: `scripts/check-faucet-deploy-contract_test.sh`
-
-**Interfaces:**
-- Consumes: Lambda source and successful build artifact from the same workflow run.
-- Produces: a manual-only AWS deploy path guarded by an explicit boolean input.
-
-- [ ] **Step 1: Implement build/test/package on branch push**
-
-The build job runs `npm test`, packages the Lambda, and uploads `sudharma-testnet-wallet-proxy`.
-
-- [ ] **Step 2: Implement explicit manual deploy gate**
-
-Use:
-
-```yaml
-workflow_dispatch:
-  inputs:
-    deploy:
-      description: Deploy the tested artifact to the public testnet Lambda
-      required: true
-      default: false
-      type: boolean
-```
-
-and gate AWS jobs with:
-
-```yaml
-if: github.event_name == 'workflow_dispatch' && inputs.deploy == true
-```
-
-The deploy job must use `actions/download-artifact@v4`; it must not rebuild the Lambda after the build job.
-
-- [ ] **Step 3: Preserve staged activation and rollback**
-
-Deploy code, set `FAUCET_ENABLED=false`, verify `/v1/status`, set `FAUCET_ENABLED=true`, call `/v1/faucet/info`, and restore `FAUCET_ENABLED=false` before failing if the info smoke test is not HTTP 200.
-
-- [ ] **Step 4: Run regression contract test**
-
-```bash
-bash ./scripts/check-faucet-deploy-contract_test.sh
-```
-
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add .github/workflows/testnet-public-rpc.yml scripts/check-faucet-deploy-contract_test.sh
-git commit -m "fix(faucet): make tested artifact promotion explicit"
-```
+- [x] Build/test/package on branch push.
+- [x] Gate AWS mutation behind `workflow_dispatch` + `deploy: true`.
+- [x] Snapshot/merge Lambda environment instead of replacing it.
+- [x] Force `FAUCET_ENABLED=false` before installing new Lambda code.
+- [x] Smoke-test `/v1/status`, `/v1/website/visitors`, and `/v1/explorer/status` before faucet activation.
+- [x] Enable under an `ERR` rollback trap.
+- [x] Require valid `/v1/faucet/info` and `/v1/faucet/health` with `ready: true`.
+- [x] Recheck shared public endpoints after activation.
 
 ### Task 4: Verification checkpoint
 
-**Files:** no production changes.
+Current verified deployment artifact source commit:
 
-**Interfaces:**
-- Consumes: Stage 2 branch head.
-- Produces: evidence required before any merge or deployment request.
+`7700bc9ad6677f5d76abd455e3d659300307d910`
 
-- [ ] **Step 1: Run all Stage 2 faucet tests**
+Evidence:
+- Testnet Public RPC run `33303485925`: deployment contract, secret-safety, Lambda tests, package and artifact upload all passed; live deploy correctly skipped on push.
+- Faucet Recovery CI run `33303485932`: deployment-contract and Lambda test jobs passed.
+- Artifact `sudharma-testnet-wallet-proxy`, ID `9729690738`.
+- Artifact SHA-256: `b2ccd2127f262395bbfc247292118b3e7a1f88f2bda1a54e2a3b3d21a816b88f`.
 
-```bash
-bash ./scripts/check-faucet-deploy-contract_test.sh
-cd deployment/testnet/public-rpc/lambda && npm test
-```
+### Remaining live boundary
 
-Expected: all PASS.
-
-- [ ] **Step 2: Inspect GitHub Actions result**
-
-Require the Stage 2 faucet recovery CI run to finish successfully.
-
-- [ ] **Step 3: Stop before deployment**
-
-Report the branch SHA, files changed, tests passed, and remaining AWS/OIDC prerequisites. Do not merge and do not run the manual deployment until explicit approval is given.
+A manual deployment run is still required. During that run, GitHub OIDC trust for `feature/faucet-recovery-stage2` will be proven at the AWS credential step. If OIDC is rejected, the workflow fails before any Lambda mutation. Do not merge the draft PR until live activation evidence is captured and explicit approval is given.
