@@ -50,11 +50,14 @@ jobs:
           should_deploy="$(node --input-type=module -e "
             const fs = await import('node:fs');
             const payload = JSON.parse(fs.readFileSync('/tmp/demand-miner-assess.json', 'utf8'));
-            const scheduled = process.env.GITHUB_EVENT_NAME === 'schedule';
+            const eventName = process.env.GITHUB_EVENT_NAME;
+            const scheduled = eventName === 'schedule';
+            const pushed = eventName === 'push';
+            const faucetNeedsFunding = payload.readiness?.faucet_needs_funding === true;
             const blocked = payload.readiness?.should_attempt_recovery === false
               && payload.readiness?.chain_advancement_required === true;
             const pending = Number(payload.snapshot?.mempool ?? 0) > 0;
-            process.stdout.write(scheduled || blocked || pending ? 'true' : 'false');
+            process.stdout.write(scheduled || pushed || blocked || pending || faucetNeedsFunding ? 'true' : 'false');
           ")"
           network_mempool="$(node --input-type=module -e "
             const fs = await import('node:fs');
