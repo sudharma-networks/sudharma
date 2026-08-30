@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Delete all faucet DynamoDB rows (ADDR#, TX#, LOCK#, HEALTH#) for a testnet fresh start.
+ * Delete faucet grant rows (ADDR#, TX#, LOCK#, HEALTH#) for a testnet fresh start.
+ * Preserves website visitor keys (WEBVISITOR#, WEBVISIT#) in the shared table.
  * Does not touch Secrets Manager or on-chain state.
  */
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
@@ -12,6 +13,13 @@ import {
 
 const tableName = process.env.FAUCET_TABLE_NAME || 'Sudharma-Testnet-Faucet';
 const dryRun = process.env.DRY_RUN === 'true';
+
+function shouldDeleteKey(pk) {
+  return pk.startsWith('ADDR#')
+    || pk.startsWith('TX#')
+    || pk === 'LOCK#payout'
+    || pk.startsWith('HEALTH#');
+}
 
 function chunk(items, size) {
   const out = [];
@@ -58,15 +66,18 @@ async function main() {
     marshallOptions: { removeUndefinedValues: true },
   });
   const keys = await scanAllKeys(client);
+  const toDelete = keys.filter(shouldDeleteKey);
+  const preserved = keys.filter((pk) => !shouldDeleteKey(pk));
   const summary = {
     table: tableName,
     dry_run: dryRun,
     keys_found: keys.length,
     addr_rows: keys.filter((k) => k.startsWith('ADDR#')).length,
     tx_rows: keys.filter((k) => k.startsWith('TX#')).length,
-    other_rows: keys.filter((k) => !k.startsWith('ADDR#') && !k.startsWith('TX#')).length,
+    preserved_rows: preserved.length,
+    preserved_keys: preserved.slice(0, 10),
   };
-  summary.deleted = await deleteKeys(client, keys);
+  summary.deleted = await deleteKeys(client, toDelete);
   console.log(JSON.stringify({ faucet_reset: dryRun ? 'dry_run' : 'ok', ...summary }, null, 2));
 }
 
