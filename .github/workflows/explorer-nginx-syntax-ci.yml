@@ -6,12 +6,14 @@ on:
       - 'deployment/testnet/rollout-explorer-nginx-allowlist.sh'
       - 'deployment/testnet/rollout-explorer-nginx-allowlist_test.sh'
       - 'deployment/testnet/rollout-explorer-nginx-syntax_test.sh'
+      - 'deployment/testnet/rollout-explorer-nginx-temp-safety_test.sh'
       - '.github/workflows/explorer-nginx-syntax-ci.yml'
   pull_request:
     paths:
       - 'deployment/testnet/rollout-explorer-nginx-allowlist.sh'
       - 'deployment/testnet/rollout-explorer-nginx-allowlist_test.sh'
       - 'deployment/testnet/rollout-explorer-nginx-syntax_test.sh'
+      - 'deployment/testnet/rollout-explorer-nginx-temp-safety_test.sh'
       - '.github/workflows/explorer-nginx-syntax-ci.yml'
 
 permissions:
@@ -30,3 +32,5 @@ jobs:
         run: bash deployment/testnet/rollout-explorer-nginx-syntax_test.sh
       - name: Verify nginx rollout safety contract
         run: bash deployment/testnet/rollout-explorer-nginx-allowlist_test.sh
+      - name: Verify rollout temp files stay outside nginx include directories
+        run: bash deployment/testnet/rollout-explorer-nginx-temp-safety_test.sh
