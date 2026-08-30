@@ -523,6 +523,13 @@ export async function checkFaucetDiagnostics({ store, rpc, signer }) {
       mempool: networkStatus.mempool ?? null,
     } : null,
     seed_mempool: seedMempool,
+    mempool_inference: {
+      network_mempool_count: networkStatus?.mempool ?? null,
+      seed_mempool_endpoint_available: seedMempool.available,
+      likely_prepared_nonce_blocked: !seedMempool.available
+        && Number.isInteger(networkStatus?.mempool)
+        && networkStatus.mempool > 0,
+    },
     testnet_only: true,
   };
 }

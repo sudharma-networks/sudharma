@@ -99,6 +99,9 @@ export function analyzeFaucetPublicState({
   if (analysis.last_error_category === 'invalid_nonce') {
     analysis.likely_blocker = 'mempool_nonce_conflict';
     analysis.recommendation = 'Seed mempool already advanced past the prepared nonce; mine blocks or clear conflicting mempool transactions, then resubmit once.';
+  } else if (faucetDiagnostics?.mempool_inference?.likely_prepared_nonce_blocked) {
+    analysis.likely_blocker = 'mempool_nonce_conflict';
+    analysis.recommendation = 'Network mempool is non-empty while seed mempool listing is unavailable; mine blocks or clear mempool on seeds, then resubmit once.';
   } else if (!analysis.balance_covers_next_grant) {
     analysis.likely_blocker = 'insufficient_balance';
     analysis.recommendation = 'Fund the faucet signer before resubmitting nonce-3 payouts.';

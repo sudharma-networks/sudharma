@@ -298,12 +298,47 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Analyze public faucet state
-        run: node ./scripts/analyze-faucet-public-state.mjs | tee /tmp/public-analysis.json
+        run: |
+          node ./scripts/analyze-faucet-public-state.mjs | tee /tmp/public-analysis.json
+          curl -fsS "$RPC_BASE_URL/v1/faucet/diagnostics" | tee /tmp/faucet-diagnostics.json || echo '{"seed_mempool":{"available":false}}' > /tmp/faucet-diagnostics.json
+          export LAST_ERROR_CATEGORY="$(node --input-type=module -e "
+            const fs = await import('node:fs');
+            try {
+              const body = JSON.parse(fs.readFileSync('/tmp/public-analysis.json', 'utf8'));
+              process.stdout.write(String(body.last_error_category || ''));
+            } catch { process.stdout.write(''); }
+          ")"
+          node ./scripts/evaluate-faucet-recovery-readiness.mjs | tee /tmp/recovery-readiness.json || true
+
+      - name: Skip when recovery readiness says mempool still blocked
+        id: readiness
+        run: |
+          set -euo pipefail
+          if [ ! -f /tmp/recovery-readiness.json ]; then
+            echo 'skip_recovery=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          should_attempt="$(node --input-type=module -e "
+            const fs = await import('node:fs');
+            const payload = JSON.parse(fs.readFileSync('/tmp/recovery-readiness.json', 'utf8'));
+            process.stdout.write(payload.readiness?.should_attempt_recovery === false ? 'false' : 'true');
+          ")"
+          echo "should_attempt=$should_attempt" >> "$GITHUB_OUTPUT"
+          if [ "$should_attempt" = 'false' ]; then
+            cat /tmp/recovery-readiness.json
+            echo 'skip_recovery=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'skip_recovery=false' >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Skip when prepared payout is already on chain
         id: gate
         run: |
           set -euo pipefail
+          if [ "${{ steps.readiness.outputs.skip_recovery }}" = 'true' ]; then
+            echo 'skip_recovery=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           chain_status="$(node --input-type=module -e "
             const fs = await import('node:fs');
             const analysis = JSON.parse(fs.readFileSync('/tmp/public-analysis.json', 'utf8'));
