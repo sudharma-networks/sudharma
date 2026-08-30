@@ -28,7 +28,7 @@ jobs:
           role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
           aws-region: ap-south-1
 
-      - name: Inspect private nginx bridge without changes
+      - name: Identify private port 29100 listener without changes
         shell: bash
         run: |
           set -euo pipefail
@@ -44,11 +44,25 @@ jobs:
             fi
             echo "::add-mask::$instance_id"
 
+            parameters="$(jq -cn --arg ip "$private_ip" '{commands:[
+              "set -eu",
+              "echo ===LISTENERS===",
+              "ss -lntp || true",
+              "echo ===RUNNING_RELEVANT_SERVICES===",
+              "systemctl list-units --type=service --state=running --no-pager | grep -Ei \"nginx|sudharma|proxy|socat|rpc\" || true",
+              "echo ===RELEVANT_PROCESSES===",
+              "ps -ef | grep -Ei \"nginx|sudharma|proxy|socat|29100\" | grep -v grep || true",
+              ("echo ===PRIVATE_29100_STATUS===; curl -sS -i http://" + $ip + ":29100/v1/status | head -n 25 || true"),
+              ("echo ===PRIVATE_29100_EXPLORER===; curl -sS -i http://" + $ip + ":29100/v1/explorer/status | head -n 25 || true"),
+              "echo ===CONFIG_REFERENCES_29100===",
+              "grep -R -n -E \"29100|28545\" /etc/systemd/system /lib/systemd/system /etc/nginx /etc/sudharma 2>/dev/null | head -n 200 || true"
+            ]}')"
+
             command_id="$(aws ssm send-command \
               --instance-ids "$instance_id" \
               --document-name AWS-RunShellScript \
-              --comment "Sudharma private nginx read-only probe" \
-              --parameters 'commands=["set -eu","nginx -t","echo ===NGINX_29100_FILES===","files=$(grep -RlE '\''listen[[:space:]]+29100([[:space:];]|$)'\'' /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null || true)","if [ -z \"$files\" ]; then echo no_29100_config_found; else for f in $files; do echo ===FILE:$f===; cat \"$f\"; done; fi","echo ===LOCAL_BRIDGE_STATUS===","curl -sS -i http://127.0.0.1:29100/v1/status | head -n 20 || true","echo ===LOCAL_BRIDGE_EXPLORER===","curl -sS -i http://127.0.0.1:29100/v1/explorer/status | head -n 20 || true"]' \
+              --comment "Sudharma private port 29100 read-only probe" \
+              --parameters "$parameters" \
               --query 'Command.CommandId' \
               --output text)"
             echo "::add-mask::$command_id"
@@ -62,7 +76,7 @@ jobs:
               case "$status" in
                 Success) break ;;
                 Failed|Cancelled|TimedOut|Cancelling)
-                  echo "seed-${index}: nginx probe ended with ${status}" >&2
+                  echo "seed-${index}: listener probe ended with ${status}" >&2
                   break
                   ;;
               esac
@@ -79,8 +93,8 @@ jobs:
       - name: Record safety boundary
         if: always()
         run: |
-          echo 'nginx-config-writes=0'
-          echo 'nginx-reloads=0'
+          echo 'config-writes=0'
+          echo 'service-reloads=0'
           echo 'seed-service-restarts=0'
           echo 'seed-binaries-changed=0'
           echo 'gpu-pow-deployment=0'
