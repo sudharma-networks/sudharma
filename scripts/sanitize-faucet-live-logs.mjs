@@ -1,20 +1,31 @@
 #!/usr/bin/env node
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
 const ALLOWED_FIELDS = [
   'event',
   'operation',
   'outcome',
   'error_name',
   'http_status',
-  'error_category',
   'latency_ms',
+  'error_category',
   'route',
   'status_code',
   'request_id',
 ];
 
 const ALLOWED_EVENTS = new Set(['faucet_dependency', 'wallet_faucet_error']);
+const INSPECT_STRING_KEYS = new Set([
+  'event',
+  'operation',
+  'outcome',
+  'error_name',
+  'error_category',
+  'route',
+  'request_id',
+]);
+const INSPECT_NUMBER_KEYS = new Set(['http_status', 'latency_ms', 'status_code']);
 
 export function extractJsonObject(text) {
   const source = String(text || '');
@@ -26,6 +37,24 @@ export function extractJsonObject(text) {
   } catch {
     return null;
   }
+}
+
+export function parseInspectObject(text) {
+  const source = String(text || '');
+  const start = source.indexOf('{');
+  const end = source.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  const body = source.slice(start, end + 1);
+  const record = {};
+  for (const key of INSPECT_STRING_KEYS) {
+    const match = body.match(new RegExp(`${key}:\\s*'([^']*)'`));
+    if (match) record[key] = match[1];
+  }
+  for (const key of INSPECT_NUMBER_KEYS) {
+    const match = body.match(new RegExp(`${key}:\\s*([0-9]+)`));
+    if (match) record[key] = Number(match[1]);
+  }
+  return Object.keys(record).length > 0 ? record : null;
 }
 
 export function sanitizeLiveLogRecord(record) {
@@ -42,14 +71,30 @@ export function sanitizeLiveLogRecord(record) {
   return Object.keys(sanitized).length > 0 ? sanitized : null;
 }
 
+function splitLogChunks(text) {
+  const source = String(text || '');
+  const parts = source.split(/(?=20\d{2}-\d{2}-\d{2}T[\d:.]+Z\t)/);
+  return parts.filter((part) => part.trim());
+}
+
 export function sanitizeLiveLogText(text) {
-  const lines = String(text || '').split(/\r?\n/);
   const records = [];
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    const parsed = extractJsonObject(line);
+  const seen = new Set();
+  function push(parsed) {
     const sanitized = sanitizeLiveLogRecord(parsed);
-    if (sanitized) records.push(sanitized);
+    if (!sanitized) return;
+    const key = JSON.stringify(sanitized);
+    if (seen.has(key)) return;
+    seen.add(key);
+    records.push(sanitized);
+  }
+
+  for (const line of String(text || '').split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    push(extractJsonObject(line));
+  }
+  for (const chunk of splitLogChunks(text)) {
+    push(extractJsonObject(chunk) || parseInspectObject(chunk));
   }
   return records;
 }

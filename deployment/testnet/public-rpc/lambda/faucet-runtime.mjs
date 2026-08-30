@@ -26,12 +26,17 @@ function conditionalFailure(error) {
   return error?.name === 'ConditionalCheckFailedException' || error?.name === 'TransactionCanceledException';
 }
 
+function writeDiagnosticLog(logger, record) {
+  const line = JSON.stringify(record);
+  if (typeof logger?.info === 'function') logger.info(line);
+}
+
 export function createOperationTimer({ logger = console, now = Date.now } = {}) {
   return async function timeOperation(operation, action) {
     const started = now();
     try {
       const result = await action();
-      logger.info({ event: 'faucet_dependency', operation, outcome: 'success', latency_ms: now() - started });
+      writeDiagnosticLog(logger, { event: 'faucet_dependency', operation, outcome: 'success', latency_ms: now() - started });
       return result;
     } catch (error) {
       const record = {
@@ -43,7 +48,7 @@ export function createOperationTimer({ logger = console, now = Date.now } = {}) 
       };
       if (Number.isInteger(error?.upstreamStatus)) record.http_status = error.upstreamStatus;
       if (typeof error?.errorCategory === 'string') record.error_category = error.errorCategory;
-      logger.info(record);
+      writeDiagnosticLog(logger, record);
       throw error;
     }
   };

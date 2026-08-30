@@ -16,10 +16,11 @@ test('dependency timing logs only operation outcome and latency', async () => {
     /private-sensitive-marker/,
   );
 
-  assert.deepEqual(records, [
+  assert.deepEqual(records.map((value) => JSON.parse(value)), [
     { event: 'faucet_dependency', operation: 'dynamodb.reserve_initial', outcome: 'success', latency_ms: 37 },
     { event: 'faucet_dependency', operation: 'seed.account', outcome: 'error', error_name: 'Error', latency_ms: 41 },
   ]);
+  assert.equal(records.every((value) => typeof value === 'string'), true);
   assert.equal(JSON.stringify(records).includes('private-sensitive-marker'), false);
 });
 
@@ -56,7 +57,7 @@ test('RPC diagnostics classify seed rejection without logging its response body'
     /outcome is uncertain/,
   );
 
-  assert.deepEqual(records, [
+  assert.deepEqual(records.map((value) => JSON.parse(value)), [
     {
       event: 'faucet_dependency',
       operation: 'seed.submit_transaction',
@@ -134,8 +135,9 @@ test('RPC diagnostics classify additional seed failures from status and safe key
     });
 
     await assert.rejects(rpc.account('9'.repeat(40)));
-    assert.equal(records[0].http_status, item.status);
-    assert.equal(records[0].error_category, item.category);
+    const parsed = JSON.parse(records[0]);
+    assert.equal(parsed.http_status, item.status);
+    assert.equal(parsed.error_category, item.category);
     assert.equal(JSON.stringify(records).includes(item.error), false);
   }
 });

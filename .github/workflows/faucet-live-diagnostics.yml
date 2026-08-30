@@ -44,17 +44,31 @@ jobs:
             --output json
 
       - name: Read failed-address state safely
+        id: failed_state
         run: |
           set -u
           key="{\"pk\":{\"S\":\"ADDR#$FAILED_ADDRESS\"}}"
+          fallback_ms="$(date -u -d '6 hours ago' +%s%3N)"
+          export DIAG_START_MS="$fallback_ms"
+          echo "DIAG_START_MS=$fallback_ms" >> "$GITHUB_ENV"
           if aws dynamodb get-item \
             --table-name "$FAUCET_TABLE_NAME" \
             --key "$key" \
             --consistent-read \
             --projection-expression 'initial_status, initial_txid, initial_error, initial_reserved_at, initial_prepared_at, initial_submitted_at, initial_paid_at' \
             --query 'Item.{initial_status:initial_status.S,initial_txid:initial_txid.S,initial_error:initial_error.S,initial_reserved_at:initial_reserved_at.N,initial_prepared_at:initial_prepared_at.N,initial_submitted_at:initial_submitted_at.N,initial_paid_at:initial_paid_at.N}' \
-            --output json; then
+            --output json > /tmp/failed-address.json; then
             echo '{"dynamodb_get_item":"OK"}'
+            cat /tmp/failed-address.json
+            node --input-type=module <<'NODE'
+            import fs from 'node:fs';
+            const item = JSON.parse(fs.readFileSync('/tmp/failed-address.json', 'utf8')) ?? {};
+            const prepared = Number.parseInt(item.initial_prepared_at || item.initial_reserved_at || '', 10);
+            const fallback = Number.parseInt(process.env.DIAG_START_MS || '', 10);
+            const start = Number.isFinite(prepared) ? Math.max(0, prepared - 120_000) : fallback;
+            fs.appendFileSync(process.env.GITHUB_ENV, `DIAG_START_MS=${start}\n`);
+            console.log(JSON.stringify({ diag_start_ms: start, used_prepared_at: Number.isFinite(prepared) }));
+            NODE
           else
             echo '{"dynamodb_get_item":"DENIED_OR_FAILED"}'
           fi
@@ -62,8 +76,9 @@ jobs:
       - name: Read recent safe faucet dependency logs
         run: |
           set -u
-          start_ms="$(date -u -d '2 hours ago' +%s%3N)"
+          start_ms="${DIAG_START_MS:?missing diagnostic start time}"
           log_group="/aws/lambda/$LAMBDA_NAME"
+          echo "{\"diag_start_ms\":$start_ms}"
           for pattern in '"faucet_dependency"' '"wallet_faucet_error"'; do
             echo "=== filter $pattern ==="
             raw_logs="$(mktemp)"

@@ -30,3 +30,37 @@ test('live log sanitizer keeps only allowlisted faucet diagnostic fields', () =>
   assert.equal(JSON.stringify(sanitizeLiveLogText(dumped)).includes('private-sensitive-marker'), false);
   assert.equal(JSON.stringify(sanitizeLiveLogText(dumped)).includes('signed-transaction-hex'), false);
 });
+
+test('live log sanitizer parses Node inspect CloudWatch messages without extra fields', () => {
+  const dumped = [
+    "2026-08-30T12:56:47.513Z\t634ac672-71c7-4afb-ab60-272ed93870ca\tINFO\t{",
+    "  event: 'faucet_dependency',",
+    "  operation: 'seed.submit_transaction',",
+    "  outcome: 'success',",
+    "  latency_ms: 161,",
+    "  error: 'transaction rejected by mempool: invalid transaction signature'",
+    '}',
+    "2026-08-30T12:56:47.792Z\t634ac672-71c7-4afb-ab60-272ed93870ca\tERROR\t{",
+    "  event: 'wallet_faucet_error',",
+    "  route: 'faucetInitial',",
+    '  status_code: 503,',
+    "  message: 'private-sensitive-marker'",
+    '}',
+  ].join('\n');
+
+  assert.deepEqual(sanitizeLiveLogText(dumped), [
+    {
+      event: 'faucet_dependency',
+      operation: 'seed.submit_transaction',
+      outcome: 'success',
+      latency_ms: 161,
+    },
+    {
+      event: 'wallet_faucet_error',
+      route: 'faucetInitial',
+      status_code: 503,
+    },
+  ]);
+  assert.equal(JSON.stringify(sanitizeLiveLogText(dumped)).includes('private-sensitive-marker'), false);
+  assert.equal(JSON.stringify(sanitizeLiveLogText(dumped)).includes('transaction rejected by mempool'), false);
+});
