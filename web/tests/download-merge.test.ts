@@ -21,6 +21,6 @@ it("every public download has official provenance and unavailable items have no 
 });
 
 it("current public wallet and miners are synchronized", () => {
-  expect(DOWNLOADS.some((item) => item.kind === "wallet" && item.status === "available" && item.version === "wallet-testnet-v0.1.0")).toBe(true);
+  expect(DOWNLOADS.some((item) => item.kind === "wallet" && item.status === "available" && item.version.startsWith("wallet-testnet-"))).toBe(true);
   expect(DOWNLOADS.filter((item) => item.kind === "miner" && item.status === "available")).toHaveLength(2);
 });

@@ -19,7 +19,26 @@ export function DownloadCard({ artifact }: { artifact: DownloadArtifact }) {
       {artifact.safetyNote ? <p className="muted">{artifact.safetyNote}</p> : null}
       {artifact.sha256 ? <p className="checksum">SHA256 {artifact.sha256}</p> : null}
       <div className="card-actions">
-        {artifact.status === "available" && artifact.downloadUrl ? <a className="button small" href={artifact.downloadUrl}>Download</a> : <span className="muted">No public binary published yet.</span>}
+        {artifact.status === "available" && artifact.downloadUrl ? (
+          <>
+            <a
+              className="button small"
+              href={artifact.downloadUrl}
+              download
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Download
+            </a>
+            {artifact.releaseNotesUrl ? (
+              <a className="text-link" href={artifact.releaseNotesUrl} target="_blank" rel="noopener noreferrer">
+                GitHub release ↗
+              </a>
+            ) : null}
+          </>
+        ) : (
+          <span className="muted">No public binary published yet.</span>
+        )}
         {artifact.checksumUrl ? <a className="text-link" href={artifact.checksumUrl}>Checksum ↗</a> : null}
         {artifact.releaseNotesUrl ? <a className="text-link" href={artifact.releaseNotesUrl}>Release notes ↗</a> : null}
         {artifact.sourceUrl ? <a className="text-link" href={artifact.sourceUrl}>Source ↗</a> : null}

@@ -99,8 +99,8 @@ test("shows pending transaction status without inventing block metadata", async 
   })));
 
   render(<ExplorerTransactionDetail apiBaseUrl={apiBase} transactionId={txID} />);
-  expect(await screen.findByText(/pending/i)).toBeInTheDocument();
-  expect(screen.getByText(/not yet included in a canonical block/i)).toBeInTheDocument();
+  expect(await screen.findByText(/waiting in the seed-node mempool/i)).toBeInTheDocument();
+  expect(screen.getByText(/pending \(mempool\)/i)).toBeInTheDocument();
   expect(screen.queryByText(/block height/i)).not.toBeInTheDocument();
 });
 

@@ -4,8 +4,12 @@ on:
     paths:
       - 'web/**'
       - 'deployment/website/**'
+      - 'rpc/**'
+      - 'blockchain/explorer*.go'
+      - 'deployment/testnet/public-rpc/lambda/**'
       - '.github/workflows/website-ci.yml'
       - '.github/workflows/provision-website-visitor-counter.yml'
+      - '.github/workflows/testnet-public-rpc.yml'
   pull_request:
     paths:
       - 'web/**'
@@ -31,6 +35,8 @@ jobs:
         working-directory: .
         run: node --test deployment/website/visitor-counter/*.test.mjs
       - run: npm install
+      - name: Sync verified GitHub release metadata
+        run: npm run sync:github
       - run: npm run typecheck
       - run: npm test
       - run: npm run build

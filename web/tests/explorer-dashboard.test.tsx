@@ -15,8 +15,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test("loads live explorer summary, blocks and transactions", async () => {
-  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+function mockExplorerFetch() {
+  return vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
     if (url === `${apiBase}/v1/explorer/status`) {
       return jsonResponse({
@@ -28,7 +28,8 @@ test("loads live explorer summary, blocks and transactions", async () => {
         total_work: "43",
         peers: 2,
         mempool: 3,
-        issued_supply: 125_000_000
+        issued_supply: 125_000_000,
+        data_sources: ["seed-1", "seed-2", "mempool", "demand-miner"],
       });
     }
     if (url === `${apiBase}/v1/explorer/blocks?limit=8`) {
@@ -65,32 +66,50 @@ test("loads live explorer summary, blocks and transactions", async () => {
         }]
       });
     }
+    if (url === `${apiBase}/v1/explorer/mempool?limit=8`) {
+      return jsonResponse({
+        count: 1,
+        transactions: [{
+          transaction: {
+            id: "f".repeat(64),
+            from: "3".repeat(40),
+            to: "4".repeat(40),
+            amount: 10_000_000,
+            fee: 10_000,
+            nonce: 2
+          },
+          status: "pending",
+          confirmations: 0
+        }]
+      });
+    }
     throw new Error(`unexpected fetch: ${url}`);
   });
-  vi.stubGlobal("fetch", fetchMock);
+}
+
+test("loads live explorer summary, blocks, transactions, and mempool", async () => {
+  vi.stubGlobal("fetch", mockExplorerFetch());
 
   render(<ExplorerDashboard apiBaseUrl={apiBase} pollIntervalMs={60_000} />);
 
   expect(await screen.findByText("42")).toBeInTheDocument();
   expect(screen.getByText("2", { selector: "strong" })).toBeInTheDocument();
   expect(screen.getByText("3", { selector: "strong" })).toBeInTheDocument();
+  expect(screen.getByText("seed-1")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: /block #42/i })).toHaveAttribute("href", `/explorer/block?id=${"a".repeat(64)}`);
   expect(screen.getByRole("link", { name: /eeeeeeeeeeee/i })).toHaveAttribute("href", `/explorer/tx?id=${"e".repeat(64)}`);
+  expect(screen.getByRole("link", { name: /ffffffffffff/i })).toHaveAttribute("href", `/explorer/tx?id=${"f".repeat(64)}`);
   expect(screen.getByText("51,000,000,000 SUDH")).toBeInTheDocument();
 });
 
 test("searches the live explorer API and surfaces the resolved detail link", async () => {
-  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+  const fetchMock = mockExplorerFetch();
+  fetchMock.mockImplementation((input: RequestInfo | URL) => {
     const url = String(input);
-    if (url.endsWith("/v1/explorer/status")) {
-      return jsonResponse({ network: "sudharma", coin: "Sudharma", symbol: "SUDH", height: 0, tip_hash: "a".repeat(64), total_work: "1", peers: 0, mempool: 0, issued_supply: 0 });
-    }
-    if (url.includes("/v1/explorer/blocks?")) return jsonResponse({ blocks: [] });
-    if (url.includes("/v1/explorer/transactions?")) return jsonResponse({ transactions: [] });
     if (url === `${apiBase}/v1/explorer/search?q=42`) {
       return jsonResponse({ type: "block", path: "/explorer/block?id=42" });
     }
-    throw new Error(`unexpected fetch: ${url}`);
+    return mockExplorerFetch()(input);
   });
   vi.stubGlobal("fetch", fetchMock);
 
