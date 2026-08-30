@@ -6,6 +6,7 @@ on:
       - feature/faucet-recovery-stage2
       - cursor/faucet-recovery-readiness-gate-83d4
       - cursor/demand-miner-recovery-83d4
+      - cursor/demand-miner-auto-deploy-83d4
   workflow_dispatch:
 
 permissions:
@@ -27,6 +28,8 @@ jobs:
         run: bash ./scripts/check-faucet-prepared-payout-recovery-contract_test.sh
       - name: Verify recovery retry contract
         run: bash ./scripts/check-faucet-recovery-retry-contract_test.sh
+      - name: Verify demand miner auto-deploy contract
+        run: bash ./scripts/check-demand-miner-auto-deploy-contract_test.sh
       - name: Verify live diagnostics log sanitizer contract
         run: bash ./scripts/check-faucet-live-diagnostics-contract_test.sh
       - name: Test live diagnostics log sanitizer

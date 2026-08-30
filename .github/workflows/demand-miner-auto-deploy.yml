@@ -1,0 +1,305 @@
+name: Demand Miner Auto Deploy
+
+on:
+  workflow_dispatch:
+  workflow_call:
+  schedule:
+    - cron: '*/10 * * * *'
+  push:
+    branches:
+      - feature/faucet-recovery-stage2
+      - cursor/demand-miner-auto-deploy-83d4
+    paths:
+      - .github/workflows/demand-miner-auto-deploy.yml
+      - deployment/testnet/remote-ensure-demand-miner.sh
+      - deployment/testnet/demand-miner.seed1-live.example.json
+      - demandminer/**
+      - cmd/sudharma-demand-miner/**
+
+permissions:
+  contents: read
+
+env:
+  RPC_BASE_URL: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com
+  AWS_REGION: ap-south-1
+  SUDHARMA_REPO_REF: feature/faucet-recovery-stage2
+
+jobs:
+  assess-chain-work:
+    runs-on: ubuntu-24.04
+    outputs:
+      should_deploy: ${{ steps.gate.outputs.should_deploy }}
+      network_mempool: ${{ steps.gate.outputs.network_mempool }}
+      network_height: ${{ steps.gate.outputs.network_height }}
+      chain_advancement_required: ${{ steps.gate.outputs.chain_advancement_required }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Assess mempool and recovery blockers
+        id: gate
+        run: |
+          set -euo pipefail
+          node ./scripts/faucet-recovery-monitor.mjs | tee /tmp/demand-miner-assess.json || true
+          should_deploy="$(node --input-type=module -e "
+            const fs = await import('node:fs');
+            const payload = JSON.parse(fs.readFileSync('/tmp/demand-miner-assess.json', 'utf8'));
+            const blocked = payload.readiness?.should_attempt_recovery === false
+              && payload.readiness?.chain_advancement_required === true;
+            process.stdout.write(blocked ? 'true' : 'false');
+          ")"
+          network_mempool="$(node --input-type=module -e "
+            const fs = await import('node:fs');
+            const payload = JSON.parse(fs.readFileSync('/tmp/demand-miner-assess.json', 'utf8'));
+            process.stdout.write(String(payload.snapshot?.mempool ?? ''));
+          ")"
+          network_height="$(node --input-type=module -e "
+            const fs = await import('node:fs');
+            const payload = JSON.parse(fs.readFileSync('/tmp/demand-miner-assess.json', 'utf8'));
+            process.stdout.write(String(payload.snapshot?.height ?? ''));
+          ")"
+          chain_advancement_required="$(node --input-type=module -e "
+            const fs = await import('node:fs');
+            const payload = JSON.parse(fs.readFileSync('/tmp/demand-miner-assess.json', 'utf8'));
+            process.stdout.write(payload.snapshot?.chain_advancement_required === true ? 'true' : 'false');
+          ")"
+          echo "should_deploy=$should_deploy" >> "$GITHUB_OUTPUT"
+          echo "network_mempool=$network_mempool" >> "$GITHUB_OUTPUT"
+          echo "network_height=$network_height" >> "$GITHUB_OUTPUT"
+          echo "chain_advancement_required=$chain_advancement_required" >> "$GITHUB_OUTPUT"
+          cat /tmp/demand-miner-assess.json
+
+      - name: Skip when chain does not need demand mining
+        if: steps.gate.outputs.should_deploy != 'true'
+        run: |
+          echo '{"demand_miner_auto_deploy_skipped":"chain_work_not_pending"}'
+          echo "Height=${{ steps.gate.outputs.network_height }} mempool=${{ steps.gate.outputs.network_mempool }}"
+
+  ensure-on-seed:
+    needs: assess-chain-work
+    if: needs.assess-chain-work.outputs.should_deploy == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials from GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+
+      - name: Resolve Seed-1 instance id
+        id: seed
+        run: |
+          set -euo pipefail
+          instance_id="${TESTNET_SEED1_INSTANCE_ID:-}"
+          if [ -z "$instance_id" ]; then
+            instance_id="$(aws ec2 describe-instances \
+              --filters "Name=tag:Name,Values=*seed*1*" "Name=instance-state-name,Values=running" \
+              --query 'Reservations[0].Instances[0].InstanceId' \
+              --output text 2>/dev/null || true)"
+          fi
+          if [ -z "$instance_id" ] || [ "$instance_id" = "None" ]; then
+            instance_id="$(aws ec2 describe-instances \
+              --filters "Name=tag:Name,Values=*testnet*seed*" "Name=instance-state-name,Values=running" \
+              --query 'Reservations[0].Instances[0].InstanceId' \
+              --output text 2>/dev/null || true)"
+          fi
+          if [ -z "$instance_id" ] || [ "$instance_id" = "None" ]; then
+            echo "seed_instance_found=false" >> "$GITHUB_OUTPUT"
+            echo 'No Seed-1 instance id configured or discoverable. Set repository variable TESTNET_SEED1_INSTANCE_ID.' >&2
+            exit 0
+          fi
+          echo "seed_instance_found=true" >> "$GITHUB_OUTPUT"
+          echo "instance_id=$instance_id" >> "$GITHUB_OUTPUT"
+          aws ec2 describe-instances --instance-ids "$instance_id" \
+            --query 'Reservations[0].Instances[0].{InstanceId:InstanceId,State:State.Name,Name:Tags[?Key==`Name`]|[0].Value,PrivateIp:PrivateIpAddress}' \
+            --output json
+
+      - name: Ensure demand miner supervisor on Seed-1 via SSM
+        if: steps.seed.outputs.seed_instance_found == 'true'
+        run: |
+          set -euo pipefail
+          script_b64="$(base64 -w0 deployment/testnet/remote-ensure-demand-miner.sh)"
+          params="$(jq -nc \
+            --arg script "$script_b64" \
+            --arg ref "$SUDHARMA_REPO_REF" \
+            '{commands:["export SUDHARMA_REPO_REF=\"\($ref)\"","echo \($script) | base64 -d > /tmp/remote-ensure-demand-miner.sh","chmod +x /tmp/remote-ensure-demand-miner.sh","bash /tmp/remote-ensure-demand-miner.sh","rm -f /tmp/remote-ensure-demand-miner.sh"]}')"
+          command_id="$(aws ssm send-command \
+            --instance-ids "${{ steps.seed.outputs.instance_id }}" \
+            --document-name AWS-RunShellScript \
+            --comment "Ensure Sudharma demand miner supervisor (auto-deploy)" \
+            --parameters "$params" \
+            --query 'Command.CommandId' \
+            --output text)"
+          echo "command_id=$command_id" >> "$GITHUB_ENV"
+          for attempt in $(seq 1 60); do
+            status="$(aws ssm get-command-invocation \
+              --command-id "$command_id" \
+              --instance-id "${{ steps.seed.outputs.instance_id }}" \
+              --query 'Status' \
+              --output text 2>/dev/null || echo Pending)"
+            echo "ssm_status=$status attempt=$attempt"
+            case "$status" in
+              Success)
+                aws ssm get-command-invocation \
+                  --command-id "$command_id" \
+                  --instance-id "${{ steps.seed.outputs.instance_id }}" \
+                  --query '{Status:Status,Stdout:StandardOutputContent,Stderr:StandardErrorContent}' \
+                  --output json
+                exit 0
+                ;;
+              Failed|Cancelled|TimedOut)
+                aws ssm get-command-invocation \
+                  --command-id "$command_id" \
+                  --instance-id "${{ steps.seed.outputs.instance_id }}" \
+                  --query '{Status:Status,Stdout:StandardOutputContent,Stderr:StandardErrorContent}' \
+                  --output json
+                exit 1
+                ;;
+            esac
+            sleep 10
+          done
+          echo 'SSM ensure command timed out waiting for completion.' >&2
+          exit 1
+        env:
+          TESTNET_SEED1_INSTANCE_ID: ${{ vars.TESTNET_SEED1_INSTANCE_ID }}
+
+      - name: Verify chain advanced after ensure
+        if: steps.seed.outputs.seed_instance_found == 'true'
+        run: |
+          set -euo pipefail
+          sleep 20
+          status_body="$(curl -fsS "$RPC_BASE_URL/v1/status")"
+          printf '%s\n' "$status_body"
+          BODY="$status_body" BEFORE_HEIGHT="${{ needs.assess-chain-work.outputs.network_height }}" BEFORE_MEMPOOL="${{ needs.assess-chain-work.outputs.network_mempool }}" node --input-type=module -e "
+            const beforeHeight = Number(process.env.BEFORE_HEIGHT || 0);
+            const beforeMempool = Number(process.env.BEFORE_MEMPOOL || 0);
+            const body = JSON.parse(process.env.BODY);
+            const progressed = body.height > beforeHeight || body.mempool < beforeMempool;
+            console.log(JSON.stringify({
+              before: { height: beforeHeight, mempool: beforeMempool },
+              after: { height: body.height, mempool: body.mempool },
+              chain_progressed: progressed,
+            }, null, 2));
+            if (!progressed) process.exit(2);
+          "
+        continue-on-error: true
+
+      - name: Post-ensure public status snapshot
+        if: always() && steps.seed.outputs.seed_instance_found == 'true'
+        run: |
+          curl -fsS "$RPC_BASE_URL/v1/status" | tee /tmp/post-ensure-status.json
+          curl -fsS "$RPC_BASE_URL/v1/faucet/diagnostics" | tee /tmp/post-ensure-diagnostics.json
+          node ./scripts/faucet-recovery-monitor.mjs | tee /tmp/post-ensure-readiness.json || true
+
+      - name: Report missing Seed-1 target
+        if: steps.seed.outputs.seed_instance_found != 'true'
+        run: |
+          echo '::warning title=Demand miner auto-deploy needs Seed-1 instance id::Set repository variable TESTNET_SEED1_INSTANCE_ID or tag the seed EC2 instance so auto-deploy can install the supervisor via SSM.'
+          exit 2
+
+  trigger-faucet-recovery:
+    needs: [assess-chain-work, ensure-on-seed]
+    if: always() && needs.assess-chain-work.outputs.should_deploy == 'true' && needs.ensure-on-seed.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      LAMBDA_NAME: Sudharma-Testnet-Wallet-Proxy
+      FAUCET_TABLE_NAME: Sudharma-Testnet-Faucet
+      FAUCET_SECRET_ID: sudharma/testnet/faucet-wallet
+      FAUCET_RECOVERY_ADDRESS: 16d7dc9ec0495109007860a584c7cf9055da9abf
+      FAILED_ADDRESS: 16d7dc9ec0495109007860a584c7cf9055da9abf
+      FAILED_TXID: b66bde192c92d192b47ca6e972911e4bfb310a0f343b6ef15b77c468d8a989cc
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Evaluate recovery readiness after demand mining
+        id: readiness
+        run: |
+          set -euo pipefail
+          node ./scripts/evaluate-faucet-recovery-readiness.mjs | tee /tmp/recovery-after-miner.json || true
+          should_attempt="$(node --input-type=module -e "
+            const fs = await import('node:fs');
+            const payload = JSON.parse(fs.readFileSync('/tmp/recovery-after-miner.json', 'utf8'));
+            process.stdout.write(payload.readiness?.should_attempt_recovery === true ? 'true' : 'false');
+          ")"
+          echo "should_attempt=$should_attempt" >> "$GITHUB_OUTPUT"
+          cat /tmp/recovery-after-miner.json
+
+      - name: Configure AWS credentials from GitHub OIDC
+        if: steps.readiness.outputs.should_attempt == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+
+      - name: Briefly enable faucet and resubmit prepared payout
+        if: steps.readiness.outputs.should_attempt == 'true'
+        id: recover
+        run: |
+          set -euo pipefail
+          aws lambda get-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --query 'Environment.Variables' \
+            --output json > /tmp/lambda-environment-base.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const base = JSON.parse(fs.readFileSync('/tmp/lambda-environment-base.json', 'utf8')) ?? {};
+          const common = {
+            SEED_1_URL: 'http://172.31.10.171:29100',
+            SEED_2_URL: 'http://172.31.32.195:29100',
+            UPSTREAM_TIMEOUT_MS: '3500',
+            FAUCET_TABLE_NAME: process.env.FAUCET_TABLE_NAME,
+            FAUCET_SECRET_ID: process.env.FAUCET_SECRET_ID,
+            FAUCET_RECOVERY_ADDRESS: process.env.FAUCET_RECOVERY_ADDRESS,
+          };
+          fs.writeFileSync('/tmp/lambda-environment-disabled.json', JSON.stringify({ Variables: { ...base, ...common, FAUCET_ENABLED: 'false' } }));
+          fs.writeFileSync('/tmp/lambda-environment-enabled.json', JSON.stringify({ Variables: { ...base, ...common, FAUCET_ENABLED: 'true' } }));
+          NODE
+          aws lambda update-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --environment file:///tmp/lambda-environment-enabled.json \
+            --no-cli-pager >/dev/null
+          aws lambda wait function-updated --function-name "$LAMBDA_NAME"
+          for attempt in $(seq 1 15); do
+            info_body="$(curl -fsS "$RPC_BASE_URL/v1/faucet/info")"
+            if BODY="$info_body" node --input-type=module -e "const body=JSON.parse(process.env.BODY); process.exit(body.enabled === true ? 0 : 1)"; then
+              break
+            fi
+            sleep 2
+          done
+          response="$(curl -sS -w '\n%{http_code}' \
+            -X POST \
+            -H 'Content-Type: application/json' \
+            -d "{\"address\":\"$FAILED_ADDRESS\"}" \
+            "$RPC_BASE_URL/v1/faucet/request")"
+          status="$(printf '%s\n' "$response" | tail -n1)"
+          body="$(printf '%s\n' "$response" | sed '$d')"
+          printf '%s\n' "$body"
+          echo "{\"recovery_http_status\":$status,\"failed_address\":\"$FAILED_ADDRESS\"}"
+
+      - name: Disable faucet again
+        if: always() && steps.readiness.outputs.should_attempt == 'true' && steps.recover.outcome == 'success'
+        run: |
+          set -euo pipefail
+          aws lambda update-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --environment file:///tmp/lambda-environment-disabled.json \
+            --no-cli-pager >/dev/null
+          aws lambda wait function-updated --function-name "$LAMBDA_NAME"
+          curl -fsS "$RPC_BASE_URL/v1/faucet/info"
+
+      - name: Verify payout chain state
+        if: steps.readiness.outputs.should_attempt == 'true'
+        run: |
+          set -euo pipefail
+          curl -fsS "$RPC_BASE_URL/v1/transactions/$FAILED_TXID" | tee /tmp/recovery-tx-status.json || echo '{"status":"not_found"}' > /tmp/recovery-tx-status.json
+          node ./scripts/analyze-faucet-public-state.mjs | tee /tmp/recovery-analysis-after-miner.json
