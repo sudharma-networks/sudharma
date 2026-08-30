@@ -389,6 +389,10 @@ export function createRpc({ seeds, fetchImpl, timeoutMs, timed }) {
     transaction(transactionId) {
       return call('seed.transaction', 'GET', `/v1/transactions/${transactionId}`);
     },
+    mempool(limit = 50) {
+      const bounded = Number.isInteger(limit) && limit >= 1 && limit <= 500 ? limit : 50;
+      return call('seed.mempool', 'GET', `/v1/mempool?limit=${bounded}`);
+    },
     async submit(transaction) {
       try {
         return await call('seed.submit_transaction', 'POST', '/v1/transactions', transaction);

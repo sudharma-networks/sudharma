@@ -207,6 +207,80 @@ test('prepared initial payout without stored payout payload is reconstructed fro
   assert.ok(calls.some((entry) => entry[0] === 'submit'));
 });
 
+test('prepared payout recovery observes invalid_nonce when payout is already pending in mempool', async () => {
+  const signer = createSigner('0'.repeat(63) + '1');
+  const prepared = signer.signTransaction(ADDRESS, 100 * COIN, 7);
+  const calls = [];
+  const store = {
+    async reserveInitial() { return false; },
+    async getAddress() {
+      return {
+        initial_status: 'prepared',
+        initial_txid: prepared.ID,
+        initial_payout: prepared,
+      };
+    },
+    async acquirePayoutLock() { calls.push(['lock']); return true; },
+    async releasePayoutLock() { calls.push(['unlock']); },
+    async markInitialSubmitted(address, txid) { calls.push(['markInitialSubmitted', address, txid]); },
+  };
+  const uncertain = new FaucetError(503, 'faucet payout outcome is uncertain');
+  uncertain.uncertain = true;
+  uncertain.upstreamStatus = 422;
+  uncertain.errorCategory = 'invalid_nonce';
+  const rpc = {
+    async transaction(txid) {
+      assert.equal(txid, prepared.ID);
+      throw new FaucetError(404, 'transaction not found');
+    },
+    async submit() { throw uncertain; },
+    async mempool() {
+      return { count: 1, transactions: [prepared] };
+    },
+  };
+
+  const service = createFaucetService({ store, rpc, signer, now: () => NOW });
+  const result = await service.requestInitial(ADDRESS);
+
+  assert.equal(result.status, 'submitted');
+  assert.equal(result.transaction_id, prepared.ID);
+  assert.ok(calls.some((entry) => entry[0] === 'markInitialSubmitted'));
+});
+
+test('prepared payout recovery records uncertainty when reconcile submit stays unresolved', async () => {
+  const signer = createSigner('0'.repeat(63) + '1');
+  const prepared = signer.signTransaction(ADDRESS, 100 * COIN, 7);
+  const calls = [];
+  const store = {
+    async reserveInitial() { return false; },
+    async getAddress() {
+      return {
+        initial_status: 'prepared',
+        initial_txid: prepared.ID,
+        initial_payout: prepared,
+      };
+    },
+    async recordInitialUncertainty(address, diagnostic) {
+      calls.push(['recordInitialUncertainty', address, diagnostic]);
+    },
+    async acquirePayoutLock() { return true; },
+    async releasePayoutLock() {},
+  };
+  const uncertain = new FaucetError(503, 'faucet payout outcome is uncertain');
+  uncertain.uncertain = true;
+  uncertain.upstreamStatus = 422;
+  uncertain.errorCategory = 'invalid_nonce';
+  const rpc = {
+    async transaction() { throw new FaucetError(404, 'transaction not found'); },
+    async submit() { throw uncertain; },
+    async mempool() { return { count: 0, transactions: [] }; },
+  };
+
+  const service = createFaucetService({ store, rpc, signer, now: () => NOW });
+  await assert.rejects(service.requestInitial(ADDRESS), /outcome is uncertain/);
+  assert.ok(calls.some((entry) => entry[0] === 'recordInitialUncertainty'));
+});
+
 test('prepared initial payout without stored payout payload fails closed when txid does not match signer nonce', async () => {
   const signer = createSigner('0'.repeat(63) + '1');
   const store = {

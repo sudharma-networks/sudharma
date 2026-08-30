@@ -162,6 +162,37 @@ async function resolvePreparedInitialPayout({ store, rpc, signer, address, state
   return reconstructed;
 }
 
+async function observePreparedPayout({ rpc, payout, error }) {
+  if (
+    error?.errorCategory !== 'invalid_nonce'
+    && error?.errorCategory !== 'duplicate_transaction'
+  ) {
+    return null;
+  }
+  if (typeof rpc.mempool !== 'function') return null;
+
+  let mempoolBody;
+  try {
+    mempoolBody = await rpc.mempool(50);
+  } catch {
+    return null;
+  }
+
+  const txs = Array.isArray(mempoolBody?.transactions) ? mempoolBody.transactions : [];
+  if (txs.some((tx) => tx?.ID === payout.ID)) {
+    return { transactionId: payout.ID, confirmed: false };
+  }
+
+  const conflict = txs.find((tx) => tx?.From === payout.From && tx?.Nonce === payout.Nonce);
+  if (conflict && conflict.ID !== payout.ID) {
+    const blocked = new FaucetError(503, 'faucet payout blocked by mempool contention');
+    blocked.errorCategory = 'mempool_contention';
+    throw blocked;
+  }
+
+  return null;
+}
+
 async function ensurePreparedPayout({ store, rpc, payout }) {
   if (!payout || typeof payout !== 'object' || !LOWER_HEX_64.test(payout.ID || '')) {
     throw new FaucetError(503, 'faucet payout recovery data is unavailable');
@@ -183,9 +214,15 @@ async function ensurePreparedPayout({ store, rpc, payout }) {
       if (error?.statusCode !== 404) throw error;
     }
 
-    const result = await rpc.submit(payout);
-    if (!result?.accepted) throw new FaucetError(503, 'faucet payout was not accepted');
-    return { transactionId: payoutTxId(result, payout.ID), confirmed: false };
+    try {
+      const result = await rpc.submit(payout);
+      if (!result?.accepted) throw new FaucetError(503, 'faucet payout was not accepted');
+      return { transactionId: payoutTxId(result, payout.ID), confirmed: false };
+    } catch (error) {
+      const observed = await observePreparedPayout({ rpc, payout, error });
+      if (observed) return observed;
+      throw error;
+    }
   } finally {
     await store.releasePayoutLock();
   }
@@ -282,8 +319,18 @@ export function createFaucetService({ store, rpc, signer, now = Date.now }) {
       const reserved = await store.reserveInitial(address, now());
       if (!reserved) {
         const state = await store.getAddress(address);
-        const reconciled = await reconcileInitialGrant({ store, rpc, signer, address, state, now });
-        if (reconciled) return reconciled;
+        try {
+          const reconciled = await reconcileInitialGrant({ store, rpc, signer, address, state, now });
+          if (reconciled) return reconciled;
+        } catch (error) {
+          if (error?.uncertain && typeof store.recordInitialUncertainty === 'function') {
+            await store.recordInitialUncertainty(address, {
+              http_status: error.upstreamStatus,
+              error_category: error.errorCategory,
+            }, now());
+          }
+          throw error;
+        }
         throw new FaucetError(409, 'initial 100 SUDH grant was already requested for this address');
       }
 
