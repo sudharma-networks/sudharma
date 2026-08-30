@@ -41,6 +41,23 @@ test('public analyzer flags submit rejection when failed tx is absent on chain',
   assert.equal(analysis.likely_blocker, 'submit_rejected_not_on_chain');
 });
 
+test('public analyzer prioritizes recorded invalid_nonce over generic mempool heuristics', () => {
+  const analysis = analyzeFaucetPublicState({
+    faucetInfo: { enabled: false },
+    faucetHealth: { ready: true },
+    signerAccount: { balance: 24998000000, confirmed_nonce: 2, next_nonce: 3 },
+    networkStatus: { height: 12, mempool: 2 },
+    mempool: { status: 404, body: {}, ok: false },
+    failedTx: { status: 404, body: { error: 'transaction not found' } },
+    failedAddressTx: { status: 200, body: {} },
+    lastErrorCategory: 'invalid_nonce',
+    lastHttpStatus: 422,
+  });
+
+  assert.equal(analysis.likely_blocker, 'mempool_nonce_conflict');
+  assert.equal(analysis.last_error_category, 'invalid_nonce');
+});
+
 test('public analyzer detects insufficient signer balance', () => {
   const analysis = analyzeFaucetPublicState({
     faucetInfo: { enabled: false },

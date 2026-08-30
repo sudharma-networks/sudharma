@@ -35,6 +35,8 @@ export function analyzeFaucetPublicState({
   mempool,
   failedTx,
   failedAddressTx,
+  lastErrorCategory,
+  lastHttpStatus,
 } = {}) {
   const grant = grantCostCoin();
   const nextNonce = signerAccount?.next_nonce ?? signerAccount?.nextNonce;
@@ -73,7 +75,17 @@ export function analyzeFaucetPublicState({
     ),
   };
 
-  if (!analysis.balance_covers_next_grant) {
+  if (typeof lastErrorCategory === 'string' && lastErrorCategory.length > 0) {
+    analysis.last_error_category = lastErrorCategory;
+  }
+  if (Number.isInteger(lastHttpStatus)) {
+    analysis.last_http_status = lastHttpStatus;
+  }
+
+  if (analysis.last_error_category === 'invalid_nonce') {
+    analysis.likely_blocker = 'mempool_nonce_conflict';
+    analysis.recommendation = 'Seed mempool already advanced past the prepared nonce; mine blocks or clear conflicting mempool transactions, then resubmit once.';
+  } else if (!analysis.balance_covers_next_grant) {
     analysis.likely_blocker = 'insufficient_balance';
     analysis.recommendation = 'Fund the faucet signer before resubmitting nonce-3 payouts.';
   } else if (signerMempoolTxs.some((tx) => tx.id === FAILED_TXID)) {
