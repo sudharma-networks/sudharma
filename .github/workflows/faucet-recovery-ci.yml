@@ -5,6 +5,7 @@ on:
     branches:
       - feature/faucet-recovery-stage2
       - cursor/faucet-recovery-readiness-gate-83d4
+      - cursor/demand-miner-recovery-83d4
   workflow_dispatch:
 
 permissions:
@@ -30,6 +31,24 @@ jobs:
         run: bash ./scripts/check-faucet-live-diagnostics-contract_test.sh
       - name: Test live diagnostics log sanitizer
         run: node --test ./scripts/sanitize-faucet-live-logs.test.mjs ./scripts/compute-faucet-diag-start.test.mjs ./scripts/correlate-faucet-live-logs.test.mjs ./scripts/analyze-faucet-public-state.test.mjs ./scripts/evaluate-faucet-recovery-readiness.test.mjs
+
+  demand-miner:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Verify demand miner deployment safety
+        run: bash ./deployment/testnet/install-demand-miner_test.sh
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build demand miner and native node
+        run: go build -trimpath ./cmd/sudharma-demand-miner ./cmd/sudharmad
+      - name: Run demand miner tests
+        run: go test ./demandminer ./cmd/sudharma-demand-miner -count=1
+      - name: Run demand miner race detector
+        run: go test -race ./demandminer ./cmd/sudharma-demand-miner -count=1
 
   lambda-tests:
     runs-on: ubuntu-latest
