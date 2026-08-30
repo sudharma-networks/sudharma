@@ -18,7 +18,7 @@ require_literal() {
 require_literal 'EXPECTED_OLD_SHA'
 require_literal 'EXPECTED_NEW_SHA'
 require_literal 'EXPECTED_NODE_ID'
-require_literal 'ARTIFACT_URL_B64'
+require_literal 'CANDIDATE_PATH'
 require_literal 'sha256sum'
 require_literal 'sudharma-rpcd.rollback-'
 require_literal 'systemctl restart sudharma.service'
@@ -32,6 +32,10 @@ require_literal 'before_supply'
 require_literal 'peers'
 require_literal 'Rolling back node binary.'
 
+if grep -Fq 'ARTIFACT_URL_B64' "$script"; then
+  fail 'privileged rollout script must not handle the signed artifact URL'
+fi
+
 if grep -Eiq '(cuda|opencl|gpu-pow|khushi|systemctl[[:space:]]+(enable|start|restart)[[:space:]]+.*miner|ufw|iptables|nft|/etc/sudharma/node\.json.*>|sed .*node\.json)' "$script"; then
   fail 'rollout script contains a prohibited GPU/miner/firewall/config mutation'
 fi
@@ -40,6 +44,7 @@ restart_count="$(grep -F 'systemctl restart sudharma.service' "$script" | wc -l 
 [[ "$restart_count" -ge 2 ]] || fail 'expected restart path plus rollback restart path'
 
 require_literal "current_sha=\"\$(sha256sum /usr/local/bin/sudharma-rpcd"
+require_literal 'candidate_sha="$(sha256sum "$CANDIDATE_PATH"'
 require_literal "installed_sha=\"\$(sha256sum /usr/local/bin/sudharma-rpcd"
 require_literal 'fail_after_change'
 
