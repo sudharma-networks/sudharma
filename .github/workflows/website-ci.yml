@@ -1,0 +1,44 @@
+name: Website CI
+on:
+  push:
+    branches:
+      - feature/faucet-recovery-stage2
+      - feature/website-foundation
+    paths:
+      - 'web/**'
+      - 'deployment/website/**'
+      - '.github/workflows/website-ci.yml'
+      - '.github/workflows/provision-website-visitor-counter.yml'
+  pull_request:
+    branches:
+      - feature/faucet-recovery-stage2
+      - feature/website-foundation
+    paths:
+      - 'web/**'
+      - 'deployment/website/**'
+      - '.github/workflows/website-ci.yml'
+      - '.github/workflows/provision-website-visitor-counter.yml'
+permissions:
+  contents: read
+jobs:
+  website:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package.json
+      - name: Test visitor counter backend contract
+        working-directory: .
+        run: node --test deployment/website/visitor-counter/*.test.mjs
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e

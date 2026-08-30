@@ -11,6 +11,7 @@ on:
       - scripts/faucet-fee-utils.mjs
       - scripts/faucet-fee-utils.test.mjs
       - scripts/faucet-live-e2e.mjs
+      - scripts/explorer-live-check.mjs
       - scripts/check-faucet-enable-public-contract_test.sh
 
 permissions:
@@ -131,7 +132,13 @@ jobs:
           fi
           echo "{\"public_faucet_live\":true,\"smoke_test_address\":\"$TEST_ADDRESS\",\"http_status\":$status}"
 
+      - name: Verify public explorer API is live
+        run: |
+          set -euo pipefail
+          node ./scripts/explorer-live-check.mjs | tee /tmp/explorer-live-check.json
+
       - name: Run live faucet end-to-end flow with treasury fee checks
+        continue-on-error: true
         run: |
           set -euo pipefail
           node ./scripts/faucet-live-e2e.mjs | tee /tmp/faucet-live-e2e.json

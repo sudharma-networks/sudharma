@@ -80,6 +80,25 @@ export async function assertTreasuryReceivedDevelopmentFee({
   };
 }
 
+async function postFaucetRequest(rpcBaseUrl, address, maxAttempts = 8) {
+  let lastError;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const response = await fetchJson(`${rpcBaseUrl}/v1/faucet/request`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ address }),
+    });
+    if (response.status === 202) return response.body;
+    if (response.status === 503) {
+      lastError = new Error(`initial grant temporarily unavailable: ${JSON.stringify(response.body)}`);
+      await sleep(Math.min(15_000, 2000 * attempt));
+      continue;
+    }
+    throw new Error(`initial grant failed: HTTP ${response.status} ${JSON.stringify(response.body)}`);
+  }
+  throw lastError || new Error('initial grant failed after retries');
+}
+
 export async function runFaucetLiveE2E({
   rpcBaseUrl = process.env.RPC_BASE_URL || DEFAULT_RPC_BASE_URL,
   confirmTimeoutMs = Number.parseInt(process.env.FAUCET_E2E_CONFIRM_TIMEOUT_MS || '', 10) || DEFAULT_CONFIRM_TIMEOUT_MS,
@@ -100,15 +119,8 @@ export async function runFaucetLiveE2E({
 
   let treasuryBalance = await getAccountBalance(rpcBaseUrl, DEVELOPMENT_TREASURY_ADDRESS);
 
-  const grantResponse = await fetchJson(`${rpcBaseUrl}/v1/faucet/request`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ address: wallet.address }),
-  });
-  if (grantResponse.status !== 202) {
-    throw new Error(`initial grant failed: HTTP ${grantResponse.status} ${JSON.stringify(grantResponse.body)}`);
-  }
-  const grantTxId = grantResponse.body?.transaction_id;
+  const grantResponse = await postFaucetRequest(rpcBaseUrl, wallet.address);
+  const grantTxId = grantResponse?.transaction_id;
   if (typeof grantTxId !== 'string') {
     throw new Error('initial grant response missing transaction_id');
   }
