@@ -30,4 +30,14 @@ class WalletPresentationPolicyTest {
         assertTrue(WalletPresentationPolicy.isSensitive(WalletScreen.BACKUP))
         assertFalse(WalletPresentationPolicy.isSensitive(WalletScreen.HOME))
     }
+
+    @Test
+    fun automaticTestnetModeHidesManualFaucetAndClaimControls() {
+        val presentation = TestnetAutomationPresentationPolicy.automatic()
+
+        assertFalse(presentation.showManualInitialRequest)
+        assertFalse(presentation.showManualChallengeClaim)
+        assertTrue(presentation.initialFundingMessage.contains("automatically", ignoreCase = true))
+        assertTrue(presentation.challengeRewardMessage.contains("automatically", ignoreCase = true))
+    }
 }
