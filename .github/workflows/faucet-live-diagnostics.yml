@@ -102,7 +102,7 @@ jobs:
           if aws logs filter-log-events \
             --log-group-name "$log_group" \
             --start-time "$start_ms" \
-            --filter-pattern "$FAILED_REQUEST_ID" \
+            --filter-pattern "\"$FAILED_REQUEST_ID\"" \
             --max-items 100 \
             --query 'events[].message' \
             --output text > "$raw_logs"; then
