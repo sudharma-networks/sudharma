@@ -4,9 +4,14 @@ const {
   parseCommunityUpdate,
   validateReportText,
   staticReply,
+  hasReportMarker,
+  buildReportIssue,
+  canCreateReport,
 } = require('./community-core.js');
 
 const MAX_REPLIES_PER_RUN = 20;
+const REPORT_WINDOW_MS = 60 * 60 * 1000;
+const COMMUNITY_REPORT_MARKER_RE = /<!-- sudharma-telegram-community-report:v1 update_id=\d+ -->/;
 
 function createTelegramAdapter({ token, fetchImpl = globalThis.fetch }) {
   if (typeof token !== 'string' || token.length === 0) {
@@ -64,6 +69,104 @@ function createTelegramAdapter({ token, fetchImpl = globalThis.fetch }) {
   };
 }
 
+function parseRepository(repository) {
+  if (typeof repository !== 'string') throw new Error('GitHub repository is required');
+  const parts = repository.split('/');
+  if (parts.length !== 2 || parts.some((part) => !part)) {
+    throw new Error('GitHub repository must be owner/name');
+  }
+  return parts.map(encodeURIComponent).join('/');
+}
+
+function createGithubAdapter({ token, repository, fetchImpl = globalThis.fetch }) {
+  if (typeof token !== 'string' || token.length === 0) {
+    throw new Error('GitHub token is required');
+  }
+  if (typeof fetchImpl !== 'function') {
+    throw new Error('A fetch implementation is required');
+  }
+  const repositoryPath = parseRepository(repository);
+  const baseUrl = `https://api.github.com/repos/${repositoryPath}`;
+
+  async function requestJson(operation, url, options = {}) {
+    let response;
+    try {
+      response = await fetchImpl(url, {
+        ...options,
+        headers: {
+          Accept: 'application/vnd.github+json',
+          Authorization: `Bearer ${token}`,
+          'X-GitHub-Api-Version': '2022-11-28',
+          ...(options.headers || {}),
+        },
+      });
+    } catch {
+      throw new Error(`GitHub API ${operation} failed`);
+    }
+    if (!response || !response.ok) {
+      throw new Error(`GitHub API ${operation} failed`);
+    }
+    try {
+      return await response.json();
+    } catch {
+      throw new Error(`GitHub API ${operation} failed`);
+    }
+  }
+
+  return {
+    async createIssue({ title, body }) {
+      const data = await requestJson('create issue', `${baseUrl}/issues`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, body }),
+      });
+      if (!data || typeof data.html_url !== 'string' || data.html_url.length === 0) {
+        throw new Error('GitHub API create issue failed');
+      }
+      return data;
+    },
+
+    async listRecentIssues({ since }) {
+      const sinceDate = new Date(since);
+      if (Number.isNaN(sinceDate.getTime())) {
+        throw new Error('GitHub recent issue window is invalid');
+      }
+
+      const issues = [];
+      for (let page = 1; page <= 100; page += 1) {
+        const url = new URL(`${baseUrl}/issues`);
+        url.searchParams.set('state', 'all');
+        url.searchParams.set('since', sinceDate.toISOString());
+        url.searchParams.set('per_page', '100');
+        url.searchParams.set('sort', 'created');
+        url.searchParams.set('direction', 'desc');
+        url.searchParams.set('page', String(page));
+
+        const data = await requestJson('list recent issues', url.toString(), { method: 'GET' });
+        if (!Array.isArray(data)) {
+          throw new Error('GitHub API list recent issues failed');
+        }
+        if (data.length === 0) return issues;
+
+        for (const item of data) {
+          if (!item || item.pull_request) continue;
+          issues.push({
+            html_url: item.html_url,
+            body: typeof item.body === 'string' ? item.body : '',
+            created_at: item.created_at,
+          });
+        }
+
+        const oldestTime = Math.min(...data.map((item) => Date.parse(item && item.created_at)).filter(Number.isFinite));
+        if (data.length < 100 || (Number.isFinite(oldestTime) && oldestTime < sinceDate.getTime())) {
+          return issues;
+        }
+      }
+      throw new Error('GitHub API list recent issues failed');
+    },
+  };
+}
+
 function replyPayload(message, text) {
   const payload = {
     chat_id: message.chat.id,
@@ -75,6 +178,14 @@ function replyPayload(message, text) {
     payload.message_thread_id = message.message_thread_id;
   }
   return payload;
+}
+
+function isRecentCommunityReport(issue, sinceMs) {
+  if (!issue || typeof issue.body !== 'string' || !COMMUNITY_REPORT_MARKER_RE.test(issue.body)) {
+    return false;
+  }
+  const createdMs = Date.parse(issue.created_at);
+  return Number.isFinite(createdMs) && createdMs >= sinceMs;
 }
 
 function createWorker({ telegram, github, now = () => new Date(), logger = console }) {
@@ -101,14 +212,93 @@ function createWorker({ telegram, github, now = () => new Date(), logger = conso
 
     const updates = [...fetched].sort((left, right) => left.update_id - right.update_id);
     let replies = 0;
+    let createdReports = 0;
+    let recentIssues = null;
+    let reportWindowStart = null;
     let lastConfirmed = null;
 
-    async function sendReply(message, text) {
+    function ensureReplyBudget() {
       if (replies >= MAX_REPLIES_PER_RUN) {
         throw new Error('Telegram community reply limit reached');
       }
+    }
+
+    async function sendReply(message, text) {
+      ensureReplyBudget();
       await telegram.sendMessage(replyPayload(message, text));
       replies += 1;
+    }
+
+    async function loadRecentIssues() {
+      if (recentIssues !== null) return recentIssues;
+      const current = now();
+      const currentDate = current instanceof Date ? current : new Date(current);
+      if (Number.isNaN(currentDate.getTime())) {
+        throw new Error('Current time is invalid');
+      }
+      reportWindowStart = currentDate.getTime() - REPORT_WINDOW_MS;
+      if (typeof github.listRecentIssues !== 'function') {
+        throw new Error('GitHub recent issue listing is unavailable');
+      }
+      recentIssues = await github.listRecentIssues({ since: new Date(reportWindowStart).toISOString() });
+      if (!Array.isArray(recentIssues)) {
+        throw new Error('GitHub recent issue listing is invalid');
+      }
+      return recentIssues;
+    }
+
+    async function handleReport(update, action) {
+      let reportText;
+      try {
+        reportText = validateReportText(action.args);
+      } catch {
+        await sendReply(action.message, staticReply('report-usage'));
+        return;
+      }
+
+      // A report must not create a public GitHub issue if this run cannot
+      // also return its URL to the Telegram user.
+      ensureReplyBudget();
+
+      const issues = await loadRecentIssues();
+      const existing = issues.find((issue) => hasReportMarker(issue.body, update.update_id));
+      if (existing && typeof existing.html_url === 'string' && existing.html_url.length > 0) {
+        await sendReply(action.message, `Report already tracked: ${existing.html_url}`);
+        return;
+      }
+
+      const createdLastHour = issues.filter((issue) => isRecentCommunityReport(issue, reportWindowStart)).length;
+      const decision = canCreateReport({ createdThisRun: createdReports, createdLastHour });
+      if (!decision.allowed) {
+        await sendReply(action.message, staticReply('throttle'));
+        return;
+      }
+
+      if (typeof github.createIssue !== 'function') {
+        throw new Error('GitHub issue creation is unavailable');
+      }
+      const issue = buildReportIssue({
+        updateId: update.update_id,
+        reportText,
+        message: action.message,
+        now: now(),
+      });
+      const created = await github.createIssue(issue);
+      if (!created || typeof created.html_url !== 'string' || created.html_url.length === 0) {
+        throw new Error('GitHub issue creation returned no URL');
+      }
+
+      createdReports += 1;
+      recentIssues.push({
+        html_url: created.html_url,
+        body: typeof created.body === 'string' ? created.body : issue.body,
+        created_at: typeof created.created_at === 'string' ? created.created_at : new Date().toISOString(),
+      });
+
+      await sendReply(
+        action.message,
+        `Report created: ${created.html_url}\nThe submitted report text is public on GitHub. Attachments remain in Telegram.`,
+      );
     }
 
     async function handleUpdate(update) {
@@ -123,13 +313,8 @@ function createWorker({ telegram, github, now = () => new Date(), logger = conso
       if (action.kind !== 'command') return;
 
       if (action.command === 'report') {
-        try {
-          validateReportText(action.args);
-        } catch {
-          await sendReply(action.message, staticReply('report-usage'));
-          return;
-        }
-        throw new Error('Telegram community report processing is not implemented yet');
+        await handleReport(update, action);
+        return;
       }
 
       await sendReply(action.message, staticReply(action.command));
@@ -157,7 +342,7 @@ function createWorker({ telegram, github, now = () => new Date(), logger = conso
       await telegram.getUpdates({ offset: lastConfirmed + 1, limit: 1, timeout: 0 });
     }
 
-    return { lastConfirmed, replies };
+    return { lastConfirmed, replies, createdReports };
   }
 
   return { poll };
@@ -166,5 +351,6 @@ function createWorker({ telegram, github, now = () => new Date(), logger = conso
 module.exports = {
   MAX_REPLIES_PER_RUN,
   createTelegramAdapter,
+  createGithubAdapter,
   createWorker,
 };
