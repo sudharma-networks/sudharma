@@ -170,34 +170,25 @@ jobs:
       - name: Confirm mempool already clear
         run: echo "Skipped seed mining and mempool wait — public mempool was already 0."
 
-  step3-reset-dynamodb:
+  step3-prepare-fresh-grant:
     needs: [step2b-wait-after-mining, step2b-skip-mining]
     if: always() && (needs.step2b-wait-after-mining.result == 'success' || needs.step2b-skip-mining.result == 'success')
     runs-on: ubuntu-24.04
-    permissions:
-      id-token: write
-      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
-          aws-region: ap-south-1
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - name: Install reset script dependencies
-        working-directory: deployment/testnet/public-rpc/lambda
-        run: npm install --ignore-scripts --no-audit --no-fund @aws-sdk/client-dynamodb @aws-sdk/lib-dynamodb
-      - name: Wipe faucet DynamoDB records
-        working-directory: deployment/testnet/public-rpc/lambda
+      - name: Note fresh-grant reset strategy
         run: |
           set -euo pipefail
-          cp ../../../../scripts/reset-faucet-state.mjs ./reset-faucet-state.mjs
-          node ./reset-faucet-state.mjs | tee /tmp/faucet-reset.json
+          cat <<'JSON'
+          {
+            "bulk_dynamodb_reset": "skipped",
+            "reason": "GitHub Actions testnet role lacks dynamodb:Scan on Sudharma-Testnet-Faucet",
+            "fresh_grant_strategy": "step4 deploys FAUCET_FRESH_GRANT=true; Lambda voidAddress clears stale ADDR rows per request"
+          }
+          JSON
 
   step4-build-deploy:
-    needs: step3-reset-dynamodb
+    needs: [step2b-wait-after-mining, step2b-skip-mining]
+    if: always() && (needs.step2b-wait-after-mining.result == 'success' || needs.step2b-skip-mining.result == 'success')
     runs-on: ubuntu-24.04
     permissions:
       id-token: write
