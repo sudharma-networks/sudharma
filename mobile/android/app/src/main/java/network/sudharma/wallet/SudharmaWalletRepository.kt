@@ -90,8 +90,7 @@ class SudharmaWalletRepository(context: Context) {
     }
 
     suspend fun activityHistory(): List<WalletActivityItem> {
-        // The currently deployed public RPC may not expose /v1/blocks/{height}.
-        // Received-history discovery is therefore best-effort; a missing scan route
+        // Received-history discovery is best-effort. A temporary explorer/RPC failure
         // must never hide locally persisted sends, faucet grants, or challenge rewards.
         runCatching { syncReceivedTransactions() }
 
@@ -115,17 +114,27 @@ class SudharmaWalletRepository(context: Context) {
 
     suspend fun syncReceivedTransactions() {
         val account = account()
-        val rpc = rpcClient()
-        val network = rpc.status()
         val known = preferences.transactionRecords().map { it.id }.toSet()
-        val incoming = ReceivedTransactionScanner.scan(
-            rpc = rpc,
-            address = account.address,
-            knownIds = known,
-            chainHeight = network.height,
-        )
+
+        // Preferred source: the public Explorer address endpoint already exposes
+        // complete wallet-address transaction history through the same gateway.
+        val incoming = runCatching {
+            explorerHistoryClient().history(account.address, known)
+        }.getOrElse {
+            // Compatibility fallback for direct/full RPC deployments.
+            val rpc = rpcClient()
+            val network = rpc.status()
+            val scanned = ReceivedTransactionScanner.scan(
+                rpc = rpc,
+                address = account.address,
+                knownIds = known,
+                chainHeight = network.height,
+            )
+            preferences.lastSyncedChainHeight = network.height
+            scanned
+        }
+
         incoming.forEach { preferences.addTransactionRecord(it) }
-        preferences.lastSyncedChainHeight = network.height
     }
 
     suspend fun transactionStatus(transactionId: String): TransactionStatus = adapter().status(transactionId)
@@ -167,7 +176,6 @@ class SudharmaWalletRepository(context: Context) {
 
         // If the RPC returned a transaction, only retain it as a receipt for this wallet.
         if (remote != null && remote.to != walletAddress) {
-            // Defensive cleanup by replacing the record with the safe fallback shape.
             preferences.addTransactionRecord(
                 WalletTransactionRecord(
                     id = transactionId,
@@ -190,6 +198,12 @@ class SudharmaWalletRepository(context: Context) {
         val url = preferences.rpcUrl
         require(url.isNotBlank()) { "Sudharma Testnet RPC is not configured" }
         return SudharmaRpcClient(url)
+    }
+
+    private fun explorerHistoryClient(): ExplorerAddressHistoryClient {
+        val url = preferences.rpcUrl
+        require(url.isNotBlank()) { "Sudharma Testnet RPC is not configured" }
+        return ExplorerAddressHistoryClient(url)
     }
 
     private fun faucetClient(): TestnetFaucetClient {
