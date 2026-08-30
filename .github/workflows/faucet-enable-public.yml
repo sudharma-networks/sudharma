@@ -8,6 +8,10 @@ on:
     paths:
       - .github/workflows/faucet-enable-public.yml
       - deployment/testnet/public-rpc/lambda/**
+      - scripts/faucet-fee-utils.mjs
+      - scripts/faucet-fee-utils.test.mjs
+      - scripts/faucet-live-e2e.mjs
+      - scripts/check-faucet-enable-public-contract_test.sh
 
 permissions:
   contents: read
@@ -112,7 +116,7 @@ jobs:
             sleep 3
           done
           curl -fsS "$RPC_BASE_URL/v1/faucet/health"
-          TEST_ADDRESS="$(node --input-type=module -e "process.stdout.write(require('node:crypto').randomBytes(20).toString('hex'))")"
+          TEST_ADDRESS="$(node -e "process.stdout.write(require('node:crypto').randomBytes(20).toString('hex'))")"
           response="$(curl -sS -w '\n%{http_code}' \
             -X POST \
             -H 'Content-Type: application/json' \
@@ -126,6 +130,32 @@ jobs:
             exit 1
           fi
           echo "{\"public_faucet_live\":true,\"smoke_test_address\":\"$TEST_ADDRESS\",\"http_status\":$status}"
+
+      - name: Run live faucet end-to-end flow with treasury fee checks
+        run: |
+          set -euo pipefail
+          node ./scripts/faucet-live-e2e.mjs | tee /tmp/faucet-live-e2e.json
+          node --input-type=module -e "
+            import fs from 'node:fs';
+            const result = JSON.parse(fs.readFileSync('/tmp/faucet-live-e2e.json', 'utf8'));
+            if (result.ok !== true) process.exit(1);
+            for (const step of ['initial_grant', 'challenge_payment', 'challenge_reward']) {
+              if (!Number.isInteger(result[step]?.development_fee) || result[step].development_fee <= 0) {
+                throw new Error(\`missing development fee for \${step}\`);
+              }
+              if (result[step].treasury_increase < result[step].development_fee) {
+                throw new Error(\`treasury did not receive development fee for \${step}\`);
+              }
+            }
+            console.log(JSON.stringify({
+              live_e2e: true,
+              wallet_address: result.wallet_address,
+              development_treasury_address: result.development_treasury_address,
+              initial_grant_tx: result.initial_grant.transaction_id,
+              challenge_payment_tx: result.challenge_payment.transaction_id,
+              challenge_reward_tx: result.challenge_reward.transaction_id,
+            }));
+          "
 
       - name: Recover prepared payout for known failed address
         continue-on-error: true

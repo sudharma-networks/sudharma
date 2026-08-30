@@ -30,10 +30,12 @@ jobs:
         run: bash ./scripts/check-faucet-recovery-retry-contract_test.sh
       - name: Verify demand miner auto-deploy contract
         run: bash ./scripts/check-demand-miner-auto-deploy-contract_test.sh
+      - name: Verify public faucet enable contract
+        run: bash ./scripts/check-faucet-enable-public-contract_test.sh
       - name: Verify live diagnostics log sanitizer contract
         run: bash ./scripts/check-faucet-live-diagnostics-contract_test.sh
       - name: Test live diagnostics log sanitizer
-        run: node --test ./scripts/sanitize-faucet-live-logs.test.mjs ./scripts/compute-faucet-diag-start.test.mjs ./scripts/correlate-faucet-live-logs.test.mjs ./scripts/analyze-faucet-public-state.test.mjs ./scripts/evaluate-faucet-recovery-readiness.test.mjs
+        run: node --test ./scripts/sanitize-faucet-live-logs.test.mjs ./scripts/compute-faucet-diag-start.test.mjs ./scripts/correlate-faucet-live-logs.test.mjs ./scripts/analyze-faucet-public-state.test.mjs ./scripts/evaluate-faucet-recovery-readiness.test.mjs ./scripts/faucet-fee-utils.test.mjs
 
   demand-miner:
     runs-on: ubuntu-latest

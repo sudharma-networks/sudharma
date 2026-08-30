@@ -15,13 +15,10 @@ require_literal() {
 }
 
 require_literal 'name: Faucet Diagnostics Auto Deploy'
-require_literal 'feature/faucet-recovery-stage2'
 require_literal 'workflow_dispatch:'
 require_literal 'recover-prepared-payout:'
 require_literal 'deploy-diagnostics-only:'
 require_literal 'Resubmit prepared payout for failed address only'
-require_literal 'brief_enable":"ready'
-require_literal 'Disable faucet again'
 require_literal 'FAUCET_ENABLED: '\''false'\'''
 require_literal 'body.enabled !== false'
 require_literal 'name: Verify diagnostics-only deployment remains fail-closed'
@@ -31,4 +28,12 @@ if grep -Fq -- 'name: Activate faucet' "$workflow"; then
   fail 'auto diagnostics deploy must not include faucet activation'
 fi
 
-printf 'PASS: auto diagnostics deploy is push-triggered, fail-closed, and never enables payouts\n'
+if grep -Fq -- 'on:' "$workflow" && grep -Fq -- 'push:' "$workflow"; then
+  fail 'auto diagnostics deploy must be manual-only so it does not fight public faucet enable'
+fi
+
+if grep -Fq -- 'Disable faucet again' "$workflow"; then
+  fail 'auto diagnostics deploy must not disable faucet after recovery when public mode is active'
+fi
+
+printf 'PASS: auto diagnostics deploy is manual-only, fail-closed, and does not fight public enable\n'

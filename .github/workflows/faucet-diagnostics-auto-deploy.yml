@@ -1,11 +1,6 @@
 name: Faucet Diagnostics Auto Deploy
 
 on:
-  push:
-    branches:
-      - feature/faucet-recovery-stage2
-    paths:
-      - .github/workflows/faucet-diagnostics-auto-deploy.yml
   workflow_dispatch:
 
 permissions:
@@ -415,22 +410,6 @@ jobs:
           body="$(printf '%s\n' "$response" | sed '$d')"
           printf '%s\n' "$body"
           echo "{\"recovery_http_status\":$status,\"failed_address\":\"$FAILED_ADDRESS\"}"
-
-      - name: Disable faucet again
-        if: always() && steps.gate.outputs.skip_recovery != 'true' && steps.enable.outcome == 'success'
-        run: |
-          set -euo pipefail
-          aws lambda update-function-configuration \
-            --function-name "$LAMBDA_NAME" \
-            --environment file:///tmp/lambda-environment-disabled.json \
-            --no-cli-pager >/dev/null
-          aws lambda wait function-updated --function-name "$LAMBDA_NAME"
-          curl -fsS "$RPC_BASE_URL/v1/faucet/info" | tee /tmp/faucet-info-disabled.json
-          BODY="$(cat /tmp/faucet-info-disabled.json)" node --input-type=module -e "
-            const body = JSON.parse(process.env.BODY);
-            if (body.enabled !== false) process.exit(1);
-            console.log(JSON.stringify({brief_enable:'closed',enabled:body.enabled}));
-          "
 
       - name: Verify chain and DynamoDB state after recovery attempt
         if: steps.gate.outputs.skip_recovery != 'true'
