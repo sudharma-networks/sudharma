@@ -10,7 +10,7 @@ export default function ExplorerPage() {
       <PageHero
         eyebrow="BLOCKCHAIN EXPLORER"
         title="Follow Sudharma testnet in real time."
-        description="Read-only visibility into the canonical pre-mainnet chain: network status, recent blocks, confirmed transactions, addresses, and search. No placeholder chain statistics are shown."
+        description="Etherscan-style read-only visibility: network status, latest blocks, confirmed and pending transactions, address history, and unified search. Data is fetched live from Seed-1 and Seed-2 nodes with mempool and miner integration."
       />
       <ExplorerDashboard apiBaseUrl={apiBaseUrl} />
     </div>

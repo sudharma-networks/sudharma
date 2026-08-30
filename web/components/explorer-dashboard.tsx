@@ -2,113 +2,70 @@
 
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import {
+  EXPLORER_DATA_SOURCES,
+  ExplorerBlock,
+  ExplorerSearchResult,
+  ExplorerStatus,
+  ExplorerTransaction,
+  ExplorerAPIError,
+  fetchExplorerBlocks,
+  fetchExplorerMempool,
+  fetchExplorerSearch,
+  fetchExplorerStatus,
+  fetchExplorerTransactions,
+  formatExplorerTime,
+  formatSUDH,
+  shortHash,
+} from "@/lib/explorer-api";
 
-const COIN_DECIMALS = 100_000_000;
 const MAX_SUPPLY_LABEL = "51,000,000,000 SUDH";
-
-type ExplorerStatus = {
-  network: string;
-  coin: string;
-  symbol: string;
-  height: number;
-  tip_hash: string;
-  total_work: string;
-  peers: number;
-  mempool: number;
-  issued_supply: number;
-};
-
-type ExplorerBlock = {
-  height: number;
-  hash: string;
-  timestamp: number;
-  previous_hash: string;
-  merkle_root: string;
-  difficulty: number;
-  nonce: number;
-  miner_address: string;
-  transaction_count: number;
-};
-
-type ExplorerTransaction = {
-  transaction: {
-    id: string;
-    from: string;
-    to: string;
-    amount: number;
-    fee: number;
-    nonce: number;
-  };
-  status: string;
-  block_height?: number;
-  block_hash?: string;
-  block_timestamp?: number;
-  confirmations: number;
-};
-
-type SearchResult = {
-  type: "block" | "transaction" | "address";
-  path: string;
-};
 
 type ExplorerDashboardProps = {
   apiBaseUrl: string;
   pollIntervalMs?: number;
 };
 
-function apiURL(base: string, path: string) {
-  return `${base.replace(/\/$/, "")}${path}`;
-}
-
-async function readJSON<T>(base: string, path: string): Promise<T> {
-  const response = await fetch(apiURL(base, path), { cache: "no-store" });
-  if (!response.ok) {
-    throw new Error(`Explorer API returned ${response.status}`);
-  }
-  return response.json() as Promise<T>;
-}
-
-function shortHash(value: string, size = 12) {
-  if (!value) return "—";
-  if (value.length <= size) return value;
-  return `${value.slice(0, size)}…`;
-}
-
-function formatSUDH(baseUnits: number) {
-  if (!Number.isFinite(baseUnits)) return "—";
-  return `${(baseUnits / COIN_DECIMALS).toLocaleString(undefined, { maximumFractionDigits: 8 })} SUDH`;
-}
-
-function formatTime(unixSeconds?: number) {
-  if (!unixSeconds) return "—";
-  return new Date(unixSeconds * 1000).toLocaleString();
-}
-
 export function ExplorerDashboard({ apiBaseUrl, pollIntervalMs = 15_000 }: ExplorerDashboardProps) {
   const base = apiBaseUrl.trim();
   const [status, setStatus] = useState<ExplorerStatus | null>(null);
   const [blocks, setBlocks] = useState<ExplorerBlock[]>([]);
   const [transactions, setTransactions] = useState<ExplorerTransaction[]>([]);
+  const [mempool, setMempool] = useState<ExplorerTransaction[]>([]);
+  const [mempoolAvailable, setMempoolAvailable] = useState(true);
   const [connection, setConnection] = useState<"loading" | "connected" | "error" | "unconfigured">(base ? "loading" : "unconfigured");
   const [error, setError] = useState("");
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
-  const [searchResult, setSearchResult] = useState<SearchResult | null>(null);
+  const [searchResult, setSearchResult] = useState<ExplorerSearchResult | null>(null);
   const [searchError, setSearchError] = useState("");
 
   const refresh = useCallback(async () => {
     if (!base) return;
     try {
-      const [statusPayload, blocksPayload, transactionsPayload] = await Promise.all([
-        readJSON<ExplorerStatus>(base, "/v1/explorer/status"),
-        readJSON<{ blocks: ExplorerBlock[] }>(base, "/v1/explorer/blocks?limit=8"),
-        readJSON<{ transactions: ExplorerTransaction[] }>(base, "/v1/explorer/transactions?limit=8")
+      const [statusPayload, blocksPayload, transactionsPayload, mempoolResult] = await Promise.all([
+        fetchExplorerStatus(base),
+        fetchExplorerBlocks(base, 8),
+        fetchExplorerTransactions(base, 8),
+        fetchExplorerMempool(base, 8).then(
+          (payload) => ({ ok: true as const, payload }),
+          () => ({ ok: false as const, payload: { count: 0, transactions: [] } }),
+        ),
       ]);
       setStatus(statusPayload);
       setBlocks(blocksPayload.blocks ?? []);
       setTransactions(transactionsPayload.transactions ?? []);
+      if (mempoolResult.ok) {
+        setMempool(mempoolResult.payload.transactions ?? []);
+        setMempoolAvailable(true);
+      } else {
+        setMempool([]);
+        setMempoolAvailable(false);
+      }
       setConnection("connected");
       setError("");
+      setLastUpdated(Date.now());
     } catch (refreshError) {
       setConnection("error");
       setError(refreshError instanceof Error ? refreshError.message : "Explorer API is unavailable");
@@ -140,17 +97,13 @@ export function ExplorerDashboard({ apiBaseUrl, pollIntervalMs = 15_000 }: Explo
     }
     setSearching(true);
     try {
-      const response = await fetch(apiURL(base, `/v1/explorer/search?q=${encodeURIComponent(normalized)}`), { cache: "no-store" });
-      if (response.status === 404) {
-        setSearchError("No canonical block, transaction, or address matched that search.");
-        return;
-      }
-      if (!response.ok) {
-        throw new Error(`Explorer search returned ${response.status}`);
-      }
-      setSearchResult(await response.json() as SearchResult);
+      setSearchResult(await fetchExplorerSearch(base, normalized));
     } catch (searchFailure) {
-      setSearchError(searchFailure instanceof Error ? searchFailure.message : "Explorer search is unavailable.");
+      if (searchFailure instanceof ExplorerAPIError && searchFailure.status === 404) {
+        setSearchError("No canonical block, transaction, or address matched that search.");
+      } else {
+        setSearchError(searchFailure instanceof Error ? searchFailure.message : "Explorer search is unavailable.");
+      }
     } finally {
       setSearching(false);
     }
@@ -166,13 +119,15 @@ export function ExplorerDashboard({ apiBaseUrl, pollIntervalMs = 15_000 }: Explo
     );
   }
 
+  const dataSources = status?.data_sources?.length ? status.data_sources : [...EXPLORER_DATA_SOURCES];
+
   return (
     <div className="explorer-dashboard">
       <section className="explorer-search-panel">
         <div>
           <p className="eyebrow">LIVE TESTNET LOOKUP</p>
           <h2>Search the canonical chain.</h2>
-          <p>Block height/hash · transaction ID · account address</p>
+          <p>Block height/hash · transaction ID · account address · pending mempool txs</p>
         </div>
         <form className="explorer-search" onSubmit={submitSearch}>
           <label htmlFor="explorer-search-input">Search blockchain</label>
@@ -195,6 +150,17 @@ export function ExplorerDashboard({ apiBaseUrl, pollIntervalMs = 15_000 }: Explo
       <section className="explorer-connection" aria-live="polite">
         <span className={`status-dot ${connection === "error" ? "status-dot-error" : ""}`} />
         {connection === "connected" ? "Connected to live testnet data" : connection === "loading" ? "Connecting to live testnet data…" : `Live testnet data unavailable${error ? ` — ${error}` : ""}`}
+        {lastUpdated ? <span className="muted"> · Updated {new Date(lastUpdated).toLocaleTimeString()}</span> : null}
+      </section>
+
+      <section className="explorer-data-sources" aria-label="Data sources">
+        <p className="eyebrow">DATA SOURCES</p>
+        <p className="muted">Read-only explorer data is aggregated from testnet seed nodes with automatic failover, mempool state, and demand-miner wake signals.</p>
+        <div className="explorer-source-tags">
+          {dataSources.map((source) => (
+            <span key={source} className="explorer-source-tag">{source}</span>
+          ))}
+        </div>
       </section>
 
       <section className="explorer-metrics" aria-label="Network summary">
@@ -206,14 +172,20 @@ export function ExplorerDashboard({ apiBaseUrl, pollIntervalMs = 15_000 }: Explo
         <article><span>Total work</span><strong>{status?.total_work ?? "—"}</strong></article>
       </section>
 
-      <section className="explorer-grid">
+      <section className="explorer-grid explorer-grid-three">
         <div className="explorer-table-card">
           <div className="explorer-card-heading"><div><p className="eyebrow">BLOCKS</p><h2>Latest canonical blocks</h2></div><span className="muted">Auto-refreshing</span></div>
           {blocks.length ? <div className="explorer-rows">
             {blocks.map((block) => (
-              <Link className="explorer-row" key={block.hash} href={`/explorer/block?id=${block.hash}`}>
-                <div><strong>Block #{block.height}</strong><span className="mono">{shortHash(block.hash)}</span></div>
-                <div><span>{block.transaction_count} tx</span><span>{formatTime(block.timestamp)}</span></div>
+              <Link className="explorer-row explorer-row-rich" key={block.hash} href={`/explorer/block?id=${block.hash}`}>
+                <div>
+                  <strong>Block #{block.height}</strong>
+                  <span className="mono">{shortHash(block.hash)}</span>
+                </div>
+                <div>
+                  <span>{block.transaction_count} tx · miner {shortHash(block.miner_address, 8)}</span>
+                  <span>{formatExplorerTime(block.timestamp)}</span>
+                </div>
               </Link>
             ))}
           </div> : <p className="explorer-empty">No blocks returned by the public explorer API yet.</p>}
@@ -223,12 +195,41 @@ export function ExplorerDashboard({ apiBaseUrl, pollIntervalMs = 15_000 }: Explo
           <div className="explorer-card-heading"><div><p className="eyebrow">TRANSACTIONS</p><h2>Latest confirmed activity</h2></div><span className="muted">Canonical only</span></div>
           {transactions.length ? <div className="explorer-rows">
             {transactions.map((item) => (
-              <Link className="explorer-row" key={item.transaction.id} aria-label={shortHash(item.transaction.id)} href={`/explorer/tx?id=${item.transaction.id}`}>
-                <div><strong className="mono">{shortHash(item.transaction.id)}</strong><span>{formatSUDH(item.transaction.amount)}</span></div>
-                <div><span>Block {item.block_height ?? "pending"}</span><span>{item.confirmations} conf.</span></div>
+              <Link className="explorer-row explorer-row-rich" key={item.transaction.id} href={`/explorer/tx?id=${item.transaction.id}`}>
+                <div>
+                  <strong className="mono">{shortHash(item.transaction.id)}</strong>
+                  <span>{formatSUDH(item.transaction.amount)} · fee {formatSUDH(item.transaction.fee)}</span>
+                </div>
+                <div>
+                  <span className="mono">{shortHash(item.transaction.from, 8)} → {shortHash(item.transaction.to, 8)}</span>
+                  <span>Block {item.block_height ?? "pending"} · {item.confirmations} conf.</span>
+                </div>
               </Link>
             ))}
           </div> : <p className="explorer-empty">No confirmed transactions returned by the public explorer API yet.</p>}
+        </div>
+
+        <div className="explorer-table-card">
+          <div className="explorer-card-heading"><div><p className="eyebrow">MEMPOOL</p><h2>Pending transactions</h2></div><span className="muted">{mempoolAvailable ? "Live" : "Count only"}</span></div>
+          {mempool.length ? <div className="explorer-rows">
+            {mempool.map((item) => (
+              <Link className="explorer-row explorer-row-rich" key={item.transaction.id} href={`/explorer/tx?id=${item.transaction.id}`}>
+                <div>
+                  <strong className="mono">{shortHash(item.transaction.id)}</strong>
+                  <span className="status-chip status-in-development">Pending</span>
+                </div>
+                <div>
+                  <span>{formatSUDH(item.transaction.amount)} · fee {formatSUDH(item.transaction.fee)}</span>
+                  <span className="mono">{shortHash(item.transaction.from, 8)} → {shortHash(item.transaction.to, 8)}</span>
+                </div>
+              </Link>
+            ))}
+          </div> : (
+            <p className="explorer-empty">
+              {status?.mempool ? `${status.mempool} pending transaction(s) reported by seed nodes.` : "Mempool is empty — no pending transactions."}
+              {!mempoolAvailable ? " Detailed mempool listing will appear after the explorer mempool API is deployed on seeds." : ""}
+            </p>
+          )}
         </div>
       </section>
 
