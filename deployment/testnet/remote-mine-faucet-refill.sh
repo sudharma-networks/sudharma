@@ -30,7 +30,7 @@ node_id="faucet-refill-$(date +%s)"
 echo "faucet_refill_mine: start blocks=$BLOCKS reward=$REWARD_ADDRESS"
 
 for attempt in $(seq 1 "$BLOCKS"); do
-  if ! "$MINER_BINARY" \
+  if ! timeout 4m "$MINER_BINARY" \
     -nodeid "$node_id-$attempt" \
     -listen "127.0.0.1:0" \
     -peer "$SEED_PEER" \
