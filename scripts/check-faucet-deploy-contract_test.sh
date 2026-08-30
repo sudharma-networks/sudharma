@@ -87,6 +87,15 @@ for forbidden in 'update-function-' 'put-' 'delete-' 'create-' 'send-command' 's
     fail "aws-preflight must remain read-only; found forbidden mutation token: $forbidden"
   fi
 done
+if ! grep -Fq -- 'aws lambda get-function' <<<"$preflight_block"; then
+  fail 'aws-preflight must prove lambda:GetFunction permission required for rollback snapshot'
+fi
+if ! grep -Fq -- 'Configuration.CodeSha256' <<<"$preflight_block"; then
+  fail 'aws-preflight get-function must query safe metadata instead of exposing Code.Location'
+fi
+if grep -Fq -- 'Code.Location' <<<"$preflight_block"; then
+  fail 'aws-preflight must not expose the presigned Lambda Code.Location URL'
+fi
 
 stage_line="$(grep -n -m1 'name: Stage faucet disabled' "$workflow" | cut -d: -f1 || true)"
 code_line="$(grep -n -m1 'name: Update Lambda code from tested artifact' "$workflow" | cut -d: -f1 || true)"
@@ -105,4 +114,4 @@ for forbidden in '--runtime ' '--handler ' '--timeout ' '--memory-size '; do
   fi
 done
 
-printf 'PASS: faucet deployment contract is manual-only, has a read-only AWS/OIDC preflight, preserves shared Lambda routes/environment/configuration, rolls shared Lambda code/environment back on pre-activation smoke failure, is deep-health gated, fail-closed on unexpected errors, disables before code update, and promotes the tested artifact\n'
+printf 'PASS: faucet deployment contract is manual-only, has a read-only AWS/OIDC preflight that proves rollback permissions, preserves shared Lambda routes/environment/configuration, rolls shared Lambda code/environment back on pre-activation smoke failure, is deep-health gated, fail-closed on unexpected errors, disables before code update, and promotes the tested artifact\n'
