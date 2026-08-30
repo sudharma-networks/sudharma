@@ -7,6 +7,8 @@ const {
   readRuntimeConfig,
 } = require('./community-worker.js');
 
+const SAFE_DIAGNOSTIC_CODE_RE = /^telegram-api-[1-5]\d{2}-(?:reply-target-missing|thread-missing|chat-not-found|membership|permission-denied|rate-limited|other)$/;
+
 function instrumentDependency(scope, dependency, operations, logger = console) {
   if (!dependency || typeof dependency !== 'object') {
     throw new Error('Observed dependency is invalid');
@@ -27,7 +29,10 @@ function instrumentDependency(scope, dependency, operations, logger = console) {
         return result;
       } catch (error) {
         if (logger && typeof logger.error === 'function') {
-          logger.error(`Telegram community boundary failed: ${scope}.${operation}`);
+          const diagnosticCode = typeof error?.diagnosticCode === 'string' && SAFE_DIAGNOSTIC_CODE_RE.test(error.diagnosticCode)
+            ? ` code=${error.diagnosticCode}`
+            : '';
+          logger.error(`Telegram community boundary failed: ${scope}.${operation}${diagnosticCode}`);
         }
         throw error;
       }
