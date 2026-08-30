@@ -1,0 +1,42 @@
+name: Telegram Community
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Community bot operation
+        required: true
+        type: choice
+        options:
+          - bootstrap
+          - poll
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: telegram-community-poller
+  cancel-in-progress: false
+
+jobs:
+  community:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: telegram-publishing
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run Telegram community operation
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          COMMUNITY_MODE: ${{ inputs.mode }}
+        run: node scripts/telegram/community-worker.js

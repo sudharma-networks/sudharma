@@ -1,8 +1,8 @@
 # Sudharma Telegram Bridge
 
-Status: Phase 1 pre-mainnet communication tooling
+Status: Phase 1 operational pre-mainnet communication tooling; Phase 2A community support is documented separately
 
-This bridge lets trusted Sudharma maintainers publish plain-text announcements to the official Telegram announcements channel through a controlled GitHub IssueOps workflow. It does **not** use a personal Telegram login and does not interact with consensus, mining activation, Seed-1/Seed-2 deployment, wallets, or mainnet.
+This bridge lets the trusted Sudharma project account publish plain-text announcements to the official Telegram announcements channel through a controlled GitHub IssueOps workflow. It does **not** use a personal Telegram login and does not interact with consensus, mining activation, Seed-1/Seed-2 deployment, wallets, or mainnet.
 
 ## Security model
 
@@ -10,7 +10,7 @@ This bridge lets trusted Sudharma maintainers publish plain-text announcements t
 - `TELEGRAM_BOT_TOKEN` is a secret and must exist only in the GitHub Actions environment named `telegram-publishing`.
 - Never paste the bot token into ChatGPT, a GitHub issue, a commit, a screenshot, a Telegram message, or a repository variable.
 - `TELEGRAM_CHANNEL_ID` is non-secret configuration. For the public Sudharma announcements channel it can be set to `@sudharmanetworks`.
-- An issue alone cannot publish. The issue author must have GitHub association `OWNER`, `MEMBER`, or `COLLABORATOR`, and the exact maintainer-controlled label must be applied.
+- An issue alone cannot publish. Both the issue author and the GitHub account applying the trigger label must be the trusted project account `sudharma-network`, and the label must exactly match the requested mode.
 - The workflow is limited to `contents: read` and `issues: write` GitHub permissions.
 - Dry-run and live publishing are separate jobs. Dry-run never receives the Telegram bot token and never calls the Telegram API.
 
@@ -32,11 +32,11 @@ If the token is ever exposed, use BotFather to revoke/regenerate it immediately 
 
 1. Open the Sudharma announcements channel `@sudharmanetworks`.
 2. Open channel settings.
-3. Open **Administrators** and add the newly created bot.
+3. Open **Administrators** and add the project bot.
 4. Grant only the minimum capability needed to post channel messages for Phase 1.
 5. Do not grant unrelated member-management or ownership permissions.
 
-Removing the bot's administrator permission is the emergency stop for Telegram publishing.
+Removing the bot's administrator permission is the emergency stop for Phase 1 Telegram publishing.
 
 ### 3. Create the GitHub Actions environment
 
@@ -94,7 +94,8 @@ The bridge rejects:
 - markers in the wrong order;
 - empty messages;
 - messages above 4096 Unicode code points;
-- untrusted GitHub author associations;
+- a trigger actor other than `sudharma-network`;
+- an issue author other than `sudharma-network`;
 - pull-request-shaped issue payloads;
 - labels that do not exactly match the requested mode.
 
@@ -164,30 +165,35 @@ No repository code change is required for normal token rotation.
 
 ## Emergency stop
 
-Any one of these actions prevents new Telegram posts:
+Any one of these actions prevents new Phase 1 Telegram posts:
 
 - remove the bot from channel administrators;
 - revoke the bot token in BotFather;
 - delete/disable the `TELEGRAM_BOT_TOKEN` GitHub environment secret;
 - remove the `telegram:publish-approved` label from the operational process.
 
-Do not expose the token while troubleshooting.
+Revoking/deleting the shared bot token also stops Phase 2A community automation. Do not expose the token while troubleshooting.
 
-## Scope limits
+## Phase 2A community bot
+
+Phase 2A adds a separate, commands-only community-support path for the public group `@sudharma_community`. It does not change this Phase 1 announcement workflow or allow community content to publish into `@sudharmanetworks`.
+
+See `docs/telegram-community-phase2a.md` for the community-bot security model, Android setup, bootstrap, smoke-test, and emergency-stop procedure.
+
+## Phase 1 scope limits
 
 Phase 1 supports only plain-text announcements to the official channel. It does not provide:
 
 - personal Telegram account automation;
 - group moderation;
 - bans or mutes;
-- inbound Telegram commands;
+- inbound Telegram commands through the Phase 1 workflow;
 - file or media posting;
-- automated replies;
 - AWS webhook processing;
 - scheduled marketing campaigns;
 - investment or profitability promotion.
 
-Those capabilities, if ever needed, require separate review.
+Phase 2A is separately scoped to explicit community commands and public GitHub report intake; broader moderation or ordinary-chat monitoring still requires separate review.
 
 ## Project safety
 
