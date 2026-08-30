@@ -58,7 +58,9 @@ for required in \
   'expected_code_sha256=' \
   "--query 'Configuration.CodeSha256'" \
   "--query 'Environment.Variables.FAUCET_ENABLED'" \
-  'FAUCET_ENABLED must remain false in diagnostics-only mode'; do
+  'FAUCET_ENABLED must remain false in diagnostics-only mode' \
+  '$RPC_BASE_URL/v1/faucet/info' \
+  'body.enabled !== false'; do
   if ! grep -Fq -- "$required" <<<"$diag_block"; then
     fail "diagnostics-only verification is missing: $required"
   fi

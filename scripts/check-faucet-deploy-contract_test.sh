@@ -186,6 +186,12 @@ fi
 if ! grep -Fq -- "!= 'false'" <<<"$diag_verify_block"; then
   fail 'diagnostics-only rollout must fail unless FAUCET_ENABLED is false'
 fi
+if ! grep -Fq -- '$RPC_BASE_URL/v1/faucet/info' <<<"$diag_verify_block"; then
+  fail 'diagnostics-only rollout must read faucet info without enabling payouts'
+fi
+if ! grep -Fq -- 'body.enabled !== false' <<<"$diag_verify_block"; then
+  fail 'diagnostics-only rollout must require faucet info enabled=false'
+fi
 if ! grep -Fq -- "trap 'rollback_shared_lambda' ERR" <<<"$diag_verify_block"; then
   fail 'diagnostics-only verification must rollback on code-identity or fail-closed verification failure'
 fi

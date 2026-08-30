@@ -398,6 +398,17 @@ jobs:
             echo 'FAUCET_ENABLED must remain false in diagnostics-only mode' >&2
             exit 1
           fi
+          info_response="$(curl -sS -w '\n%{http_code}' "$RPC_BASE_URL/v1/faucet/info")"
+          info_status="$(printf '%s\n' "$info_response" | tail -n1)"
+          info_body="$(printf '%s\n' "$info_response" | sed '$d')"
+          if [ "$info_status" != '200' ]; then
+            echo "Diagnostics-only faucet info returned HTTP $info_status" >&2
+            exit 1
+          fi
+          if ! BODY="$info_body" node --input-type=module -e "const body=JSON.parse(process.env.BODY); if (body.enabled !== false) process.exit(1); console.log(JSON.stringify({diagnostics_only:true,enabled:body.enabled}))"; then
+            echo 'Diagnostics-only faucet info must report enabled=false.' >&2
+            exit 1
+          fi
           echo '{"diagnostics_only":true,"artifact_identity":"verified","faucet_enabled":false}'
           trap - ERR
 

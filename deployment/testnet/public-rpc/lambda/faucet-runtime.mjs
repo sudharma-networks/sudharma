@@ -377,6 +377,8 @@ export function createRpc({ seeds, fetchImpl, timeoutMs, timed }) {
         }
         const uncertain = new FaucetError(503, 'faucet payout outcome is uncertain');
         uncertain.uncertain = true;
+        if (Number.isInteger(error?.upstreamStatus)) uncertain.upstreamStatus = error.upstreamStatus;
+        if (typeof error?.errorCategory === 'string') uncertain.errorCategory = error.errorCategory;
         throw uncertain;
       }
     },
@@ -449,7 +451,7 @@ export function createRuntimeFaucetHandler({ seeds, fetchImpl = globalThis.fetch
       return {
         statusCode: 200,
         payload: {
-          enabled: true,
+          enabled: env.FAUCET_ENABLED === 'true',
           challenge_address: runtime.signer.address,
           initial_grant_sudh: INITIAL_GRANT_SUDH,
           challenge_send_sudh: CHALLENGE_SEND_SUDH,

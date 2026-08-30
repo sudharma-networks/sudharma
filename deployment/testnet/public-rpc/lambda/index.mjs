@@ -157,13 +157,16 @@ export function createHandler(options = {}) {
         return jsonResponse(statusCode, payload);
       } catch (error) {
         const statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : 500;
-        safeLog(logger, statusCode >= 500 ? 'error' : 'warn', {
+        const errorRecord = {
           event: 'wallet_faucet_error',
           route: request.kind,
           status_code: statusCode,
           latency_ms: Date.now() - started,
           request_id: context?.awsRequestId || null,
-        });
+        };
+        if (Number.isInteger(error?.upstreamStatus)) errorRecord.http_status = error.upstreamStatus;
+        if (typeof error?.errorCategory === 'string') errorRecord.error_category = error.errorCategory;
+        safeLog(logger, statusCode >= 500 ? 'error' : 'warn', errorRecord);
         return jsonResponse(statusCode, {
           error: statusCode >= 500
             ? 'testnet faucet is temporarily unavailable'
@@ -215,9 +218,12 @@ const configuredTimeoutMs = Number.parseInt(process.env.UPSTREAM_TIMEOUT_MS || '
 const runtimeTimeoutMs = Number.isFinite(configuredTimeoutMs) ? configuredTimeoutMs : 3500;
 
 let productionFaucetHandler = null;
-if (process.env.FAUCET_ENABLED === 'true') {
+if (process.env.FAUCET_TABLE_NAME && process.env.FAUCET_SECRET_ID) {
   let runtimeHandlerPromise;
   productionFaucetHandler = async (request) => {
+    if ((request.kind === 'faucetInitial' || request.kind === 'faucetChallenge') && process.env.FAUCET_ENABLED !== 'true') {
+      return { statusCode: 503, payload: { error: 'testnet faucet is temporarily unavailable' } };
+    }
     if (!runtimeHandlerPromise) {
       runtimeHandlerPromise = import('./faucet-runtime.mjs')
         .then((module) => module.createRuntimeFaucetHandler({

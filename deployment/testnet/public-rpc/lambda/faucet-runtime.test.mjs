@@ -53,7 +53,16 @@ test('RPC diagnostics classify seed rejection without logging its response body'
   });
 
   await assert.rejects(
-    rpc.submit({ ID: 'a'.repeat(64) }),
+    async () => {
+      try {
+        await rpc.submit({ ID: 'a'.repeat(64) });
+      } catch (error) {
+        assert.equal(error.uncertain, true);
+        assert.equal(error.upstreamStatus, 422);
+        assert.equal(error.errorCategory, 'invalid_signature');
+        throw error;
+      }
+    },
     /outcome is uncertain/,
   );
 
