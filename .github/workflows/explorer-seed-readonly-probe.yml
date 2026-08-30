@@ -28,7 +28,7 @@ jobs:
           role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
           aws-region: ap-south-1
 
-      - name: Probe seed services and local RPC without changes
+      - name: Probe seed services and build environment without changes
         shell: bash
         run: |
           set -euo pipefail
@@ -47,8 +47,8 @@ jobs:
             command_id="$(aws ssm send-command \
               --instance-ids "$instance_id" \
               --document-name AWS-RunShellScript \
-              --comment "Sudharma explorer read-only seed probe" \
-              --parameters 'commands=["set -eu","systemctl is-active sudharma.service","curl -fsS http://127.0.0.1:28545/v1/status","code=$(curl -sS -o /tmp/sudharma-explorer-status.json -w %{http_code} http://127.0.0.1:28545/v1/explorer/status)","echo explorer_http_status=$code","cat /tmp/sudharma-explorer-status.json || true"]' \
+              --comment "Sudharma explorer read-only seed environment probe" \
+              --parameters 'commands=["set -eu","echo uid=$(id -u)","systemctl is-active sudharma.service","systemctl show sudharma.service -p ActiveState -p SubState -p ExecStart --no-pager","curl -fsS http://127.0.0.1:28545/v1/status","code=$(curl -sS -o /tmp/sudharma-explorer-status.json -w %{http_code} http://127.0.0.1:28545/v1/explorer/status)","echo explorer_http_status=$code","cat /tmp/sudharma-explorer-status.json || true","echo binary_path=$(readlink -f /usr/local/bin/sudharma-rpcd)","printf binary_sha256=; sha256sum /usr/local/bin/sudharma-rpcd | cut -d\" \" -f1","if command -v go >/dev/null 2>&1; then go version; go version -m /usr/local/bin/sudharma-rpcd || true; else echo go=missing; fi","if command -v git >/dev/null 2>&1; then git --version; else echo git=missing; fi","for d in /home/ubuntu/sudharma /opt/sudharma /srv/sudharma; do if [ -d \"$d/.git\" ]; then echo source_repo=$d; git -C \"$d\" rev-parse HEAD || true; fi; done","git ls-remote https://github.com/sudharma-networks/sudharma.git HEAD >/dev/null 2>&1 && echo github_reachable=yes || echo github_reachable=no","df -Pk /tmp /usr/local/bin | tail -n +2"]' \
               --query 'Command.CommandId' \
               --output text)"
             echo "::add-mask::$command_id"
