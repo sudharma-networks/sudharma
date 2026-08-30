@@ -322,9 +322,12 @@ jobs:
             exit "$original_status"
           }
           trap 'rollback_shared_lambda' ERR
-          curl -fsS "$RPC_BASE_URL/v1/status" >/dev/null
-          curl -fsS "$RPC_BASE_URL/v1/website/visitors" >/dev/null
-          curl -fsS "$RPC_BASE_URL/v1/explorer/status" >/dev/null
+          curl -fsS "$RPC_BASE_URL/v1/status" >/tmp/status-post.json
+          node -e "const s=require('/tmp/status-post.json'); if (!s || s.network !== 'sudharma') process.exit(1); console.log(JSON.stringify({network:s.network,coin:s.coin,symbol:s.symbol,height:s.height,peers:s.peers}))"
+          curl -fsS "$RPC_BASE_URL/v1/website/visitors" >/tmp/visitors-post.json
+          node -e "const v=require('/tmp/visitors-post.json'); if (!Number.isSafeInteger(v.total) || v.total < 0) process.exit(1); console.log(JSON.stringify({website_visitors:v.total}))"
+          curl -fsS "$RPC_BASE_URL/v1/explorer/status" >/tmp/explorer-status-post.json
+          node -e "const e=require('/tmp/explorer-status-post.json'); if (!e || typeof e !== 'object' || Array.isArray(e)) process.exit(1); console.log(JSON.stringify({explorer_status:'ok'}))"
           trap - ERR
 
       - name: Verify deployed Lambda configuration
