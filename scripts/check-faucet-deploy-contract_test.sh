@@ -24,13 +24,13 @@ require_literal 'workflow_dispatch:'
 require_literal 'preflight:'
 require_literal 'deploy:'
 require_literal 'aws-preflight:'
-require_literal "if: github.event_name == 'workflow_dispatch' && (inputs.preflight == true || inputs.deploy == true)"
+require_literal "if: github.event_name == 'workflow_dispatch' && (inputs.preflight == true || inputs.deploy == true || inputs.diagnostics_only == true)"
 require_literal 'name: Verify AWS identity and faucet resources (read-only)'
 require_literal 'aws sts get-caller-identity'
 require_literal 'aws dynamodb describe-table'
 require_literal 'aws secretsmanager describe-secret'
 require_literal 'aws lambda get-function-configuration'
-require_literal "if: github.event_name == 'workflow_dispatch' && inputs.deploy == true"
+require_literal "if: github.event_name == 'workflow_dispatch' && (inputs.deploy == true || inputs.diagnostics_only == true)"
 require_literal 'uses: actions/download-artifact@v4'
 require_literal "FAUCET_ENABLED: 'false'"
 require_literal "FAUCET_ENABLED: 'true'"
@@ -170,21 +170,24 @@ require_literal "if: github.event_name == 'workflow_dispatch' && (inputs.deploy 
 activation_line="$(grep -n -m1 'name: Activate faucet and smoke-test public readiness' "$workflow" | cut -d: -f1 || true)"
 [ -n "$activation_line" ] || fail 'missing faucet activation step'
 activation_if="$(sed -n "$((activation_line + 1))p" "$workflow")"
-if ! grep -Fq -- "if: inputs.diagnostics_only != true" <<<"$activation_if"; then
+if ! grep -Fq -- "if: inputs.deploy == true && inputs.diagnostics_only != true" <<<"$activation_if"; then
   fail 'diagnostics-only rollout must skip faucet activation/readiness step'
 fi
-require_literal 'name: Verify diagnostics-only faucet remains disabled'
-diag_verify_line="$(grep -n -m1 'name: Verify diagnostics-only faucet remains disabled' "$workflow" | cut -d: -f1 || true)"
-[ -n "$diag_verify_line" ] || fail 'missing diagnostics-only final disabled-state verification'
-diag_verify_block="$(sed -n "${diag_verify_line},$((diag_verify_line + 20))p" "$workflow")"
+require_literal 'name: Verify diagnostics-only deployment remains fail-closed'
+diag_verify_line="$(grep -n -m1 'name: Verify diagnostics-only deployment remains fail-closed' "$workflow" | cut -d: -f1 || true)"
+[ -n "$diag_verify_line" ] || fail 'missing diagnostics-only final fail-closed verification'
+diag_verify_block="$(sed -n "${diag_verify_line},$((verify_config_line - 1))p" "$workflow")"
 if ! grep -Fq -- 'if: inputs.diagnostics_only == true' <<<"$diag_verify_block"; then
-  fail 'diagnostics-only disabled-state verification must run only in diagnostics mode'
+  fail 'diagnostics-only fail-closed verification must run only in diagnostics mode'
 fi
-if ! grep -Fq -- 'Environment.Variables.FAUCET_ENABLED' <<<"$diag_verify_block"; then
+if ! grep -Fq -- "--query 'Environment.Variables.FAUCET_ENABLED'" <<<"$diag_verify_block"; then
   fail 'diagnostics-only rollout must read back FAUCET_ENABLED from Lambda configuration'
 fi
 if ! grep -Fq -- "!= 'false'" <<<"$diag_verify_block"; then
   fail 'diagnostics-only rollout must fail unless FAUCET_ENABLED is false'
 fi
+if ! grep -Fq -- "trap 'rollback_shared_lambda' ERR" <<<"$diag_verify_block"; then
+  fail 'diagnostics-only verification must rollback on code-identity or fail-closed verification failure'
+fi
 
-printf 'PASS: faucet deployment contract is manual-only, has a read-only AWS/OIDC preflight that proves rollback permissions, preserves shared Lambda routes/environment/configuration, validates shared-route payloads, verifies deployed code identity, rolls shared Lambda code/environment back on pre- and post-activation smoke failure, is deep-health gated, fail-closed on unexpected errors, disables before code update, supports diagnostics-only rollout that cannot activate payouts, and promotes the tested artifact\n'
+printf 'PASS: faucet deployment contract is manual-only, has a read-only AWS/OIDC preflight that proves rollback permissions, preserves shared Lambda routes/environment/configuration, validates shared-route payloads, verifies deployed code identity, rolls shared Lambda code/environment back on pre- and post-activation smoke failure, is deep-health gated, fail-closed on unexpected errors, disables before code update, supports rollback-protected diagnostics-only rollout that cannot activate payouts, and promotes the tested artifact\n'
