@@ -11,7 +11,7 @@
   "lock_file": "/run/sudharma-demand-miner/lock",
   "poll_every": "5s",
   "cooldown": "10s",
-  "failure_backoff": "30s",
+  "failure_backoff": "15s",
   "child_timeout": "5m",
   "scheduled_sweep_every": "30m",
   "max_blocks_per_sweep": 32,
