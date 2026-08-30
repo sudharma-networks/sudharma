@@ -5,7 +5,7 @@ set -eu
 : "${EXPECTED_NEW_SHA:?EXPECTED_NEW_SHA is required}"
 : "${EXPECTED_NODE_ID:?EXPECTED_NODE_ID is required}"
 : "${PRIVATE_IP:?PRIVATE_IP is required}"
-: "${ARTIFACT_URL_B64:?ARTIFACT_URL_B64 is required}"
+: "${CANDIDATE_PATH:?CANDIDATE_PATH is required}"
 
 BINARY=/usr/local/bin/sudharma-rpcd
 SERVICE=sudharma.service
@@ -18,9 +18,13 @@ fail() {
 
 [ "$(id -u)" = '0' ] || fail 'SSM command is not running as root'
 
-for tool in curl python3 sha256sum systemctl base64 install mktemp awk cut; do
+for tool in curl python3 sha256sum systemctl install awk; do
   command -v "$tool" >/dev/null 2>&1 || fail "required tool missing: $tool"
 done
+
+[ -f "$CANDIDATE_PATH" ] || fail 'candidate binary is missing'
+candidate_sha="$(sha256sum "$CANDIDATE_PATH" | awk '{print $1}')"
+[ "$candidate_sha" = "$EXPECTED_NEW_SHA" ] || fail "candidate sha mismatch: $candidate_sha"
 
 current_sha="$(sha256sum /usr/local/bin/sudharma-rpcd | awk '{print $1}')"
 case "$current_sha" in
@@ -37,14 +41,6 @@ before_supply="$(printf '%s' "$before_status" | python3 -c 'import json,sys; pri
 
 backup="/usr/local/bin/sudharma-rpcd.rollback-${EXPECTED_OLD_SHA}"
 changed=0
-tmp=''
-
-cleanup() {
-  if [ -n "$tmp" ] && [ -d "$tmp" ]; then
-    rm -rf "$tmp"
-  fi
-}
-trap cleanup EXIT INT TERM
 
 rollback() {
   if [ "$changed" = '1' ] && [ -f "$backup" ]; then
@@ -71,27 +67,13 @@ fail_after_change() {
 }
 
 if [ "$current_sha" = "$EXPECTED_OLD_SHA" ]; then
-  tmp="$(mktemp -d /tmp/sudharma-explorer-rollout.XXXXXX)"
-  download_url="$(printf '%s' "$ARTIFACT_URL_B64" | base64 -d)"
-  [ -n "$download_url" ] || fail 'artifact URL decoded empty'
-
-  curl -fL --retry 3 --connect-timeout 10 --max-time 120 \
-    -o "$tmp/artifact.zip" "$download_url" || fail 'artifact download failed'
-  mkdir -p "$tmp/extracted"
-  python3 -m zipfile -e "$tmp/artifact.zip" "$tmp/extracted" || fail 'artifact extraction failed'
-  candidate="$tmp/extracted/sudharma-rpcd"
-  [ -f "$candidate" ] || fail 'artifact did not contain sudharma-rpcd'
-
-  candidate_sha="$(sha256sum "$candidate" | awk '{print $1}')"
-  [ "$candidate_sha" = "$EXPECTED_NEW_SHA" ] || fail "candidate sha mismatch: $candidate_sha"
-
   if [ ! -f "$backup" ]; then
     cp -a "$BINARY" "$backup"
   fi
   backup_sha="$(sha256sum "$backup" | awk '{print $1}')"
   [ "$backup_sha" = "$EXPECTED_OLD_SHA" ] || fail "rollback backup sha mismatch: $backup_sha"
 
-  install -m 0755 "$candidate" /usr/local/bin/sudharma-rpcd.next
+  install -m 0755 "$CANDIDATE_PATH" /usr/local/bin/sudharma-rpcd.next
   mv /usr/local/bin/sudharma-rpcd.next "$BINARY"
   changed=1
   systemctl restart sudharma.service || fail_after_change 'systemctl restart failed'
