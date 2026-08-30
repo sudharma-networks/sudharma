@@ -150,6 +150,8 @@ jobs:
             exit 1
           }
 
+          trap 'disable_faucet' ERR
+
           aws lambda update-function-configuration \
             --function-name "$LAMBDA_NAME" \
             --environment "Variables={SEED_1_URL=http://172.31.10.171:29100,SEED_2_URL=http://172.31.32.195:29100,UPSTREAM_TIMEOUT_MS=3500,FAUCET_ENABLED=true,FAUCET_TABLE_NAME=$FAUCET_TABLE_NAME,FAUCET_SECRET_ID=$FAUCET_SECRET_ID}" \
@@ -175,6 +177,8 @@ jobs:
           if ! BODY="$health_body" node --input-type=module -e "const body=JSON.parse(process.env.BODY); if (body.ready !== true) process.exit(1); console.log(JSON.stringify({ready:body.ready}))"; then
             fail_closed 'Faucet deep health payload validation failed; disabling faucet again.' "$health_body"
           fi
+
+          trap - ERR
 
       - name: Verify normal public RPC after faucet activation
         run: |
