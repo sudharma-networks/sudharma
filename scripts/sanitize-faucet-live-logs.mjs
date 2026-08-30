@@ -13,6 +13,7 @@ const ALLOWED_FIELDS = [
   'route',
   'status_code',
   'request_id',
+  'cw_timestamp',
 ];
 
 const ALLOWED_EVENTS = new Set(['faucet_dependency', 'wallet_faucet_error']);
@@ -57,10 +58,20 @@ export function parseInspectObject(text) {
   return Object.keys(record).length > 0 ? record : null;
 }
 
-export function sanitizeLiveLogRecord(record) {
+const CLOUDWATCH_PREFIX = /^(20\d{2}-\d{2}-\d{2}T[\d:.]+Z)\t([0-9a-f-]{36})\t/i;
+
+export function extractCloudWatchPrefix(text) {
+  const match = String(text || '').match(CLOUDWATCH_PREFIX);
+  if (!match) return null;
+  return { cw_timestamp: match[1], request_id: match[2] };
+}
+
+export function sanitizeLiveLogRecord(record, prefix = null) {
   if (!record || typeof record !== 'object' || Array.isArray(record)) return null;
   if (!ALLOWED_EVENTS.has(record.event)) return null;
   const sanitized = {};
+  if (prefix?.request_id && !record.request_id) sanitized.request_id = prefix.request_id;
+  if (prefix?.cw_timestamp) sanitized.cw_timestamp = prefix.cw_timestamp;
   for (const key of ALLOWED_FIELDS) {
     if (record[key] === undefined || record[key] === null) continue;
     const value = record[key];
@@ -80,8 +91,8 @@ function splitLogChunks(text) {
 export function sanitizeLiveLogText(text) {
   const records = [];
   const seen = new Set();
-  function push(parsed) {
-    const sanitized = sanitizeLiveLogRecord(parsed);
+  function push(parsed, prefix = null) {
+    const sanitized = sanitizeLiveLogRecord(parsed, prefix);
     if (!sanitized) return;
     const key = JSON.stringify(sanitized);
     if (seen.has(key)) return;
@@ -91,10 +102,11 @@ export function sanitizeLiveLogText(text) {
 
   for (const line of String(text || '').split(/\r?\n/)) {
     if (!line.trim()) continue;
-    push(extractJsonObject(line));
+    push(extractJsonObject(line), extractCloudWatchPrefix(line));
   }
   for (const chunk of splitLogChunks(text)) {
-    push(extractJsonObject(chunk) || parseInspectObject(chunk));
+    const prefix = extractCloudWatchPrefix(chunk);
+    push(extractJsonObject(chunk) || parseInspectObject(chunk), prefix);
   }
   return records;
 }

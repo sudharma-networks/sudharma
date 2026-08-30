@@ -22,7 +22,7 @@ jobs:
       - name: Verify live diagnostics log sanitizer contract
         run: bash ./scripts/check-faucet-live-diagnostics-contract_test.sh
       - name: Test live diagnostics log sanitizer
-        run: node --test ./scripts/sanitize-faucet-live-logs.test.mjs ./scripts/compute-faucet-diag-start.test.mjs
+        run: node --test ./scripts/sanitize-faucet-live-logs.test.mjs ./scripts/compute-faucet-diag-start.test.mjs ./scripts/correlate-faucet-live-logs.test.mjs
 
   lambda-tests:
     runs-on: ubuntu-latest

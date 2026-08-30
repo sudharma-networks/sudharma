@@ -50,12 +50,16 @@ test('live log sanitizer parses Node inspect CloudWatch messages without extra f
 
   assert.deepEqual(sanitizeLiveLogText(dumped), [
     {
+      request_id: '634ac672-71c7-4afb-ab60-272ed93870ca',
+      cw_timestamp: '2026-08-30T12:56:47.513Z',
       event: 'faucet_dependency',
       operation: 'seed.submit_transaction',
       outcome: 'success',
       latency_ms: 161,
     },
     {
+      request_id: '634ac672-71c7-4afb-ab60-272ed93870ca',
+      cw_timestamp: '2026-08-30T12:56:47.792Z',
       event: 'wallet_faucet_error',
       route: 'faucetInitial',
       status_code: 503,
@@ -63,4 +67,26 @@ test('live log sanitizer parses Node inspect CloudWatch messages without extra f
   ]);
   assert.equal(JSON.stringify(sanitizeLiveLogText(dumped)).includes('private-sensitive-marker'), false);
   assert.equal(JSON.stringify(sanitizeLiveLogText(dumped)).includes('transaction rejected by mempool'), false);
+});
+
+test('live log sanitizer keeps CloudWatch request id without raw seed bodies', () => {
+  const dumped = [
+    "2026-08-30T12:56:47.513Z\t634ac672-71c7-4afb-ab60-272ed93870ca\tINFO\t{",
+    "  event: 'faucet_dependency',",
+    "  operation: 'seed.submit_transaction',",
+    "  outcome: 'success',",
+    "  latency_ms: 161",
+    '}',
+  ].join('\n');
+
+  assert.deepEqual(sanitizeLiveLogText(dumped), [
+    {
+      request_id: '634ac672-71c7-4afb-ab60-272ed93870ca',
+      cw_timestamp: '2026-08-30T12:56:47.513Z',
+      event: 'faucet_dependency',
+      operation: 'seed.submit_transaction',
+      outcome: 'success',
+      latency_ms: 161,
+    },
+  ]);
 });

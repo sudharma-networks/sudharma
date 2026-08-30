@@ -18,6 +18,10 @@ require_literal() {
 require_literal 'uses: actions/checkout@v4'
 require_literal 'node ./scripts/sanitize-faucet-live-logs.mjs'
 require_literal 'node ./scripts/compute-faucet-diag-start.mjs'
+require_literal 'node ./scripts/correlate-faucet-live-logs.mjs'
+require_literal 'FAILED_REQUEST_ID:'
+require_literal 'Correlate failed payout request timeline'
+require_literal '--filter-pattern "$FAILED_REQUEST_ID"'
 require_literal "--query 'events[].message'"
 require_literal 'DIAG_START_MS='
 require_literal 'initial_prepared_at'
