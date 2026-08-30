@@ -161,4 +161,30 @@ for forbidden in '--runtime ' '--handler ' '--timeout ' '--memory-size '; do
   fi
 done
 
-printf 'PASS: faucet deployment contract is manual-only, has a read-only AWS/OIDC preflight that proves rollback permissions, preserves shared Lambda routes/environment/configuration, validates shared-route payloads, verifies deployed code identity, rolls shared Lambda code/environment back on pre- and post-activation smoke failure, is deep-health gated, fail-closed on unexpected errors, disables before code update, and promotes the tested artifact\n'
+# Diagnostic rollout is a separate, explicitly selected manual mode. It may
+# install the tested artifact, but it must never execute faucet activation and
+# must finish by proving FAUCET_ENABLED remains false.
+require_literal 'diagnostics_only:'
+require_literal "if: github.event_name == 'workflow_dispatch' && (inputs.preflight == true || inputs.deploy == true || inputs.diagnostics_only == true)"
+require_literal "if: github.event_name == 'workflow_dispatch' && (inputs.deploy == true || inputs.diagnostics_only == true)"
+activation_line="$(grep -n -m1 'name: Activate faucet and smoke-test public readiness' "$workflow" | cut -d: -f1 || true)"
+[ -n "$activation_line" ] || fail 'missing faucet activation step'
+activation_if="$(sed -n "$((activation_line + 1))p" "$workflow")"
+if ! grep -Fq -- "if: inputs.diagnostics_only != true" <<<"$activation_if"; then
+  fail 'diagnostics-only rollout must skip faucet activation/readiness step'
+fi
+require_literal 'name: Verify diagnostics-only faucet remains disabled'
+diag_verify_line="$(grep -n -m1 'name: Verify diagnostics-only faucet remains disabled' "$workflow" | cut -d: -f1 || true)"
+[ -n "$diag_verify_line" ] || fail 'missing diagnostics-only final disabled-state verification'
+diag_verify_block="$(sed -n "${diag_verify_line},$((diag_verify_line + 20))p" "$workflow")"
+if ! grep -Fq -- 'if: inputs.diagnostics_only == true' <<<"$diag_verify_block"; then
+  fail 'diagnostics-only disabled-state verification must run only in diagnostics mode'
+fi
+if ! grep -Fq -- 'Environment.Variables.FAUCET_ENABLED' <<<"$diag_verify_block"; then
+  fail 'diagnostics-only rollout must read back FAUCET_ENABLED from Lambda configuration'
+fi
+if ! grep -Fq -- "!= 'false'" <<<"$diag_verify_block"; then
+  fail 'diagnostics-only rollout must fail unless FAUCET_ENABLED is false'
+fi
+
+printf 'PASS: faucet deployment contract is manual-only, has a read-only AWS/OIDC preflight that proves rollback permissions, preserves shared Lambda routes/environment/configuration, validates shared-route payloads, verifies deployed code identity, rolls shared Lambda code/environment back on pre- and post-activation smoke failure, is deep-health gated, fail-closed on unexpected errors, disables before code update, supports diagnostics-only rollout that cannot activate payouts, and promotes the tested artifact\n'
