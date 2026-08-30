@@ -52,9 +52,11 @@ build_and_install() {
   build_dir="$(mktemp -d /var/lib/sudharma-demand-miner/build-XXXXXX)"
   trap 'rm -rf "$build_dir"' RETURN
 
+  export HOME="${HOME:-/var/lib/sudharma-demand-miner}"
   export GOPATH="${GOPATH:-/var/lib/sudharma-demand-miner/go}"
   export GOMODCACHE="${GOMODCACHE:-$GOPATH/pkg/mod}"
-  mkdir -p "$GOMODCACHE" "$GOPATH"
+  export GOCACHE="${GOCACHE:-$GOPATH/cache}"
+  mkdir -p "$HOME" "$GOMODCACHE" "$GOCACHE" "$GOPATH"
 
   (
     cd "$workdir"
