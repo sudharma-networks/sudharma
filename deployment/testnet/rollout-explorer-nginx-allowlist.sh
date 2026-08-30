@@ -39,70 +39,70 @@ needle = "    location / {\n        return 404;\n    }"
 if text.count(needle) != 1:
     raise SystemExit("expected exactly one nginx catch-all 404 location")
 
-block = r'''    # BEGIN SUDHARMA EXPLORER READ-ONLY ALLOWLIST
-    location = /v1/explorer/status {
-        limit_except GET { deny all; }
-        proxy_http_version 1.1;
-        proxy_set_header Host localhost;
-        proxy_connect_timeout 2s;
-        proxy_read_timeout 5s;
-        proxy_pass http://127.0.0.1:28545/v1/explorer/status;
-    }
+block = r'''# BEGIN SUDHARMA EXPLORER READ-ONLY ALLOWLIST
+location = /v1/explorer/status {
+    limit_except GET { deny all; }
+    proxy_http_version 1.1;
+    proxy_set_header Host localhost;
+    proxy_connect_timeout 2s;
+    proxy_read_timeout 5s;
+    proxy_pass http://127.0.0.1:28545/v1/explorer/status;
+}
 
-    location = /v1/explorer/blocks {
-        limit_except GET { deny all; }
-        proxy_http_version 1.1;
-        proxy_set_header Host localhost;
-        proxy_connect_timeout 2s;
-        proxy_read_timeout 5s;
-        proxy_pass http://127.0.0.1:28545/v1/explorer/blocks;
-    }
+location = /v1/explorer/blocks {
+    limit_except GET { deny all; }
+    proxy_http_version 1.1;
+    proxy_set_header Host localhost;
+    proxy_connect_timeout 2s;
+    proxy_read_timeout 5s;
+    proxy_pass http://127.0.0.1:28545/v1/explorer/blocks;
+}
 
-    location ~ ^/v1/explorer/blocks/(?:[0-9]+|[0-9a-f]{64})$ {
-        limit_except GET { deny all; }
-        proxy_http_version 1.1;
-        proxy_set_header Host localhost;
-        proxy_connect_timeout 2s;
-        proxy_read_timeout 5s;
-        proxy_pass http://127.0.0.1:28545;
-    }
+location ~ ^/v1/explorer/blocks/(?:[0-9]+|[0-9a-f]{64})$ {
+    limit_except GET { deny all; }
+    proxy_http_version 1.1;
+    proxy_set_header Host localhost;
+    proxy_connect_timeout 2s;
+    proxy_read_timeout 5s;
+    proxy_pass http://127.0.0.1:28545;
+}
 
-    location = /v1/explorer/transactions {
-        limit_except GET { deny all; }
-        proxy_http_version 1.1;
-        proxy_set_header Host localhost;
-        proxy_connect_timeout 2s;
-        proxy_read_timeout 5s;
-        proxy_pass http://127.0.0.1:28545/v1/explorer/transactions;
-    }
+location = /v1/explorer/transactions {
+    limit_except GET { deny all; }
+    proxy_http_version 1.1;
+    proxy_set_header Host localhost;
+    proxy_connect_timeout 2s;
+    proxy_read_timeout 5s;
+    proxy_pass http://127.0.0.1:28545/v1/explorer/transactions;
+}
 
-    location ~ ^/v1/explorer/transactions/[0-9a-f]{64}$ {
-        limit_except GET { deny all; }
-        proxy_http_version 1.1;
-        proxy_set_header Host localhost;
-        proxy_connect_timeout 2s;
-        proxy_read_timeout 5s;
-        proxy_pass http://127.0.0.1:28545;
-    }
+location ~ ^/v1/explorer/transactions/[0-9a-f]{64}$ {
+    limit_except GET { deny all; }
+    proxy_http_version 1.1;
+    proxy_set_header Host localhost;
+    proxy_connect_timeout 2s;
+    proxy_read_timeout 5s;
+    proxy_pass http://127.0.0.1:28545;
+}
 
-    location ~ ^/v1/explorer/addresses/[0-9a-f]{40}$ {
-        limit_except GET { deny all; }
-        proxy_http_version 1.1;
-        proxy_set_header Host localhost;
-        proxy_connect_timeout 2s;
-        proxy_read_timeout 5s;
-        proxy_pass http://127.0.0.1:28545;
-    }
+location ~ ^/v1/explorer/addresses/[0-9a-f]{40}$ {
+    limit_except GET { deny all; }
+    proxy_http_version 1.1;
+    proxy_set_header Host localhost;
+    proxy_connect_timeout 2s;
+    proxy_read_timeout 5s;
+    proxy_pass http://127.0.0.1:28545;
+}
 
-    location = /v1/explorer/search {
-        limit_except GET { deny all; }
-        proxy_http_version 1.1;
-        proxy_set_header Host localhost;
-        proxy_connect_timeout 2s;
-        proxy_read_timeout 5s;
-        proxy_pass http://127.0.0.1:28545/v1/explorer/search;
-    }
-    # END SUDHARMA EXPLORER READ-ONLY ALLOWLIST
+location = /v1/explorer/search {
+    limit_except GET { deny all; }
+    proxy_http_version 1.1;
+    proxy_set_header Host localhost;
+    proxy_connect_timeout 2s;
+    proxy_read_timeout 5s;
+    proxy_pass http://127.0.0.1:28545/v1/explorer/search;
+}
+# END SUDHARMA EXPLORER READ-ONLY ALLOWLIST
 
 '''
 target.write_text(text.replace(needle, block + needle))
