@@ -68,11 +68,12 @@ jobs:
           printf 'EXPLORER_STATUS_JSON='; curl -fsS http://127.0.0.1:28545/v1/explorer/status
           printf 'BLOCKS_JSON='; curl -fsS 'http://127.0.0.1:28545/v1/explorer/blocks?limit=5'
           printf 'TRANSACTIONS_JSON='; curl -fsS 'http://127.0.0.1:28545/v1/explorer/transactions?limit=5'
-          printf 'BRIDGE_STATUS_JSON='; curl -fsS http://127.0.0.1:29100/v1/explorer/status
-          printf 'BRIDGE_BLOCKS_JSON='; curl -fsS 'http://127.0.0.1:29100/v1/explorer/blocks?limit=5'
-          printf 'BRIDGE_TRANSACTIONS_JSON='; curl -fsS 'http://127.0.0.1:29100/v1/explorer/transactions?limit=5'
+          printf 'BRIDGE_STATUS_JSON='; curl -fsS http://__PRIVATE_IP__:29100/v1/explorer/status
+          printf 'BRIDGE_BLOCKS_JSON='; curl -fsS 'http://__PRIVATE_IP__:29100/v1/explorer/blocks?limit=5'
+          printf 'BRIDGE_TRANSACTIONS_JSON='; curl -fsS 'http://__PRIVATE_IP__:29100/v1/explorer/transactions?limit=5'
           EOF
           )"
+            remote_script="${remote_script//__PRIVATE_IP__/$private_ip}"
 
             parameters="$(jq -cn --arg command "$remote_script" '{commands:[$command]}')"
             command_id="$(aws ssm send-command \
