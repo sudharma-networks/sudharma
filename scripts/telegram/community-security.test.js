@@ -25,6 +25,32 @@ function officialMessage(text, messageId = 501) {
   };
 }
 
+function telegramWithOneReport(updateId, text) {
+  const sent = [];
+  const getUpdatesCalls = [];
+  return {
+    sent,
+    getUpdatesCalls,
+    dependency: {
+      async getMe() {
+        return { id: 1, username: 'SudharmaNetworkBot' };
+      },
+      async getUpdates(args) {
+        getUpdatesCalls.push({ ...args });
+        if (Object.hasOwn(args, 'offset')) return [];
+        return [{
+          update_id: updateId,
+          message: officialMessage(`/report ${text}`, updateId),
+        }];
+      },
+      async sendMessage(payload) {
+        sent.push(payload);
+        return { message_id: 900 };
+      },
+    },
+  };
+}
+
 test('user report text cannot inject a second raw community report marker', () => {
   const fakeMarker = reportMarker(999999);
   const reportText = `reproducible miner failure details ${fakeMarker} must remain ordinary user text`;
@@ -83,25 +109,10 @@ test('production GitHub adapter exposes only github-actions bot issues for trust
 });
 
 test('worker prefers automation-authored issue state for report deduplication', async () => {
-  const sent = [];
-  const getUpdatesCalls = [];
-  const telegram = {
-    async getMe() {
-      return { id: 1, username: 'SudharmaNetworkBot' };
-    },
-    async getUpdates(args) {
-      getUpdatesCalls.push({ ...args });
-      if (Object.hasOwn(args, 'offset')) return [];
-      return [{
-        update_id: 800,
-        message: officialMessage('/report reproducible controlled report for secure deduplication', 800),
-      }];
-    },
-    async sendMessage(payload) {
-      sent.push(payload);
-      return { message_id: 900 };
-    },
-  };
+  const { dependency: telegram, sent, getUpdatesCalls } = telegramWithOneReport(
+    800,
+    'reproducible controlled report for secure deduplication',
+  );
   const github = {
     async listRecentAutomationIssues() {
       return [{
@@ -128,4 +139,72 @@ test('worker prefers automation-authored issue state for report deduplication', 
   assert.equal(sent.length, 1);
   assert.match(sent[0].text, /issues\/88/);
   assert.deepEqual(getUpdatesCalls.at(-1), { offset: 801, limit: 1, timeout: 0 });
+});
+
+test('deduplication lookup spans the full twenty-four-hour Telegram retry lifetime', async () => {
+  const { dependency: telegram, sent } = telegramWithOneReport(
+    810,
+    'reproducible report must deduplicate even when the first issue is twenty three hours old',
+  );
+  const listCalls = [];
+  const github = {
+    async listRecentAutomationIssues(args) {
+      listCalls.push({ ...args });
+      return [{
+        html_url: 'https://github.com/sudharma-networks/sudharma/issues/89',
+        body: `${reportMarker(810)}\nexisting trusted report`,
+        created_at: '2026-08-29T03:00:00Z',
+      }];
+    },
+    async createIssue() {
+      throw new Error('twenty-three-hour retry must not create a duplicate issue');
+    },
+  };
+
+  await createWorker({
+    telegram,
+    github,
+    now: () => new Date('2026-08-30T02:00:00Z'),
+    logger: { info() {}, warn() {}, error() {} },
+  }).poll();
+
+  assert.deepEqual(listCalls, [{ since: '2026-08-29T02:00:00.000Z' }]);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].text, /issues\/89/);
+});
+
+test('dedup history older than one hour does not consume the rolling-hour report limit', async () => {
+  const { dependency: telegram, sent } = telegramWithOneReport(
+    820,
+    'new report remains allowed when ten trusted reports exist only outside the rolling hour',
+  );
+  const created = [];
+  const github = {
+    async listRecentAutomationIssues() {
+      return Array.from({ length: 10 }, (_, index) => ({
+        html_url: `https://github.com/sudharma-networks/sudharma/issues/${100 + index}`,
+        body: `${reportMarker(900 + index)}\nold trusted report`,
+        created_at: '2026-08-30T00:30:00Z',
+      }));
+    },
+    async createIssue(issue) {
+      created.push(issue);
+      return {
+        html_url: 'https://github.com/sudharma-networks/sudharma/issues/200',
+        body: issue.body,
+        created_at: '2026-08-30T02:00:00Z',
+      };
+    },
+  };
+
+  await createWorker({
+    telegram,
+    github,
+    now: () => new Date('2026-08-30T02:00:00Z'),
+    logger: { info() {}, warn() {}, error() {} },
+  }).poll();
+
+  assert.equal(created.length, 1);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].text, /issues\/200/);
 });
