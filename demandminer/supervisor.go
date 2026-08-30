@@ -45,22 +45,24 @@ func (TimerSleeper) Sleep(ctx context.Context, d time.Duration) error {
 }
 
 type Supervisor struct {
-	config  Config
-	status  StatusSource
-	miner   BlockMiner
-	sleeper Sleeper
-	logger  Logger
-	now     func() time.Time
+	config   Config
+	status   StatusSource
+	balances RewardBalanceSource
+	miner    BlockMiner
+	sleeper  Sleeper
+	logger   Logger
+	now      func() time.Time
 }
 
-func NewSupervisor(config Config, status StatusSource, miner BlockMiner, sleeper Sleeper, logger Logger) *Supervisor {
+func NewSupervisor(config Config, status StatusSource, miner BlockMiner, sleeper Sleeper, logger Logger, balances RewardBalanceSource) *Supervisor {
 	return &Supervisor{
-		config:  config,
-		status:  status,
-		miner:   miner,
-		sleeper: sleeper,
-		logger:  logger,
-		now:     time.Now,
+		config:   config,
+		status:   status,
+		balances: balances,
+		miner:    miner,
+		sleeper:  sleeper,
+		logger:   logger,
+		now:      time.Now,
 	}
 }
 
@@ -83,7 +85,6 @@ func (s *Supervisor) Run(ctx context.Context) error {
 			return err
 		}
 
-		scheduledDue := !s.now().Before(lastSweep.Add(s.config.ScheduledSweepDuration()))
 		if status.Mempool > 0 {
 			if err := s.clearPendingMempool(ctx); err != nil {
 				s.logError("sweep_error", err)
@@ -98,6 +99,31 @@ func (s *Supervisor) Run(ctx context.Context) error {
 			}
 			continue
 		}
+
+		needsFunding, err := s.needsFaucetFunding(ctx)
+		if err != nil {
+			s.logError("faucet_funding_status_error", err)
+			if err := s.sleeper.Sleep(ctx, s.config.FailureBackoffDuration()); err != nil {
+				return err
+			}
+			continue
+		}
+		if needsFunding {
+			if err := s.mineFaucetFundingBlocks(ctx); err != nil {
+				s.logError("faucet_funding_error", err)
+				if err := s.sleeper.Sleep(ctx, s.config.FailureBackoffDuration()); err != nil {
+					return err
+				}
+				continue
+			}
+			lastSweep = s.now()
+			if err := s.sleeper.Sleep(ctx, s.config.CooldownDuration()); err != nil {
+				return err
+			}
+			continue
+		}
+
+		scheduledDue := !s.now().Before(lastSweep.Add(s.config.ScheduledSweepDuration()))
 		if scheduledDue {
 			if err := s.miner.MineOne(ctx); err != nil {
 				s.logError("scheduled_reward_error", err)

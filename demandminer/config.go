@@ -34,6 +34,8 @@ type Config struct {
 	ChildTimeout        string `json:"child_timeout"`
 	ScheduledSweepEvery string `json:"scheduled_sweep_every"`
 	MaxBlocksPerSweep   int    `json:"max_blocks_per_sweep"`
+	FaucetMinBalance    uint64 `json:"faucet_min_balance"`
+	FaucetFundingBlocks int    `json:"faucet_funding_blocks"`
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -199,4 +201,11 @@ func (c Config) BlocksPerSweepLimit() int {
 		return 32
 	}
 	return c.MaxBlocksPerSweep
+}
+
+func (c Config) FaucetFundingBlocksLimit() int {
+	if c.FaucetFundingBlocks <= 0 {
+		return 2
+	}
+	return c.FaucetFundingBlocks
 }

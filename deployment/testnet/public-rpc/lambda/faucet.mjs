@@ -5,6 +5,8 @@ import {
   sign as cryptoSign,
 } from 'node:crypto';
 
+import { requiredPayoutBalance, waitForFaucetFunding, FaucetFundingError } from './faucet-funding.mjs';
+
 export const COIN = 100_000_000;
 export const INITIAL_GRANT_SUDH = 100;
 export const CHALLENGE_SEND_SUDH = 25;
@@ -327,11 +329,32 @@ async function submitPayout({ store, rpc, signer, to, amount, prepare }) {
   if (!locked) throw new FaucetError(503, 'faucet is busy; retry shortly');
 
   try {
-    const account = await rpc.account(signer.address);
-    const nonce = account?.next_nonce ?? account?.nextNonce;
-    const balance = account?.balance;
+    let account = await rpc.account(signer.address);
+    let nonce = account?.next_nonce ?? account?.nextNonce;
+    let balance = account?.balance;
     if (!Number.isSafeInteger(nonce) || nonce < 0) {
       throw new FaucetError(503, 'faucet account nonce is unavailable');
+    }
+
+    const requiredBalance = requiredPayoutBalance(amount);
+    if (!Number.isSafeInteger(balance) || balance < requiredBalance) {
+      try {
+        await waitForFaucetFunding({ rpc, signer, requiredBalance });
+      } catch (error) {
+        if (error instanceof FaucetFundingError) {
+          throw new FaucetError(error.statusCode, error.message);
+        }
+        throw error;
+      }
+      account = await rpc.account(signer.address);
+      nonce = account?.next_nonce ?? account?.nextNonce;
+      balance = account?.balance;
+      if (!Number.isSafeInteger(nonce) || nonce < 0) {
+        throw new FaucetError(503, 'faucet account nonce is unavailable');
+      }
+      if (!Number.isSafeInteger(balance) || balance < requiredBalance) {
+        throw new FaucetError(503, 'testnet faucet needs funding');
+      }
     }
 
     const tx = signer.signTransaction(to, amount, nonce);

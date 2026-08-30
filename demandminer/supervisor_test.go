@@ -101,8 +101,8 @@ func validStatus(mempool int) Status {
 	return Status{Network: "sudharma", Coin: "Sudharma", Symbol: "SUDH", Height: 10, IssuedSupply: 100, Mempool: mempool}
 }
 
-func newTestSupervisor(cfg Config, source *fakeStatusSource, miner *fakeMiner, sleeper Sleeper, logger *fakeLogger, clock *fakeClock) *Supervisor {
-	s := NewSupervisor(cfg, source, miner, sleeper, logger)
+func newTestSupervisor(cfg Config, source *fakeStatusSource, miner *fakeMiner, sleeper Sleeper, logger *fakeLogger, clock *fakeClock, balances RewardBalanceSource) *Supervisor {
+	s := NewSupervisor(cfg, source, miner, sleeper, logger, balances)
 	if clock != nil {
 		s.now = clock.Now
 	}
@@ -113,7 +113,7 @@ func TestSupervisorEmptyMempoolNeverMines(t *testing.T) {
 	source := &fakeStatusSource{results: []statusResult{{status: validStatus(0)}}}
 	miner := &fakeMiner{}
 	sleeper := &stopSleeper{stopAfter: 1}
-	s := newTestSupervisor(validConfig(), source, miner, sleeper, &fakeLogger{}, nil)
+	s := newTestSupervisor(validConfig(), source, miner, sleeper, &fakeLogger{}, nil, nil)
 	if err := s.Run(context.Background()); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Run: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestSupervisorPositiveMempoolClearsAllPendingThenCooldown(t *testing.T) {
 	}}
 	miner := &fakeMiner{}
 	sleeper := &stopSleeper{stopAfter: 1}
-	s := newTestSupervisor(validConfig(), source, miner, sleeper, &fakeLogger{}, nil)
+	s := newTestSupervisor(validConfig(), source, miner, sleeper, &fakeLogger{}, nil, nil)
 	if err := s.Run(context.Background()); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Run: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestSupervisorPositiveMempoolClearsAllPendingThenCooldown(t *testing.T) {
 func TestSupervisorRejectsWrongIdentity(t *testing.T) {
 	status := validStatus(1)
 	status.Network = "other"
-	s := newTestSupervisor(validConfig(), &fakeStatusSource{results: []statusResult{{status: status}}}, &fakeMiner{}, &stopSleeper{}, &fakeLogger{}, nil)
+	s := newTestSupervisor(validConfig(), &fakeStatusSource{results: []statusResult{{status: status}}}, &fakeMiner{}, &stopSleeper{}, &fakeLogger{}, nil, nil)
 	err := s.Run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "identity") {
 		t.Fatalf("expected identity error, got %v", err)
@@ -159,7 +159,7 @@ func TestSupervisorRejectsWrongIdentity(t *testing.T) {
 func TestSupervisorStatusErrorUsesFailureBackoff(t *testing.T) {
 	logger := &fakeLogger{}
 	sleeper := &stopSleeper{stopAfter: 1}
-	s := newTestSupervisor(validConfig(), &fakeStatusSource{results: []statusResult{{err: errors.New("rpc down")}}}, &fakeMiner{}, sleeper, logger, nil)
+	s := newTestSupervisor(validConfig(), &fakeStatusSource{results: []statusResult{{err: errors.New("rpc down")}}}, &fakeMiner{}, sleeper, logger, nil, nil)
 	if err := s.Run(context.Background()); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Run: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestSupervisorMinerErrorUsesFailureBackoff(t *testing.T) {
 	logger := &fakeLogger{}
 	miner := &fakeMiner{err: errors.New("mine failed")}
 	sleeper := &stopSleeper{stopAfter: 1}
-	s := newTestSupervisor(validConfig(), &fakeStatusSource{results: []statusResult{{status: validStatus(1)}}}, miner, sleeper, logger, nil)
+	s := newTestSupervisor(validConfig(), &fakeStatusSource{results: []statusResult{{status: validStatus(1)}}}, miner, sleeper, logger, nil, nil)
 	if err := s.Run(context.Background()); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Run: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestSupervisorScheduledSweepRunsWithoutPendingTransactions(t *testing.T) {
 	miner := &fakeMiner{}
 	inner := &stopSleeper{stopAfter: 2}
 	sleeper := &advanceClockSleeper{clock: clock, advance: 31 * time.Minute, inner: inner}
-	s := newTestSupervisor(cfg, source, miner, sleeper, &fakeLogger{}, clock)
+	s := newTestSupervisor(cfg, source, miner, sleeper, &fakeLogger{}, clock, nil)
 	if err := s.Run(context.Background()); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Run: %v", err)
 	}

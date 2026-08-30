@@ -26,6 +26,25 @@ type rpcStatusSource struct {
 	client statusClient
 }
 
+type rpcRewardBalanceSource struct {
+	client  *rpc.Client
+	address string
+}
+
+func (s rpcRewardBalanceSource) RewardBalance(ctx context.Context) (uint64, error) {
+	if s.client == nil {
+		return 0, errors.New("RPC client is unavailable")
+	}
+	account, err := s.client.Account(ctx, s.address)
+	if err != nil {
+		return 0, err
+	}
+	if account == nil {
+		return 0, errors.New("RPC returned an empty account")
+	}
+	return account.Balance, nil
+}
+
 func (s rpcStatusSource) Status(ctx context.Context) (demandminer.Status, error) {
 	if s.client == nil {
 		return demandminer.Status{}, errors.New("RPC status client is unavailable")
@@ -146,6 +165,7 @@ func run(ctx context.Context, args []string, logWriter io.Writer) error {
 		runner,
 		demandminer.TimerSleeper{},
 		logger,
+		rpcRewardBalanceSource{client: client, address: cfg.RewardAddress},
 	)
 	return supervisor.Run(ctx)
 }
