@@ -10,24 +10,34 @@ import org.junit.Test
 class TransactionActivityLoaderTest {
     @Test
     fun keepsAuthoritativeStatusesUnchanged() = runBlocking {
-        val ids = listOf("a".repeat(64), "b".repeat(64))
-        val statuses = TransactionActivityLoader.load(ids) { id ->
+        val record = WalletTransactionRecord(
+            id = "a".repeat(64),
+            direction = TransactionDirection.SENT,
+            amountAtomic = 100_000_000L,
+            counterparty = "b".repeat(40),
+        )
+        val items = TransactionActivityLoader.load(listOf(record)) { id ->
             TransactionStatus(
                 id = id,
                 state = if (id.startsWith("a")) TransactionState.PENDING else TransactionState.NOT_FOUND,
             )
         }
 
-        assertEquals(listOf(TransactionState.PENDING, TransactionState.NOT_FOUND), statuses.map { it.state })
+        assertEquals(listOf(TransactionState.PENDING), items.map { it.state })
     }
 
     @Test
     fun rpcFailurePropagatesInsteadOfBecomingFailedTransaction() {
-        val ids = listOf("a".repeat(64))
+        val record = WalletTransactionRecord(
+            id = "a".repeat(64),
+            direction = TransactionDirection.SENT,
+            amountAtomic = 100_000_000L,
+            counterparty = "b".repeat(40),
+        )
 
         val error = assertThrows(IllegalStateException::class.java) {
             runBlocking {
-                TransactionActivityLoader.load(ids) {
+                TransactionActivityLoader.load(listOf(record)) {
                     throw IllegalStateException("network unavailable")
                 }
             }

@@ -54,14 +54,45 @@ class SudharmaWalletRepository(context: Context) {
         val unsigned = adapter.unsigned(account.address, to, amount, remoteAccount.nextNonce)
         val signed = adapter.sign(unsigned, account.privateScalar)
         val status = adapter.submit(signed)
-        preferences.addTransactionId(status.id)
+        preferences.addTransactionRecord(
+            WalletTransactionRecord(
+                id = status.id,
+                direction = TransactionDirection.SENT,
+                amountAtomic = amount,
+                counterparty = to,
+                feeAtomic = fee,
+                timestampMs = System.currentTimeMillis(),
+            ),
+        )
         return status
     }
 
-    suspend fun transactionStatuses(): List<TransactionStatus> {
+    suspend fun activityHistory(): List<WalletActivityItem> {
+        syncReceivedTransactions()
+        val records = preferences.transactionRecords()
         val adapter = adapter()
-        return TransactionActivityLoader.load(preferences.transactionIds(), adapter::status)
+        return TransactionActivityLoader.load(records, adapter::status)
     }
+
+    suspend fun syncReceivedTransactions() {
+        val account = account()
+        val rpc = rpcClient()
+        val network = rpc.status()
+        val known = preferences.transactionRecords().map { it.id }.toSet()
+        val incoming = ReceivedTransactionScanner.scan(
+            rpc = rpc,
+            address = account.address,
+            knownIds = known,
+            chainHeight = network.height,
+        )
+        incoming.forEach { preferences.addTransactionRecord(it) }
+        preferences.lastSyncedChainHeight = network.height
+    }
+
+    suspend fun transactionStatuses(): List<TransactionStatus> =
+        activityHistory().map {
+            TransactionStatus(it.record.id, it.state, it.confirmations)
+        }
 
     fun resetWallet() {
         walletStore.clear()
@@ -72,7 +103,13 @@ class SudharmaWalletRepository(context: Context) {
     private fun adapter(): SudharmaChainAdapter {
         val url = preferences.rpcUrl
         require(url.isNotBlank()) { "Sudharma Testnet RPC is not configured" }
-        return SudharmaChainAdapter(SudharmaRpcClient(url))
+        return SudharmaChainAdapter(rpcClient())
+    }
+
+    private fun rpcClient(): SudharmaRpcClient {
+        val url = preferences.rpcUrl
+        require(url.isNotBlank()) { "Sudharma Testnet RPC is not configured" }
+        return SudharmaRpcClient(url)
     }
 
     companion object {

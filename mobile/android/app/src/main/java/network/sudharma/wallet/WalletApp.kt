@@ -5,6 +5,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
@@ -375,6 +376,7 @@ private fun HomeScreen(
     val account = remember { runCatching { repository.account() }.getOrNull() }
     var balance by remember { mutableStateOf("—") }
     var status by remember { mutableStateOf(if (repository.preferences.rpcUrl.isBlank()) "RPC not configured" else "Connecting…") }
+    var recentActivity by remember { mutableStateOf<List<WalletActivityItem>>(emptyList()) }
 
     fun refresh() {
         if (repository.preferences.rpcUrl.isBlank()) { status = "RPC not configured"; return }
@@ -382,6 +384,8 @@ private fun HomeScreen(
             runCatching { repository.balance() }
                 .onSuccess { balance = it.amount.formatted(); status = "Connected" }
                 .onFailure { status = it.message ?: "Offline" }
+            runCatching { repository.activityHistory() }
+                .onSuccess { recentActivity = it.take(5) }
         }
     }
     LaunchedEffect(repository.preferences.rpcUrl) { refresh() }
@@ -409,6 +413,16 @@ private fun HomeScreen(
                 Column { Text("SUDH", fontWeight = FontWeight.Bold); Text("Sudharma Testnet", style = MaterialTheme.typography.bodySmall) }
                 Text("$balance SUDH")
             }
+        }
+        HorizontalDivider()
+        Text("Recent activity", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        if (recentActivity.isEmpty()) {
+            Text("No transactions yet. Send or receive SUDH to see history here.", style = MaterialTheme.typography.bodySmall)
+        } else {
+            recentActivity.forEach { item ->
+                TransactionHistoryCard(item)
+            }
+            TextButton(onClick = onActivity) { Text("View all activity") }
         }
         HorizontalDivider()
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -488,8 +502,9 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
         TestnetBadge()
         result?.let {
             Text("Transaction accepted", style = MaterialTheme.typography.titleLarge)
-            Text(it.id, style = MaterialTheme.typography.bodySmall)
+            TransactionReferenceActions(it.id)
             Text("Status: ${it.state}")
+            Text("Saved to Activity. Pull to refresh on Home to update confirmations.", style = MaterialTheme.typography.bodySmall)
             Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Done") }
             return@ScreenFrame
         }
@@ -556,32 +571,78 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
 @Composable
 private fun ActivityScreen(repository: SudharmaWalletRepository, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
-    var statuses by remember { mutableStateOf<List<TransactionStatus>>(emptyList()) }
+    var items by remember { mutableStateOf<List<WalletActivityItem>>(emptyList()) }
     var message by remember { mutableStateOf("") }
     fun refresh() {
         if (repository.preferences.rpcUrl.isBlank()) { message = "Configure Testnet RPC in Settings first."; return }
         scope.launch {
-            runCatching { repository.transactionStatuses() }
-                .onSuccess { statuses = it; message = if (it.isEmpty()) "No submitted transactions yet." else "" }
+            runCatching { repository.activityHistory() }
+                .onSuccess {
+                    items = it
+                    message = if (it.isEmpty()) "No transactions yet." else ""
+                }
                 .onFailure { message = it.message ?: "Unable to load activity" }
         }
     }
     LaunchedEffect(Unit) { refresh() }
     ScreenFrame("Activity", onBack) {
         TestnetBadge()
+        Text("Transaction history includes sends from this wallet and recent received payments discovered from the chain.", style = MaterialTheme.typography.bodySmall)
         OutlinedButton(onClick = { refresh() }) { Text("Refresh") }
         if (message.isNotEmpty()) Text(message)
-        statuses.forEach { tx ->
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp)) {
-                    Text(tx.id.take(14) + "…" + tx.id.takeLast(8), fontWeight = FontWeight.Medium)
-                    Text(tx.state.name)
-                    if (tx.state == TransactionState.CONFIRMED) Text("Confirmations: ${tx.confirmations}")
-                }
+        items.forEach { item -> TransactionHistoryCard(item) }
+    }
+}
+
+@Composable
+private fun TransactionHistoryCard(item: WalletActivityItem) {
+    val record = item.record
+    val directionLabel = when (record.direction) {
+        TransactionDirection.SENT -> "Sent"
+        TransactionDirection.RECEIVED -> "Received"
+    }
+    val amountLabel = if (record.counterparty == PLACEHOLDER_COUNTERPARTY) {
+        "Amount unavailable"
+    } else {
+        "${if (record.direction == TransactionDirection.SENT) "-" else "+"}${formatAtomic(record.amountAtomic)} SUDH"
+    }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(directionLabel, fontWeight = FontWeight.Bold)
+                Text(item.state.name)
             }
+            Text(amountLabel, style = MaterialTheme.typography.titleMedium)
+            Text(
+                "${if (record.direction == TransactionDirection.SENT) "To" else "From"}: ${record.counterparty.take(10)}…${record.counterparty.takeLast(8)}",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (item.state == TransactionState.CONFIRMED) {
+                Text("Confirmations: ${item.confirmations}", style = MaterialTheme.typography.bodySmall)
+            }
+            TransactionReferenceActions(record.id)
         }
     }
 }
+
+@Composable
+private fun TransactionReferenceActions(transactionId: String) {
+    val context = LocalContext.current
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(transactionId, style = MaterialTheme.typography.bodySmall)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Sudharma transaction ID", transactionId))
+            }, modifier = Modifier.weight(1f)) { Text("Copy ID") }
+            OutlinedButton(onClick = {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(ExplorerLinks.transactionUrl(transactionId))))
+            }, modifier = Modifier.weight(1f)) { Text("Explorer") }
+        }
+    }
+}
+
+private const val PLACEHOLDER_COUNTERPARTY = "0000000000000000000000000000000000000000"
 
 @Composable
 private fun SettingsScreen(
