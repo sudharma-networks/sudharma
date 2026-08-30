@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as runtimeModule from './faucet-runtime.mjs';
 import {
   checkFaucetReadiness,
   createOperationTimer,
@@ -55,6 +56,53 @@ test('readiness fails when faucet funding is below one initial grant plus fee', 
     checkFaucetReadiness({ store, rpc, signer }),
     /needs funding/i,
   );
+});
+
+test('runtime store persists prepared payouts and retrieves challenge claims for recovery', async () => {
+  assert.equal(typeof runtimeModule.createStore, 'function', 'runtime store must be testable');
+
+  const commands = [];
+  const fakeClient = {
+    async send(command) {
+      commands.push(command);
+      if (command.constructor.name === 'GetCommand' && String(command.input?.Key?.pk || '').startsWith('TX#')) {
+        return {
+          Item: {
+            pk: command.input.Key.pk,
+            kind: 'challenge_claim',
+            address: '0123456789abcdef0123456789abcdef01234567',
+            round: 1,
+            status: 'prepared',
+          },
+        };
+      }
+      return {};
+    },
+  };
+  const timed = async (_operation, action) => action();
+  const store = runtimeModule.createStore('FaucetTable', timed, fakeClient);
+  const address = '0123456789abcdef0123456789abcdef01234567';
+  const txid = 'a'.repeat(64);
+  const payout = { ID: 'b'.repeat(64), From: 'f'.repeat(40), To: address, Amount: 1, Fee: 1, Nonce: 1 };
+
+  await store.prepareInitial(address, payout, 1000);
+  await store.prepareChallengePayout(address, txid, payout, 2000);
+  const claim = await store.getChallenge(txid);
+
+  assert.equal(claim.status, 'prepared');
+  const operations = commands.map((command) => ({ name: command.constructor.name, input: command.input }));
+  assert.ok(operations.some(({ name, input }) =>
+    name === 'UpdateCommand' &&
+    input.Key.pk === `ADDR#${address}` &&
+    input.ExpressionAttributeValues[':prepared'] === 'prepared' &&
+    input.ExpressionAttributeValues[':payout'].ID === payout.ID,
+  ));
+  assert.ok(operations.some(({ name, input }) =>
+    name === 'UpdateCommand' &&
+    input.Key.pk === `TX#${txid}` &&
+    input.ExpressionAttributeValues[':prepared'] === 'prepared' &&
+    input.ExpressionAttributeValues[':payout'].ID === payout.ID,
+  ));
 });
 
 test('runtime fails closed when AWS faucet configuration is absent', () => {
