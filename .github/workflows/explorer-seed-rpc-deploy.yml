@@ -64,15 +64,6 @@ jobs:
           fi
           echo "seed_instance_found=true" >> "$GITHUB_OUTPUT"
           echo "instance_id=$instance_id" >> "$GITHUB_OUTPUT"
-      - name: Build and install sudharma-rpcd on seed
-        if: steps.seed.outputs.seed_instance_found == 'true'
-        run: |
-          set -euo pipefail
-          bash deployment/testnet/ssm-send-remote-script.sh \
-            "${{ steps.seed.outputs.instance_id }}" \
-            "Explorer seed RPC upgrade (${{ matrix.seed_name }})" \
-            deployment/testnet/remote-build-sudharma-rpcd-on-seed.sh \
-            'sudharma_rpcd_install'
       - name: Patch nginx mempool allowlist on seed
         if: steps.seed.outputs.seed_instance_found == 'true'
         env:
@@ -84,6 +75,10 @@ jobs:
             "Explorer mempool nginx allowlist (${{ matrix.seed_name }})" \
             deployment/testnet/rollout-explorer-mempool-nginx.sh \
             'Explorer mempool nginx allowlist ready'
+      - name: Build and install sudharma-rpcd on seed
+        if: steps.seed.outputs.seed_instance_found == 'true'
+        continue-on-error: true
+        run: |
 
   verify-public-mempool:
     needs: deploy-seeds

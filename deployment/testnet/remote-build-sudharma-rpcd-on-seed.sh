@@ -28,6 +28,9 @@ else
 fi
 
 tmpdir="$(mktemp -d /var/lib/sudharma-rpcd/build-XXXXXX)"
+export GOPATH=/var/lib/sudharma-rpcd/go
+export GOMODCACHE=/var/lib/sudharma-rpcd/go/pkg/mod
+mkdir -p "$GOMODCACHE"
 trap 'rm -rf "$tmpdir"' EXIT
 
 (
