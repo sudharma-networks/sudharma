@@ -6,6 +6,7 @@ on:
       - feature/android-wallet-v0.1
       - feature/android-wallet-branding-v0.1-finalwork
       - feature/public-testnet-wallet-v2
+      - feature/treasury-wallet-android
     paths:
       - 'mobile/android/**'
       - '.github/workflows/android-wallet.yml'
