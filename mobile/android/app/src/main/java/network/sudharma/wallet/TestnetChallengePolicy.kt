@@ -8,9 +8,9 @@ object TestnetChallengePolicy {
         coinAtomic: Long = 100_000_000L,
     ): Boolean {
         if (info?.enabled != true) return false
-        val challengeAmount = info.challengeSendSudh.toLongOrNull()
-            ?.let { runCatching { Math.multiplyExact(it, coinAtomic) }.getOrNull() }
-            ?: return false
+        val challengeAmount = runCatching {
+            Math.multiplyExact(info.challengeSendSudh.toLong(), coinAtomic)
+        }.getOrNull() ?: return false
         return to == info.challengeAddress && amountAtomic == challengeAmount
     }
 }
