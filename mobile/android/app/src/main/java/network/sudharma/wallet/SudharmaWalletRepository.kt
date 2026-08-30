@@ -53,13 +53,23 @@ class SudharmaWalletRepository(context: Context) {
     suspend fun claimChallengeReward(transactionId: String): TestnetFaucetClient.ChallengeReward =
         faucetClient().claimChallenge(account().address, transactionId)
 
-    suspend fun send(to: String, amountText: String): TransactionStatus {
+    suspend fun send(to: String, amountText: String, challengeMode: Boolean = false): TransactionStatus {
         val account = account()
         val adapter = adapter()
         require(adapter.validateAddress(to)) { "Invalid Sudharma address" }
         require(to != account.address) { "Cannot send to the same wallet" }
         val amount = parseCoinAmount(amountText)
-        val challengeInfo = runCatching { faucetInfo() }.getOrNull()
+
+        if (challengeMode) {
+            val challengeInfo = faucetInfo()
+            val challengeAmount = runCatching {
+                Math.multiplyExact(challengeInfo.challengeSendSudh.toLong(), COIN_ATOMIC)
+            }.getOrNull()
+            require(challengeInfo.enabled) { "Official testnet challenge is currently unavailable" }
+            require(to == challengeInfo.challengeAddress) { "Challenge address changed; reopen the challenge and try again" }
+            require(challengeAmount != null && amount == challengeAmount) { "Challenge amount changed; reopen the challenge and try again" }
+        }
+
         val remoteAccount = adapter.balance(account.address)
         val fee = adapter.estimateFee(amount).feeAtomic
         require(remoteAccount.amount.atomic >= Math.addExact(amount, fee)) { "Insufficient balance including fee" }
@@ -67,16 +77,7 @@ class SudharmaWalletRepository(context: Context) {
         val signed = adapter.sign(unsigned, account.privateScalar)
         val status = adapter.submit(signed)
         preferences.addTransactionId(status.id)
-
-        val challengeAmount = challengeInfo?.challengeSendSudh?.toLong()?.let {
-            runCatching { Math.multiplyExact(it, COIN_ATOMIC) }.getOrNull()
-        }
-        if (
-            challengeInfo?.enabled == true &&
-            to == challengeInfo.challengeAddress &&
-            challengeAmount != null &&
-            amount == challengeAmount
-        ) {
+        if (challengeMode) {
             preferences.pendingChallengeTransactionId = status.id
         }
         return status
