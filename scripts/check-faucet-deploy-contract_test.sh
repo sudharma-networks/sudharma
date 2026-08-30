@@ -21,7 +21,15 @@ require_literal() {
 }
 
 require_literal 'workflow_dispatch:'
+require_literal 'preflight:'
 require_literal 'deploy:'
+require_literal 'aws-preflight:'
+require_literal "if: github.event_name == 'workflow_dispatch' && (inputs.preflight == true || inputs.deploy == true)"
+require_literal 'name: Verify AWS identity and faucet resources (read-only)'
+require_literal 'aws sts get-caller-identity'
+require_literal 'aws dynamodb describe-table'
+require_literal 'aws secretsmanager describe-secret'
+require_literal 'aws lambda get-function-configuration'
 require_literal "if: github.event_name == 'workflow_dispatch' && inputs.deploy == true"
 require_literal 'uses: actions/download-artifact@v4'
 require_literal "FAUCET_ENABLED: 'false'"
@@ -50,6 +58,22 @@ if grep -Fq "if: github.ref == 'refs/heads/feature/public-testnet-wallet-v2'" "$
   fail 'deploy remains hard-wired to the historical feature/public-testnet-wallet-v2 branch'
 fi
 
+# OIDC/resource trust must be provable without changing AWS. Keep the dedicated
+# preflight job read-only so a trust-policy diagnosis never becomes a rollout.
+preflight_line="$(grep -n -m1 '^  aws-preflight:' "$workflow" | cut -d: -f1 || true)"
+deploy_line="$(grep -n -m1 '^  deploy:' "$workflow" | cut -d: -f1 || true)"
+[ -n "$preflight_line" ] || fail 'missing read-only aws-preflight job'
+[ -n "$deploy_line" ] || fail 'missing deploy job'
+if [ "$preflight_line" -ge "$deploy_line" ]; then
+  fail 'aws-preflight job must appear before deploy job'
+fi
+preflight_block="$(sed -n "${preflight_line},$((deploy_line - 1))p" "$workflow")"
+for forbidden in 'update-function-' 'put-' 'delete-' 'create-' 'send-command' 'start-' 'stop-' 'terminate-'; do
+  if grep -Fq -- "$forbidden" <<<"$preflight_block"; then
+    fail "aws-preflight must remain read-only; found forbidden mutation token: $forbidden"
+  fi
+done
+
 stage_line="$(grep -n -m1 'name: Stage faucet disabled' "$workflow" | cut -d: -f1 || true)"
 code_line="$(grep -n -m1 'name: Update Lambda code from tested artifact' "$workflow" | cut -d: -f1 || true)"
 [ -n "$stage_line" ] || fail 'missing Stage faucet disabled step'
@@ -67,4 +91,4 @@ for forbidden in '--runtime ' '--handler ' '--timeout ' '--memory-size '; do
   fi
 done
 
-printf 'PASS: faucet deployment contract is manual-only, preserves shared Lambda routes/environment/configuration, deep-health gated, fail-closed on unexpected errors, disables before code update, and promotes the tested artifact\n'
+printf 'PASS: faucet deployment contract is manual-only, has a read-only AWS/OIDC preflight, preserves shared Lambda routes/environment/configuration, is deep-health gated, fail-closed on unexpected errors, disables before code update, and promotes the tested artifact\n'
