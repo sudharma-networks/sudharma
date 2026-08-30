@@ -103,10 +103,6 @@ fun WalletApp(repository: SudharmaWalletRepository, activity: FragmentActivity) 
     when (screen) {
         WalletScreen.SPLASH -> SplashScreen(splashPresentation)
         WalletScreen.WELCOME -> WelcomeScreen(
-            onCreate = {
-                generatedPhrase = repository.createNewWallet()
-                screen = WalletFlow.transition(screen, WalletFlowEvent.CreateSelected)
-            },
             onImport = { screen = WalletFlow.transition(screen, WalletFlowEvent.ImportSelected) },
         )
         WalletScreen.RECOVERY -> RecoveryScreen(
@@ -130,8 +126,8 @@ fun WalletApp(repository: SudharmaWalletRepository, activity: FragmentActivity) 
         )
         WalletScreen.IMPORT -> ImportScreen(
             onBack = { screen = WalletFlow.transition(screen, WalletFlowEvent.BackToWelcome) },
-            onImport = { phrase ->
-                repository.importWallet(phrase)
+            onTreasuryImport = { jsonBytes, password ->
+                repository.importTreasuryWallet(jsonBytes, password)
                 repository.preferences.backupAcknowledged = true
                 screen = WalletFlow.transition(screen, WalletFlowEvent.ImportCompleted)
             },
@@ -227,16 +223,12 @@ private fun SplashScreen(presentation: SplashPresentation) {
 }
 
 @Composable
-private fun WelcomeScreen(onCreate: () -> Unit, onImport: () -> Unit) {
-    ScreenFrame("Welcome to Sudharma Wallet") {
+private fun WelcomeScreen(onImport: () -> Unit) {
+    ScreenFrame("Sudharma Treasury — Private") {
         BrandMark()
-        Text("Your keys stay on this device. Sudharma is the first chain; the wallet architecture is ready for more chains later.")
-        Button(onClick = onCreate, modifier = Modifier.fillMaxWidth()) { Text("Create New Wallet") }
-        OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth()) { Text("Import Wallet") }
-        OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) {
-            Text("Continue with Google — encrypted backup setup pending")
-        }
-        Text("Google will never be the owner of your wallet. Your recovery phrase remains the independent backup.", style = MaterialTheme.typography.bodySmall)
+        Text("Private testnet treasury controller. Import the existing encrypted Sudharma JSON wallet locally; no key is included in this APK.")
+        Button(onClick = onImport, modifier = Modifier.fillMaxWidth()) { Text("Import Treasury JSON") }
+        Text("The selected file and password stay on this device. Keep the original JSON and raw private key offline.", style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -276,24 +268,65 @@ private fun ConfirmRecoveryScreen(phrase: String, onBack: () -> Unit, onConfirme
 }
 
 @Composable
-private fun ImportScreen(onBack: () -> Unit, onImport: (String) -> Unit) {
-    var phrase by remember { mutableStateOf("") }
+private fun ImportScreen(onBack: () -> Unit, onTreasuryImport: (ByteArray, CharArray) -> Unit) {
+    val context = LocalContext.current
+    var walletBytes by remember { mutableStateOf<ByteArray?>(null) }
+    var selectedFile by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
     var error by remember { mutableStateOf("") }
-    ScreenFrame("Import Wallet", onBack) {
-        Text("Enter your 12-word Sudharma mobile recovery phrase. It is processed locally and never sent to a server.")
-        OutlinedTextField(
-            value = phrase,
-            onValueChange = { phrase = it },
-            label = { Text("12-word recovery phrase") },
-            minLines = 4,
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        error = ""
+        walletBytes?.fill(0)
+        walletBytes = null
+        selectedFile = ""
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    ?: throw IllegalArgumentException("Unable to read selected wallet file.")
+            }.onSuccess {
+                walletBytes = it
+                selectedFile = uri.lastPathSegment?.substringAfterLast('/') ?: "Selected treasury JSON"
+            }.onFailure {
+                error = it.message ?: "Unable to read selected wallet file."
+            }
+        }
+    }
+    ScreenFrame("Import Treasury Wallet", onBack) {
+        Text("Select the encrypted Sudharma .json wallet. The app will unlock it locally and accept it only if it derives the permanent treasury address.")
+        OutlinedButton(
+            onClick = { picker.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
             modifier = Modifier.fillMaxWidth(),
+        ) { Text(if (selectedFile.isEmpty()) "Select encrypted JSON" else selectedFile) }
+        OutlinedTextField(
+            value = password,
+            onValueChange = { password = it },
+            label = { Text("JSON wallet password") },
+            visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
         )
         if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error)
         Button(onClick = {
-            val normalized = phrase.trim().lowercase().split(Regex("\\s+")).joinToString(" ")
-            if (normalized.split(' ').size == 12 && RecoveryPhrase.validate(normalized)) onImport(normalized)
-            else error = "Enter a valid 12-word recovery phrase."
-        }, modifier = Modifier.fillMaxWidth()) { Text("Import securely") }
+            val bytes = walletBytes
+            if (bytes == null) {
+                error = "Select the encrypted treasury JSON file."
+            } else if (password.isEmpty()) {
+                error = "Enter the JSON wallet password."
+            } else {
+                runCatching { onTreasuryImport(bytes, password.toCharArray()) }
+                    .onSuccess {
+                        password = ""
+                        walletBytes = null
+                    }
+                    .onFailure {
+                        password = ""
+                        walletBytes = null
+                        selectedFile = ""
+                        error = it.message ?: "Treasury import failed."
+                    }
+            }
+        }, modifier = Modifier.fillMaxWidth()) { Text("Verify & Import Treasury") }
+        Text("Required address: " + SudharmaWalletRepository.DEVELOPMENT_TREASURY_ADDRESS, style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -303,7 +336,7 @@ private fun SetPinScreen(onSet: (String) -> Unit) {
     var confirm by remember { mutableStateOf("") }
     var error by remember { mutableStateOf("") }
     ScreenFrame("Create a 6-digit PIN") {
-        Text("The PIN unlocks this app. Your 12-word phrase is still the recovery backup.")
+        Text("The PIN unlocks this private treasury app. Your original encrypted JSON and raw key remain the offline recovery backups.")
         PinField("PIN", pin) { pin = it.take(6) }
         PinField("Confirm PIN", confirm) { confirm = it.take(6) }
         if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error)
@@ -402,7 +435,7 @@ private fun HomeScreen(
         refreshFaucet()
     }
 
-    ScreenFrame("Sudharma Wallet") {
+    ScreenFrame(if (repository.isTreasuryWallet()) "Sudharma Treasury — Private" else "Sudharma Wallet") {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             TestnetBadge()
             TextButton(onClick = { refresh() }) { Text("Refresh") }
@@ -419,7 +452,7 @@ private fun HomeScreen(
         }
         Text("Swap — Coming later", style = MaterialTheme.typography.labelSmall)
 
-        Card(Modifier.fillMaxWidth()) {
+        if (!repository.isTreasuryWallet()) Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Sudharma Testnet Faucet", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text("New testers can request one initial ${faucetInfo?.initialGrantSudh ?: 100} SUDH test grant. Test SUDH has no monetary value.")
@@ -503,9 +536,11 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
     var claiming by remember { mutableStateOf(false) }
 
     LaunchedEffect(repository.preferences.rpcUrl) {
-        runCatching { repository.faucetInfo() }
-            .onSuccess { challengeInfo = it }
-            .onFailure { challengeInfo = null }
+        if (!repository.isTreasuryWallet()) {
+            runCatching { repository.faucetInfo() }
+                .onSuccess { challengeInfo = it }
+                .onFailure { challengeInfo = null }
+        }
     }
 
     val scanner = rememberLauncherForActivityResult(ScanContract()) { scan ->
@@ -572,7 +607,7 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
             return@ScreenFrame
         }
         if (!confirm) {
-            Card(Modifier.fillMaxWidth()) {
+            if (!repository.isTreasuryWallet()) Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Testnet Challenge", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text("Send ${challengeInfo?.challengeSendSudh ?: 25} test SUDH to the official challenge address. After confirmation, eligible testers receive ${challengeInfo?.challengeRewardSudh ?: 50} test SUDH back. Up to ${challengeInfo?.maxRounds ?: 5} rounds with a ${challengeInfo?.cooldownHours ?: 24}-hour wait between successful rounds.")
@@ -721,7 +756,11 @@ private fun SettingsScreen(
         }
 
         Text("Security", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        OutlinedButton(onClick = onBackup, modifier = Modifier.fillMaxWidth()) { Text("Back up recovery phrase") }
+        if (repository.isTreasuryWallet()) {
+            Text("Treasury recovery stays offline in your original encrypted JSON and raw private-key backup.", style = MaterialTheme.typography.bodySmall)
+        } else {
+            OutlinedButton(onClick = onBackup, modifier = Modifier.fillMaxWidth()) { Text("Back up recovery phrase") }
+        }
         if (!repository.security.biometricEnabled) {
             OutlinedButton(onClick = {
                 BiometricGate.authenticate(activity, title = "Enable biometric unlock") { ok ->
@@ -735,9 +774,11 @@ private fun SettingsScreen(
             }
         }
 
-        Text("Cloud backup", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) { Text("Google encrypted backup — OAuth setup required") }
-        Text("When enabled later, only client-side encrypted backup data will be uploaded. Google login alone will not decrypt the wallet.", style = MaterialTheme.typography.bodySmall)
+        if (!repository.isTreasuryWallet()) {
+            Text("Cloud backup", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) { Text("Google encrypted backup — OAuth setup required") }
+            Text("When enabled later, only client-side encrypted backup data will be uploaded. Google login alone will not decrypt the wallet.", style = MaterialTheme.typography.bodySmall)
+        }
 
         Text("Universal wallet", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Text("Sudharma is enabled first. Bitcoin, EVM and Solana adapters are planned later without changing this wallet's core architecture.")
