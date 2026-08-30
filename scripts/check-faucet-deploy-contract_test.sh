@@ -80,6 +80,15 @@ fi
 if ! grep -Fq -- '--zip-file fileb:///tmp/lambda-code-rollback.zip' <<<"$post_block"; then
   fail 'post-activation rollback must restore previous Lambda code'
 fi
+if ! grep -Fq -- '/tmp/post-status.json' <<<"$post_block" || ! grep -Fq -- "s.network !== 'sudharma'" <<<"$post_block"; then
+  fail 'post-activation status smoke must validate Sudharma network payload, not only HTTP success'
+fi
+if ! grep -Fq -- '/tmp/post-visitors.json' <<<"$post_block" || ! grep -Fq -- 'Number.isSafeInteger(v.total)' <<<"$post_block"; then
+  fail 'post-activation visitor smoke must validate the visitor payload, not only HTTP success'
+fi
+if ! grep -Fq -- '/tmp/post-explorer-status.json' <<<"$post_block" || ! grep -Fq -- "typeof e !== 'object'" <<<"$post_block"; then
+  fail 'post-activation explorer smoke must validate the explorer payload, not only HTTP success'
+fi
 
 # The public RPC Lambda is shared with website/explorer reads. A faucet recovery
 # deployment must not regress routes already served by that Lambda.
@@ -136,4 +145,4 @@ for forbidden in '--runtime ' '--handler ' '--timeout ' '--memory-size '; do
   fi
 done
 
-printf 'PASS: faucet deployment contract is manual-only, has a read-only AWS/OIDC preflight that proves rollback permissions, preserves shared Lambda routes/environment/configuration, rolls shared Lambda code/environment back on pre- and post-activation smoke failure, is deep-health gated, fail-closed on unexpected errors, disables before code update, and promotes the tested artifact\n'
+printf 'PASS: faucet deployment contract is manual-only, has a read-only AWS/OIDC preflight that proves rollback permissions, preserves shared Lambda routes/environment/configuration, validates shared-route payloads, rolls shared Lambda code/environment back on pre- and post-activation smoke failure, is deep-health gated, fail-closed on unexpected errors, disables before code update, and promotes the tested artifact\n'
