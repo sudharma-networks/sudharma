@@ -17,6 +17,7 @@ class SudharmaWalletRepository(context: Context) {
     val walletStore = WalletStore(context)
     val security = AppSecurityPreferences(context)
     val preferences = WalletPreferences(context)
+    @Volatile private var lastFaucetInfo: TestnetFaucetClient.Info? = null
 
     data class LocalAccount(val address: String, val privateScalar: java.math.BigInteger)
 
@@ -45,7 +46,7 @@ class SudharmaWalletRepository(context: Context) {
 
     suspend fun balance(): AssetBalance = adapter().balance(account().address)
 
-    suspend fun faucetInfo(): TestnetFaucetClient.Info = faucetClient().info()
+    suspend fun faucetInfo(): TestnetFaucetClient.Info = faucetClient().info().also { lastFaucetInfo = it }
 
     suspend fun requestInitialTestTokens(): TestnetFaucetClient.InitialGrant =
         faucetClient().requestInitial(account().address)
@@ -60,14 +61,17 @@ class SudharmaWalletRepository(context: Context) {
         require(to != account.address) { "Cannot send to the same wallet" }
         val amount = parseCoinAmount(amountText)
 
+        val challengeInfo = if (challengeMode) faucetInfo() else lastFaucetInfo
+        val challengeAmount = challengeInfo?.challengeSendSudh?.toLong()?.let {
+            runCatching { Math.multiplyExact(it, COIN_ATOMIC) }.getOrNull()
+        }
+        val matchesOfficialChallenge = challengeInfo?.enabled == true &&
+            to == challengeInfo.challengeAddress &&
+            challengeAmount != null &&
+            amount == challengeAmount
+
         if (challengeMode) {
-            val challengeInfo = faucetInfo()
-            val challengeAmount = runCatching {
-                Math.multiplyExact(challengeInfo.challengeSendSudh.toLong(), COIN_ATOMIC)
-            }.getOrNull()
-            require(challengeInfo.enabled) { "Official testnet challenge is currently unavailable" }
-            require(to == challengeInfo.challengeAddress) { "Challenge address changed; reopen the challenge and try again" }
-            require(challengeAmount != null && amount == challengeAmount) { "Challenge amount changed; reopen the challenge and try again" }
+            require(matchesOfficialChallenge) { "Challenge details changed; reopen the challenge and try again" }
         }
 
         val remoteAccount = adapter.balance(account.address)
@@ -77,7 +81,7 @@ class SudharmaWalletRepository(context: Context) {
         val signed = adapter.sign(unsigned, account.privateScalar)
         val status = adapter.submit(signed)
         preferences.addTransactionId(status.id)
-        if (challengeMode) {
+        if (matchesOfficialChallenge) {
             preferences.pendingChallengeTransactionId = status.id
         }
         return status
@@ -104,6 +108,7 @@ class SudharmaWalletRepository(context: Context) {
         walletStore.clear()
         security.clear()
         preferences.clear()
+        lastFaucetInfo = null
     }
 
     private fun adapter(): SudharmaChainAdapter {
