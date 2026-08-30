@@ -20,6 +20,19 @@ trap cleanup EXIT
 )
 
 aws s3api head-bucket --bucket "$bucket" >/dev/null 2>&1 || {
+  echo "Creating S3 bucket s3://$bucket in $region ..."
+  if [ "$region" = "us-east-1" ]; then
+    aws s3api create-bucket --bucket "$bucket" --region "$region"
+  else
+    aws s3api create-bucket --bucket "$bucket" --region "$region" \
+      --create-bucket-configuration "LocationConstraint=$region"
+  fi
+  aws s3api put-public-access-block --bucket "$bucket" \
+    --public-access-block-configuration \
+    BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+}
+
+aws s3api head-bucket --bucket "$bucket" >/dev/null 2>&1 || {
   echo "S3 bucket s3://$bucket does not exist or is not accessible" >&2
   exit 2
 }
