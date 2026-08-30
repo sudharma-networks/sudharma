@@ -26,4 +26,12 @@ if grep -Fq "if: github.ref == 'refs/heads/feature/public-testnet-wallet-v2'" "$
   fail 'deploy remains hard-wired to the historical feature/public-testnet-wallet-v2 branch'
 fi
 
-printf 'PASS: faucet deployment contract is manual-only and promotes the tested artifact\n'
+stage_line="$(grep -n -m1 'name: Stage faucet disabled' "$workflow" | cut -d: -f1 || true)"
+code_line="$(grep -n -m1 'name: Update Lambda code from tested artifact' "$workflow" | cut -d: -f1 || true)"
+[ -n "$stage_line" ] || fail 'missing Stage faucet disabled step'
+[ -n "$code_line" ] || fail 'missing Update Lambda code from tested artifact step'
+if [ "$stage_line" -ge "$code_line" ]; then
+  fail 'faucet must be forced disabled before new Lambda code is installed'
+fi
+
+printf 'PASS: faucet deployment contract is manual-only, disables before code update, and promotes the tested artifact\n'
