@@ -9,14 +9,18 @@ const repoRoot = path.resolve(__dirname, '..', '..');
 const communityWorkflowPath = path.join(repoRoot, '.github', 'workflows', 'telegram-community.yml');
 const publishWorkflowPath = path.join(repoRoot, '.github', 'workflows', 'telegram-publish.yml');
 
-test('community workflow is manual-only during initial rollout', () => {
+test('community workflow schedules polling every five minutes and keeps manual controls', () => {
   const workflow = fs.readFileSync(communityWorkflowPath, 'utf8');
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /mode:/);
   assert.match(workflow, /bootstrap/);
   assert.match(workflow, /poll/);
-  assert.doesNotMatch(workflow, /\bschedule:/);
-  assert.doesNotMatch(workflow, /cron:/);
+  assert.match(workflow, /\bschedule:/);
+  assert.match(workflow, /cron:\s*['"]\*\/5 \* \* \* \*['"]/);
+  assert.match(
+    workflow,
+    /COMMUNITY_MODE:\s*\$\{\{\s*github\.event_name\s*==\s*'schedule'\s*&&\s*'poll'\s*\|\|\s*inputs\.mode\s*\}\}/,
+  );
 });
 
 test('community workflow uses least privilege and serialized polling', () => {
