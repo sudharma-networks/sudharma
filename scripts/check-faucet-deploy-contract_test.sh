@@ -80,13 +80,13 @@ fi
 if ! grep -Fq -- '--zip-file fileb:///tmp/lambda-code-rollback.zip' <<<"$post_block"; then
   fail 'post-activation rollback must restore previous Lambda code'
 fi
-if ! grep -Fq -- '/tmp/post-status.json' <<<"$post_block" || ! grep -Fq -- "s.network !== 'sudharma'" <<<"$post_block"; then
+if ! grep -Fq -- '/tmp/status-post.json' <<<"$post_block" || ! grep -Fq -- "s.network !== 'sudharma'" <<<"$post_block"; then
   fail 'post-activation status smoke must validate Sudharma network payload, not only HTTP success'
 fi
-if ! grep -Fq -- '/tmp/post-visitors.json' <<<"$post_block" || ! grep -Fq -- 'Number.isSafeInteger(v.total)' <<<"$post_block"; then
+if ! grep -Fq -- '/tmp/visitors-post.json' <<<"$post_block" || ! grep -Fq -- 'Number.isSafeInteger(v.total)' <<<"$post_block"; then
   fail 'post-activation visitor smoke must validate the visitor payload, not only HTTP success'
 fi
-if ! grep -Fq -- '/tmp/post-explorer-status.json' <<<"$post_block" || ! grep -Fq -- "typeof e !== 'object'" <<<"$post_block"; then
+if ! grep -Fq -- '/tmp/explorer-status-post.json' <<<"$post_block" || ! grep -Fq -- "typeof e !== 'object'" <<<"$post_block"; then
   fail 'post-activation explorer smoke must validate the explorer payload, not only HTTP success'
 fi
 
