@@ -49,7 +49,8 @@ require_literal '--environment file:///tmp/lambda-environment-enabled.json'
 # before replacement and restore both code and environment if the pre-activation
 # compatibility smoke test fails.
 require_literal 'name: Snapshot current Lambda code for rollback'
-require_literal 'aws lambda get-function --function-name "$LAMBDA_NAME"'
+require_literal 'aws lambda get-function'
+require_literal '--function-name "$LAMBDA_NAME"'
 require_literal '/tmp/lambda-code-location.txt'
 require_literal '/tmp/lambda-code-rollback.zip'
 require_literal 'rollback_shared_lambda()'
