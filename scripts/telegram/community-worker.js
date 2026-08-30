@@ -12,6 +12,7 @@ const {
 const MAX_REPLIES_PER_RUN = 20;
 const REPORT_WINDOW_MS = 60 * 60 * 1000;
 const COMMUNITY_REPORT_MARKER_RE = /<!-- sudharma-telegram-community-report:v1 update_id=\d+ -->/;
+const GITHUB_ACTIONS_BOT_LOGIN = 'github-actions[bot]';
 
 function createTelegramAdapter({ token, fetchImpl = globalThis.fetch }) {
   if (typeof token !== 'string' || token.length === 0) {
@@ -113,6 +114,49 @@ function createGithubAdapter({ token, repository, fetchImpl = globalThis.fetch }
     }
   }
 
+  async function listIssues({ since, automationOnly }) {
+    const sinceDate = new Date(since);
+    if (Number.isNaN(sinceDate.getTime())) {
+      throw new Error('GitHub recent issue window is invalid');
+    }
+
+    const issues = [];
+    for (let page = 1; page <= 100; page += 1) {
+      const url = new URL(`${baseUrl}/issues`);
+      url.searchParams.set('state', 'all');
+      url.searchParams.set('since', sinceDate.toISOString());
+      url.searchParams.set('per_page', '100');
+      url.searchParams.set('sort', 'created');
+      url.searchParams.set('direction', 'desc');
+      url.searchParams.set('page', String(page));
+
+      const data = await requestJson('list recent issues', url.toString(), { method: 'GET' });
+      if (!Array.isArray(data)) {
+        throw new Error('GitHub API list recent issues failed');
+      }
+      if (data.length === 0) return issues;
+
+      for (const item of data) {
+        if (!item || item.pull_request) continue;
+        if (automationOnly) {
+          const login = typeof item.user?.login === 'string' ? item.user.login.toLowerCase() : '';
+          if (login !== GITHUB_ACTIONS_BOT_LOGIN) continue;
+        }
+        issues.push({
+          html_url: item.html_url,
+          body: typeof item.body === 'string' ? item.body : '',
+          created_at: item.created_at,
+        });
+      }
+
+      const oldestTime = Math.min(...data.map((item) => Date.parse(item && item.created_at)).filter(Number.isFinite));
+      if (data.length < 100 || (Number.isFinite(oldestTime) && oldestTime < sinceDate.getTime())) {
+        return issues;
+      }
+    }
+    throw new Error('GitHub API list recent issues failed');
+  }
+
   return {
     async createIssue({ title, body }) {
       const data = await requestJson('create issue', `${baseUrl}/issues`, {
@@ -126,43 +170,12 @@ function createGithubAdapter({ token, repository, fetchImpl = globalThis.fetch }
       return data;
     },
 
-    async listRecentIssues({ since }) {
-      const sinceDate = new Date(since);
-      if (Number.isNaN(sinceDate.getTime())) {
-        throw new Error('GitHub recent issue window is invalid');
-      }
+    listRecentIssues({ since }) {
+      return listIssues({ since, automationOnly: false });
+    },
 
-      const issues = [];
-      for (let page = 1; page <= 100; page += 1) {
-        const url = new URL(`${baseUrl}/issues`);
-        url.searchParams.set('state', 'all');
-        url.searchParams.set('since', sinceDate.toISOString());
-        url.searchParams.set('per_page', '100');
-        url.searchParams.set('sort', 'created');
-        url.searchParams.set('direction', 'desc');
-        url.searchParams.set('page', String(page));
-
-        const data = await requestJson('list recent issues', url.toString(), { method: 'GET' });
-        if (!Array.isArray(data)) {
-          throw new Error('GitHub API list recent issues failed');
-        }
-        if (data.length === 0) return issues;
-
-        for (const item of data) {
-          if (!item || item.pull_request) continue;
-          issues.push({
-            html_url: item.html_url,
-            body: typeof item.body === 'string' ? item.body : '',
-            created_at: item.created_at,
-          });
-        }
-
-        const oldestTime = Math.min(...data.map((item) => Date.parse(item && item.created_at)).filter(Number.isFinite));
-        if (data.length < 100 || (Number.isFinite(oldestTime) && oldestTime < sinceDate.getTime())) {
-          return issues;
-        }
-      }
-      throw new Error('GitHub API list recent issues failed');
+    listRecentAutomationIssues({ since }) {
+      return listIssues({ since, automationOnly: true });
     },
   };
 }
@@ -259,10 +272,13 @@ function createWorker({ telegram, github, now = () => new Date(), logger = conso
         throw new Error('Current time is invalid');
       }
       reportWindowStart = currentDate.getTime() - REPORT_WINDOW_MS;
-      if (typeof github.listRecentIssues !== 'function') {
+      const listRecent = typeof github.listRecentAutomationIssues === 'function'
+        ? github.listRecentAutomationIssues.bind(github)
+        : (typeof github.listRecentIssues === 'function' ? github.listRecentIssues.bind(github) : null);
+      if (!listRecent) {
         throw new Error('GitHub recent issue listing is unavailable');
       }
-      recentIssues = await github.listRecentIssues({ since: new Date(reportWindowStart).toISOString() });
+      recentIssues = await listRecent({ since: new Date(reportWindowStart).toISOString() });
       if (!Array.isArray(recentIssues)) {
         throw new Error('GitHub recent issue listing is invalid');
       }
