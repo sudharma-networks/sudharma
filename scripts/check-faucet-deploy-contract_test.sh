@@ -43,6 +43,8 @@ require_literal 'visitor-runtime.mjs' "$workflow"
 require_literal '/v1/website/visitors' "$router"
 require_literal '/v1/explorer/status' "$router"
 require_literal 'request.queryString' "$upstream"
+require_literal 'curl -fsS "$RPC_BASE_URL/v1/website/visitors"' "$workflow"
+require_literal 'curl -fsS "$RPC_BASE_URL/v1/explorer/status"' "$workflow"
 
 if grep -Fq "if: github.ref == 'refs/heads/feature/public-testnet-wallet-v2'" "$workflow"; then
   fail 'deploy remains hard-wired to the historical feature/public-testnet-wallet-v2 branch'
@@ -56,4 +58,4 @@ if [ "$stage_line" -ge "$code_line" ]; then
   fail 'faucet must be forced disabled before new Lambda code is installed'
 fi
 
-printf 'PASS: faucet deployment contract is manual-only, preserves shared Lambda routes/environment, deep-health gated, fail-closed on unexpected errors, disables before code update, and promotes the tested artifact\n'
+printf 'PASS: faucet deployment contract is manual-only, preserves and smoke-tests shared Lambda routes/environment, deep-health gated, fail-closed on unexpected errors, disables before code update, and promotes the tested artifact\n'
