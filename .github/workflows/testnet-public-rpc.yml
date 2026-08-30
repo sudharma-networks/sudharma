@@ -20,6 +20,11 @@ on:
         required: true
         default: false
         type: boolean
+      diagnostics_only:
+        description: Deploy diagnostics while keeping the faucet disabled
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -67,7 +72,7 @@ jobs:
           retention-days: 14
 
   aws-preflight:
-    if: github.event_name == 'workflow_dispatch' && (inputs.preflight == true || inputs.deploy == true)
+    if: github.event_name == 'workflow_dispatch' && (inputs.preflight == true || inputs.deploy == true || inputs.diagnostics_only == true)
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -104,7 +109,7 @@ jobs:
           aws lambda get-function --function-name "$LAMBDA_NAME" --query 'Configuration.CodeSha256' --output text
 
   deploy:
-    if: github.event_name == 'workflow_dispatch' && inputs.deploy == true
+    if: github.event_name == 'workflow_dispatch' && (inputs.deploy == true || inputs.diagnostics_only == true)
     needs: [build, aws-preflight]
     runs-on: ubuntu-latest
     permissions:
@@ -240,6 +245,7 @@ jobs:
           trap - ERR
 
       - name: Activate faucet and smoke-test public readiness
+        if: inputs.diagnostics_only != true
         run: |
           set -euo pipefail
           disable_faucet() {
@@ -335,6 +341,20 @@ jobs:
           curl -fsS "$RPC_BASE_URL/v1/explorer/status" >/tmp/explorer-status-post.json
           node -e "const e=require('/tmp/explorer-status-post.json'); if (!e || typeof e !== 'object' || Array.isArray(e)) process.exit(1); console.log(JSON.stringify({explorer_status:'ok'}))"
           trap - ERR
+
+      - name: Verify diagnostics-only faucet remains disabled
+        if: inputs.diagnostics_only == true
+        run: |
+          set -euo pipefail
+          faucet_enabled="$(aws lambda get-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --query 'Environment.Variables.FAUCET_ENABLED' \
+            --output text)"
+          if [ "$faucet_enabled" != 'false' ]; then
+            echo "Diagnostics-only rollout did not remain fail-closed." >&2
+            exit 1
+          fi
+          echo '{"diagnostics_only":true,"faucet_enabled":false}'
 
       - name: Verify deployed Lambda configuration
         run: |
