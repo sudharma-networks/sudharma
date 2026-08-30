@@ -8,6 +8,7 @@ on:
       - 'security/**'
       - feature/android-wallet-v0.1
       - feature/public-testnet-wallet-v2
+      - codex/faucet-hardening-integration
     paths:
       - 'deployment/testnet/public-rpc/lambda/**'
       - 'deployment/testnet/public-rpc/**.json'
