@@ -1,0 +1,24 @@
+name: Explorer Seed Rollout Script CI
+
+on:
+  push:
+    paths:
+      - 'deployment/testnet/rollout-explorer-node.sh'
+      - 'deployment/testnet/rollout-explorer-node_test.sh'
+      - '.github/workflows/explorer-seed-rollout-script-ci.yml'
+  pull_request:
+    paths:
+      - 'deployment/testnet/rollout-explorer-node.sh'
+      - 'deployment/testnet/rollout-explorer-node_test.sh'
+      - '.github/workflows/explorer-seed-rollout-script-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  safety-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify guarded explorer seed rollout script
+        run: bash deployment/testnet/rollout-explorer-node_test.sh
