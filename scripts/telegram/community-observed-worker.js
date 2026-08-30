@@ -20,15 +20,13 @@ function withReplyTargetFallback(telegram) {
       return telegram.sendMessage(payload);
     }
 
-    const nextPayload = {
-      ...payload,
-      reply_parameters: payload.reply_parameters && typeof payload.reply_parameters === 'object'
-        ? {
-            ...payload.reply_parameters,
-            allow_sending_without_reply: true,
-          }
-        : payload.reply_parameters,
-    };
+    const nextPayload = { ...payload };
+    if (payload.reply_parameters && typeof payload.reply_parameters === 'object') {
+      nextPayload.reply_parameters = {
+        ...payload.reply_parameters,
+        allow_sending_without_reply: true,
+      };
+    }
     return telegram.sendMessage(nextPayload);
   };
   return wrapped;
