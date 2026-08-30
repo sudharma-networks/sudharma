@@ -25,8 +25,22 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Monitor mempool readiness
-        run: node ./scripts/faucet-recovery-monitor.mjs | tee /tmp/faucet-monitor.json
+        id: monitor
+        run: |
+          set -euo pipefail
+          node ./scripts/faucet-recovery-monitor.mjs | tee /tmp/faucet-monitor.json
 
       - name: Report recovery still blocked
-        if: failure()
-        run: cat /tmp/faucet-monitor.json
+        if: failure() && steps.monitor.outcome == 'failure'
+        run: |
+          set -euo pipefail
+          cat /tmp/faucet-monitor.json
+          node --input-type=module -e "
+            const fs = await import('node:fs');
+            const payload = JSON.parse(fs.readFileSync('/tmp/faucet-monitor.json', 'utf8'));
+            const actions = payload.snapshot?.operator_actions ?? [];
+            if (actions.length === 0) process.exit(0);
+            console.log('Operator actions required:');
+            for (const action of actions) console.log('- ' + action);
+            process.exit(1);
+          "
