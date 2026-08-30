@@ -45,6 +45,19 @@ require_literal '/tmp/lambda-environment-enabled.json'
 require_literal '--environment file:///tmp/lambda-environment-disabled.json'
 require_literal '--environment file:///tmp/lambda-environment-enabled.json'
 
+# Shared public RPC rollback safety. Capture the previously deployed Lambda ZIP
+# before replacement and restore both code and environment if the pre-activation
+# compatibility smoke test fails.
+require_literal 'name: Snapshot current Lambda code for rollback'
+require_literal 'aws lambda get-function --function-name "$LAMBDA_NAME"'
+require_literal '/tmp/lambda-code-location.txt'
+require_literal '/tmp/lambda-code-rollback.zip'
+require_literal 'rollback_shared_lambda()'
+require_literal '--zip-file fileb:///tmp/lambda-code-rollback.zip'
+require_literal '--environment file:///tmp/lambda-environment-base-wrapper.json'
+require_literal "trap 'rollback_shared_lambda' ERR"
+require_literal 'name: Verify shared public RPC before faucet activation'
+
 # The public RPC Lambda is shared with website/explorer reads. A faucet recovery
 # deployment must not regress routes already served by that Lambda.
 require_literal 'visitor-runtime.mjs' "$workflow"
@@ -91,4 +104,4 @@ for forbidden in '--runtime ' '--handler ' '--timeout ' '--memory-size '; do
   fi
 done
 
-printf 'PASS: faucet deployment contract is manual-only, has a read-only AWS/OIDC preflight, preserves shared Lambda routes/environment/configuration, is deep-health gated, fail-closed on unexpected errors, disables before code update, and promotes the tested artifact\n'
+printf 'PASS: faucet deployment contract is manual-only, has a read-only AWS/OIDC preflight, preserves shared Lambda routes/environment/configuration, rolls shared Lambda code/environment back on pre-activation smoke failure, is deep-health gated, fail-closed on unexpected errors, disables before code update, and promotes the tested artifact\n'
