@@ -74,9 +74,10 @@ it("classifies CUDA and OpenCL miner packages as experimental", () => {
   expect(opencl?.slot).toBe("amd-miner");
   expect(cuda?.channel).toBe("experimental");
   expect(opencl?.channel).toBe("experimental");
+  expect(cuda).not.toBeNull();
 
-  const [sameSiteCuda] = withSameSiteWalletUrls([cuda]);
-  expect(sameSiteCuda.downloadUrl).toBe(cuda.browser_download_url ?? cuda.downloadUrl);
+  const [sameSiteCuda] = withSameSiteWalletUrls([cuda!]);
+  expect(sameSiteCuda.downloadUrl).toBe(cuda!.downloadUrl);
 });
 
 it("does not promote unknown binary assets", () => {
