@@ -250,10 +250,15 @@ export function normalizeEvent(event) {
     headers['content-type'] = contentType;
   }
 
+  const sourceIp = route.kind === 'faucetInitial' || route.kind === 'faucetChallenge'
+    ? event?.requestContext?.http?.sourceIp
+    : undefined;
+
   return {
     ...route,
     queryString,
     body,
     headers,
+    ...(typeof sourceIp === 'string' && sourceIp.length <= 64 ? { sourceIp } : {}),
   };
 }
