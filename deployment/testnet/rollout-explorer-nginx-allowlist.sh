@@ -133,28 +133,35 @@ fi
 explorer_headers="$(mktemp /tmp/sudharma-explorer-headers.XXXXXX)"
 explorer_body="$(mktemp /tmp/sudharma-explorer-body.XXXXXX)"
 trap 'rm -f "$backup" "$work" "$explorer_headers" "$explorer_body"' EXIT INT TERM
-explorer_code="$(curl -sS -D "$explorer_headers" -o "$explorer_body" -w '%{http_code}' "http://${PRIVATE_IP}:29100/v1/explorer/status" || true)"
-content_type="$(awk 'BEGIN{IGNORECASE=1} /^Content-Type:/ {sub(/\r$/, "", $0); sub(/^[^:]*:[[:space:]]*/, "", $0); print; exit}' "$explorer_headers")"
+explorer_code=''
+content_type=''
+explorer_ready=0
+
+# nginx reloads are graceful: an old worker can briefly answer a new request
+# with the previous catch-all route. Give the read-only explorer bridge a
+# bounded convergence window before treating that transient response as a
+# failed rollout and restoring the previous configuration.
+for attempt in $(seq 1 15); do
+  : > "$explorer_headers"
+  : > "$explorer_body"
+  explorer_code="$(curl -sS -D "$explorer_headers" -o "$explorer_body" -w '%{http_code}' "http://${PRIVATE_IP}:29100/v1/explorer/status" || true)"
+  content_type="$(awk 'BEGIN{IGNORECASE=1} /^Content-Type:/ {sub(/\r$/, "", $0); sub(/^[^:]*:[[:space:]]*/, "", $0); print; exit}' "$explorer_headers")"
+  if [[ "$content_type" == application/json* ]] && [[ "$explorer_code" == '200' || "$explorer_code" == '404' ]]; then
+    explorer_ready=1
+    break
+  fi
+  sleep 1
+done
 
 # Before the explorer-capable node binary is installed, a JSON 404 from the
-# node is expected. What must no longer happen is nginx's HTML catch-all 404.
-if [[ "$content_type" != application/json* ]]; then
+# node is expected. What must no longer happen after convergence is nginx's
+# HTML catch-all 404.
+if [[ "$explorer_ready" != '1' ]]; then
   restore_config
   nginx -t >/dev/null
   systemctl reload nginx.service
-  echo "explorer route did not reach node JSON API (HTTP $explorer_code, content-type '$content_type'); restored previous config" >&2
+  echo "explorer route did not reach node JSON API after reload convergence window (HTTP $explorer_code, content-type '$content_type'); restored previous config" >&2
   exit 1
 fi
-
-case "$explorer_code" in
-  200|404) ;;
-  *)
-    restore_config
-    nginx -t >/dev/null
-    systemctl reload nginx.service
-    echo "unexpected explorer bridge HTTP status $explorer_code; restored previous config" >&2
-    exit 1
-    ;;
-esac
 
 echo "Explorer nginx allowlist ready on ${PRIVATE_IP}:29100 (explorer HTTP ${explorer_code})."
