@@ -1,8 +1,9 @@
 import { ExplorerDashboard } from "@/components/explorer-dashboard";
 import { PageHero } from "@/components/page-hero";
+import { resolveExplorerAPIBaseURL } from "@/lib/explorer-config";
 
 export default function ExplorerPage() {
-  const apiBaseUrl = process.env.NEXT_PUBLIC_EXPLORER_API_BASE_URL ?? "";
+  const apiBaseUrl = resolveExplorerAPIBaseURL(process.env.NEXT_PUBLIC_EXPLORER_API_BASE_URL);
 
   return (
     <div className="section-shell page-stack">
