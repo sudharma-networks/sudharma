@@ -90,6 +90,22 @@ if ! grep -Fq -- '/tmp/explorer-status-post.json' <<<"$post_block" || ! grep -Fq
   fail 'post-activation explorer smoke must validate the explorer payload, not only HTTP success'
 fi
 
+# Promotion is not complete until AWS reports the same CodeSha256 as the exact
+# ZIP downloaded from this workflow run. Keep this inside the rollback trap so
+# a code-identity mismatch restores the previous shared Lambda.
+if ! grep -Fq -- 'expected_code_sha256=' <<<"$post_block"; then
+  fail 'post-activation verification must compute the expected SHA-256 of the tested Lambda ZIP'
+fi
+if ! grep -Fq -- "--query 'Configuration.CodeSha256'" <<<"$post_block"; then
+  fail 'post-activation verification must read the deployed Lambda CodeSha256'
+fi
+if ! grep -Fq -- 'deployed_code_sha256=' <<<"$post_block"; then
+  fail 'post-activation verification must capture the deployed Lambda CodeSha256'
+fi
+if ! grep -Fq -- 'deployed_code_sha256" != "$expected_code_sha256' <<<"$post_block"; then
+  fail 'post-activation verification must compare deployed Lambda code identity with the tested artifact'
+fi
+
 # The public RPC Lambda is shared with website/explorer reads. A faucet recovery
 # deployment must not regress routes already served by that Lambda.
 require_literal 'visitor-runtime.mjs' "$workflow"
@@ -145,4 +161,4 @@ for forbidden in '--runtime ' '--handler ' '--timeout ' '--memory-size '; do
   fi
 done
 
-printf 'PASS: faucet deployment contract is manual-only, has a read-only AWS/OIDC preflight that proves rollback permissions, preserves shared Lambda routes/environment/configuration, validates shared-route payloads, rolls shared Lambda code/environment back on pre- and post-activation smoke failure, is deep-health gated, fail-closed on unexpected errors, disables before code update, and promotes the tested artifact\n'
+printf 'PASS: faucet deployment contract is manual-only, has a read-only AWS/OIDC preflight that proves rollback permissions, preserves shared Lambda routes/environment/configuration, validates shared-route payloads, verifies deployed code identity, rolls shared Lambda code/environment back on pre- and post-activation smoke failure, is deep-health gated, fail-closed on unexpected errors, disables before code update, and promotes the tested artifact\n'
