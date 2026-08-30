@@ -4,6 +4,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const REPO = "sudharma-networks/sudharma";
 const OFFICIAL = `https://github.com/${REPO}`;
+const WALLET_PUBLIC_PATH = "/downloads/Sudharma-Wallet-latest.apk";
+const WALLET_CHECKSUM_PATH = `${WALLET_PUBLIC_PATH}.sha256`;
 
 function bytes(size) {
   if (!Number.isFinite(size)) return undefined;
@@ -82,6 +84,12 @@ export function normalizeReleases(releases) {
     }
   }
   return output;
+}
+
+export function withSameSiteWalletUrls(artifacts) {
+  return artifacts.map((artifact) => artifact.slot === "android-wallet"
+    ? { ...artifact, downloadUrl: WALLET_PUBLIC_PATH, checksumUrl: WALLET_CHECKSUM_PATH }
+    : artifact);
 }
 
 async function githubJson(endpoint) {
