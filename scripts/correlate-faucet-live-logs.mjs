@@ -16,8 +16,8 @@ async function readStdin() {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-const requestId = process.argv[2];
-if (path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1] || '')) {
+if (process.argv[1]?.endsWith('correlate-faucet-live-logs.mjs')) {
+  const requestId = process.argv[2];
   if (!requestId) {
     process.stderr.write('usage: correlate-faucet-live-logs.mjs <request-id> < raw-cloudwatch.txt\n');
     process.exit(2);
