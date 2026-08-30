@@ -1,0 +1,50 @@
+name: Faucet Recovery CI
+
+on:
+  push:
+    branches:
+      - feature/faucet-recovery-stage2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deployment-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Verify faucet deployment contract
+        run: bash ./scripts/check-faucet-deploy-contract_test.sh
+
+  lambda-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Detect Lambda slice
+        id: lambda
+        shell: bash
+        run: |
+          if [ -f deployment/testnet/public-rpc/lambda/package.json ]; then
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Set up Node 24
+        if: steps.lambda.outputs.present == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install Lambda dependencies
+        if: steps.lambda.outputs.present == 'true'
+        working-directory: deployment/testnet/public-rpc/lambda
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Run Lambda tests
+        if: steps.lambda.outputs.present == 'true'
+        working-directory: deployment/testnet/public-rpc/lambda
+        run: npm test
+      - name: Lambda slice not restored yet
+        if: steps.lambda.outputs.present != 'true'
+        run: echo 'Stage 2 RED phase: Lambda slice is not present yet.'
