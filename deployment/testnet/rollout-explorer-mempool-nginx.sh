@@ -5,7 +5,7 @@ set -euo pipefail
 CONFIG_PATH="${CONFIG_PATH:-/etc/nginx/sites-enabled/sudharma-wallet-proxy}"
 BEGIN_MARKER='# BEGIN SUDHARMA EXPLORER READ-ONLY ALLOWLIST'
 END_MARKER='# END SUDHARMA EXPLORER READ-ONLY ALLOWLIST'
-PRIVATE_IP="${PRIVATE_IP:?PRIVATE_IP is required}"
+SMOKE_BASE="${SMOKE_BASE:-http://127.0.0.1:29100}"
 
 if [ ! -f "$CONFIG_PATH" ]; then
   echo "nginx wallet proxy config not found: $CONFIG_PATH" >&2
@@ -70,10 +70,10 @@ fi
 systemctl reload nginx.service
 
 for attempt in $(seq 1 15); do
-  code="$(curl -sS -o /tmp/mempool-smoke.json -w '%{http_code}' "http://${PRIVATE_IP}:29100/v1/explorer/mempool?limit=1" || true)"
+  code="$(curl -sS -o /tmp/mempool-smoke.json -w '%{http_code}' "${SMOKE_BASE}/v1/explorer/mempool?limit=1" || true)"
   if [ "$code" = '200' ]; then
     cat /tmp/mempool-smoke.json
-    echo "Explorer mempool nginx allowlist ready on ${PRIVATE_IP}:29100"
+    echo "Explorer mempool nginx allowlist ready on ${SMOKE_BASE}"
     exit 0
   fi
   sleep 2

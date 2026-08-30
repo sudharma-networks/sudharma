@@ -66,8 +66,6 @@ jobs:
           echo "instance_id=$instance_id" >> "$GITHUB_OUTPUT"
       - name: Patch nginx mempool allowlist on seed
         if: steps.seed.outputs.seed_instance_found == 'true'
-        env:
-          PRIVATE_IP: ${{ matrix.seed_private_ip }}
         run: |
           set -euo pipefail
           bash deployment/testnet/ssm-send-remote-script.sh \
