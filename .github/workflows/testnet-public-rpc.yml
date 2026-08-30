@@ -101,6 +101,7 @@ jobs:
             --function-name "$LAMBDA_NAME" \
             --query '{Runtime:Runtime,Handler:Handler,Timeout:Timeout,MemorySize:MemorySize,State:State,LastUpdateStatus:LastUpdateStatus}' \
             --output json
+          aws lambda get-function --function-name "$LAMBDA_NAME" --query 'Configuration.CodeSha256' --output text
 
   deploy:
     if: github.event_name == 'workflow_dispatch' && inputs.deploy == true
