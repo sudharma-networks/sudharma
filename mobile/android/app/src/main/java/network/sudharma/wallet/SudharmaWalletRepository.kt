@@ -8,7 +8,9 @@ import network.sudharma.wallet.chain.sudharma.SudharmaRpcClient
 import network.sudharma.wallet.recovery.RecoveryPhrase
 import network.sudharma.wallet.recovery.SudharmaMobileDerivationV1
 import network.sudharma.wallet.security.AppSecurityPreferences
+import network.sudharma.wallet.security.LegacyEncryptedWalletImporter
 import network.sudharma.wallet.security.WalletStore
+import network.sudharma.wallet.chain.sudharma.SudharmaCrypto
 import java.math.BigDecimal
 import java.math.RoundingMode
 
@@ -26,10 +28,34 @@ class SudharmaWalletRepository(context: Context) {
         walletStore.saveRecoveryPhrase(phrase.trim().lowercase())
     }
 
+    fun importTreasuryWallet(jsonBytes: ByteArray, password: CharArray) {
+        val imported = try {
+            LegacyEncryptedWalletImporter.importTreasury(
+                jsonBytes = jsonBytes,
+                password = password,
+                expectedAddress = DEVELOPMENT_TREASURY_ADDRESS,
+            )
+        } finally {
+            password.fill('\u0000')
+            jsonBytes.fill(0)
+        }
+        walletStore.saveTreasuryPrivateScalar(imported.privateScalar, imported.address)
+    }
+
+    fun isTreasuryWallet(): Boolean = walletStore.isTreasuryWallet()
+
     fun setPin(pin: String) = security.savePin(pin)
     fun verifyPin(pin: String): Boolean = security.verifyPin(pin)
 
     fun account(): LocalAccount {
+        if (walletStore.isTreasuryWallet()) {
+            val privateScalar = walletStore.loadTreasuryPrivateScalar()
+            val key = SudharmaCrypto.keyFromPrivateScalar(privateScalar)
+            val address = SudharmaCrypto.addressFromPublicKey(key.publicKey)
+            require(address == DEVELOPMENT_TREASURY_ADDRESS) { "treasury wallet address mismatch" }
+            require(walletStore.treasuryAddress() == address) { "stored treasury address mismatch" }
+            return LocalAccount(address, privateScalar)
+        }
         val phrase = walletStore.loadRecoveryPhrase()
         val metadata = walletStore.loadMetadata()
         val derived = SudharmaMobileDerivationV1.derive(
@@ -95,6 +121,8 @@ class SudharmaWalletRepository(context: Context) {
     }
 
     companion object {
+        const val DEVELOPMENT_TREASURY_ADDRESS = "16d7dc9ec0495109007860a584c7cf9055da9abf"
+
         fun parseCoinAmount(text: String): Long {
             val value = text.trim()
             require(value.matches(Regex("^(0|[1-9][0-9]*)(\\.[0-9]{1,8})?$"))) { "Invalid SUDH amount" }
