@@ -61,16 +61,25 @@ class SudharmaWalletRepository(context: Context) {
         require(to != account.address) { "Cannot send to the same wallet" }
         val amount = parseCoinAmount(amountText)
 
-        val challengeInfo = if (challengeMode) faucetInfo() else lastFaucetInfo
-        val challengeAmount = challengeInfo?.challengeSendSudh?.toLong()?.let {
-            runCatching { Math.multiplyExact(it, COIN_ATOMIC) }.getOrNull()
+        val cachedChallengeMatch = TestnetChallengePolicy.matchesOfficialChallenge(
+            lastFaucetInfo,
+            to,
+            amount,
+            COIN_ATOMIC,
+        )
+        val challengeInfo = if (challengeMode || cachedChallengeMatch) {
+            faucetInfo()
+        } else {
+            lastFaucetInfo
         }
-        val matchesOfficialChallenge = challengeInfo?.enabled == true &&
-            to == challengeInfo.challengeAddress &&
-            challengeAmount != null &&
-            amount == challengeAmount
+        val matchesOfficialChallenge = TestnetChallengePolicy.matchesOfficialChallenge(
+            challengeInfo,
+            to,
+            amount,
+            COIN_ATOMIC,
+        )
 
-        if (challengeMode) {
+        if (challengeMode || cachedChallengeMatch) {
             require(matchesOfficialChallenge) { "Challenge details changed; reopen the challenge and try again" }
         }
 
