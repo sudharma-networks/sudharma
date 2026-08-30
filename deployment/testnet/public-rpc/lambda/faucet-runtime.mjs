@@ -97,6 +97,17 @@ export function createStore(tableName, timed, clientOverride = null) {
       return result.Item || null;
     },
 
+    async voidAddress(address) {
+      try {
+        await send('dynamodb.void_address', new DeleteCommand({
+          TableName: tableName,
+          Key: { pk: `ADDR#${address}` },
+        }));
+      } catch (error) {
+        if (error?.name !== 'ConditionalCheckFailedException') throw error;
+      }
+    },
+
     async getChallenge(transactionId) {
       const result = await send('dynamodb.get_challenge', new GetCommand({
         TableName: tableName,
@@ -659,7 +670,12 @@ export function createRuntimeFaucetHandler({ seeds, fetchImpl = globalThis.fetch
     if (!servicePromise) {
       servicePromise = loadSigner(secretId, timed).then((signer) => ({
         signer,
-        service: createFaucetService({ store, rpc, signer }),
+        service: createFaucetService({
+          store,
+          rpc,
+          signer,
+          freshGrant: env.FAUCET_FRESH_GRANT === 'true',
+        }),
       }));
     }
     return servicePromise;

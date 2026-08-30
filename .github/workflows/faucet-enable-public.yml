@@ -85,9 +85,10 @@ jobs:
             UPSTREAM_TIMEOUT_MS: '3500',
             FAUCET_TABLE_NAME: process.env.FAUCET_TABLE_NAME,
             FAUCET_SECRET_ID: process.env.FAUCET_SECRET_ID,
-            FAUCET_RECOVERY_ADDRESS: process.env.FAUCET_RECOVERY_ADDRESS,
-            FAUCET_ENABLED: 'true',
-          };
+          FAUCET_RECOVERY_ADDRESS: process.env.FAUCET_RECOVERY_ADDRESS,
+          FAUCET_ENABLED: 'true',
+          FAUCET_FRESH_GRANT: 'true',
+        };
           fs.writeFileSync('/tmp/lambda-environment-enabled.json', JSON.stringify({ Variables: { ...base, ...common } }));
           NODE
 

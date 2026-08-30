@@ -44,7 +44,32 @@ test('initial grant stays submitted until its transaction is confirmed', async (
   assert.equal(calls.some((x) => x[0] === 'completeInitial'), false);
 });
 
-test('repeated initial request reconciles a submitted payout after confirmation', async () => {
+test('repeated initial request with fresh grant voids prior state and submits a new payout', async () => {
+  const calls = [];
+  const store = {
+    async voidAddress(address) { calls.push(['voidAddress', address]); },
+    async reserveInitial(address) { calls.push(['reserveInitial', address]); return true; },
+    async markInitialSubmitted(address, txid, at) { calls.push(['markInitialSubmitted', address, txid, at]); },
+    async prepareInitial(address, payout, at) { calls.push(['prepareInitial', address, payout.ID, at]); },
+    async acquirePayoutLock() { return true; },
+    async releasePayoutLock() {},
+  };
+  const signer = createSigner('0'.repeat(63) + '1');
+  const rpc = {
+    async account(address) { return { address, balance: 10_000 * COIN, next_nonce: 7 }; },
+    async submit(tx) { calls.push(['submit', tx]); return { accepted: true, transaction_id: tx.ID }; },
+  };
+  const service = createFaucetService({
+    store, rpc, signer, now: () => 1_700_000_000_000, freshGrant: true,
+  });
+  const result = await service.requestInitial(ADDRESS_A);
+  assert.equal(result.amount_sudh, 100);
+  assert.equal(result.status, 'submitted');
+  assert.ok(calls.some((x) => x[0] === 'voidAddress' && x[1] === ADDRESS_A));
+  assert.ok(calls.some((x) => x[0] === 'submit'));
+});
+
+test('repeated initial request without fresh grant reconciles a submitted payout after confirmation', async () => {
   const calls = [];
   const store = {
     async reserveInitial() { return false; },
@@ -60,7 +85,7 @@ test('repeated initial request reconciles a submitted payout after confirmation'
     },
   };
   const signer = createSigner('0'.repeat(63) + '1');
-  const service = createFaucetService({ store, rpc, signer, now: () => 1_700_000_000_000 });
+  const service = createFaucetService({ store, rpc, signer, now: () => 1_700_000_000_000, freshGrant: false });
   const result = await service.requestInitial(ADDRESS_A);
   assert.equal(result.status, 'confirmed');
   assert.equal(result.transaction_id, TX_ID);
@@ -83,7 +108,7 @@ test('legacy paid state is normalized back to submitted while payout is still pe
     },
   };
   const signer = createSigner('0'.repeat(63) + '1');
-  const service = createFaucetService({ store, rpc, signer, now: () => 1_700_000_000_000 });
+  const service = createFaucetService({ store, rpc, signer, now: () => 1_700_000_000_000, freshGrant: false });
   const result = await service.requestInitial(ADDRESS_A);
   assert.equal(result.status, 'submitted');
   assert.equal(result.transaction_id, TX_ID);

@@ -107,7 +107,20 @@ Only one supervisor host should be active initially. Do not enable a second seed
 
 The `Demand Miner Auto Deploy` workflow runs every 30 minutes and is also invoked when faucet recovery monitoring detects `chain_advancement_required` or pending mempool work. When work is pending it uses AWS SSM to run `deployment/testnet/remote-ensure-demand-miner.sh` on Seed-1, which builds/installs the supervisor and keeps it running. The supervisor polls loopback RPC every minute, mines blocks until the mempool is empty whenever demand appears, and repeats a scheduled sweep every 30 minutes to clear any remaining pending transactions.
 
-Set repository variable `TESTNET_SEED1_INSTANCE_ID` to the Seed-1 EC2 instance id, or tag the instance so auto-discovery can find it. The GitHub Actions testnet role must allow `ssm:SendCommand` on that instance. After the chain advances, the same workflow can automatically retry the prepared faucet payout (brief enable, still fail-closed for normal traffic).
+Set repository variables `TESTNET_SEED1_INSTANCE_ID` and `TESTNET_SEED2_INSTANCE_ID` to the SSM-managed EC2 instance ids (hosts `172.31.10.171` and `172.31.32.195`), or rely on SSM IP discovery. The GitHub Actions testnet role must allow `ssm:SendCommand` on both instances. After the chain advances, the same workflow can automatically retry the prepared faucet payout (brief enable, still fail-closed for normal traffic).
+
+### Fresh start (void old grants, reset DynamoDB)
+
+Run the **Faucet Fresh Start** workflow manually with input `confirm_reset=RESET`. It executes in order:
+
+1. Snapshot current chain/faucet state
+2. Mine blocks on both seeds to clear the mempool
+3. Wait until public mempool count is zero
+4. Delete all faucet DynamoDB rows (`ADDR#`, `TX#`, locks)
+5. Deploy Lambda with `FAUCET_FRESH_GRANT=true` so any wallet can request a new 100 SUDH grant even if it requested before
+6. Verify fresh grants for a new address and the recovery address
+
+With `FAUCET_FRESH_GRANT=true`, each `POST /v1/faucet/request` voids prior DynamoDB state for that address and submits a new payout.
 
 ### Rollback
 

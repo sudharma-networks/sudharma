@@ -372,14 +372,25 @@ async function submitPayout({ store, rpc, signer, to, amount, prepare }) {
   }
 }
 
-export function createFaucetService({ store, rpc, signer, now = Date.now }) {
+export function freshGrantEnabled(env = process.env) {
+  return env.FAUCET_FRESH_GRANT === 'true';
+}
+
+export function createFaucetService({ store, rpc, signer, now = Date.now, freshGrant = freshGrantEnabled() }) {
   if (!store || !rpc || !signer) throw new Error('faucet service dependencies are required');
 
   return {
     async requestInitial(address) {
       validateAddress(address);
+      if (freshGrant && typeof store.voidAddress === 'function') {
+        await store.voidAddress(address);
+      }
+
       const reserved = await store.reserveInitial(address, now());
       if (!reserved) {
+        if (freshGrant) {
+          throw new FaucetError(503, 'faucet could not reserve address for fresh grant');
+        }
         const state = await store.getAddress(address);
         try {
           const reconciled = await reconcileInitialGrant({ store, rpc, signer, address, state, now });
