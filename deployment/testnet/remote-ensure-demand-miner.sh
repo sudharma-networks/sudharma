@@ -50,7 +50,7 @@ sync_repo() {
 build_and_install() {
   local build_dir
   build_dir="$(mktemp -d /var/lib/sudharma-demand-miner/build-XXXXXX)"
-  trap 'rm -rf "$build_dir"' RETURN
+  trap "rm -rf '${build_dir}'" RETURN
 
   export HOME="${HOME:-/var/lib/sudharma-demand-miner}"
   export GOPATH="${GOPATH:-/var/lib/sudharma-demand-miner/go}"
