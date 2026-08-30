@@ -4,6 +4,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 bucket="${TESTNET_DEMAND_MINER_BUCKET:-sudharma-testnet-demand-miner-981626123397}"
+if [ -z "$bucket" ]; then
+  bucket="sudharma-testnet-demand-miner-981626123397"
+fi
 prefix="${SUDHARMA_RPCD_S3_PREFIX:-sudharma-rpcd/${GITHUB_SHA:-manual}}"
 region="${AWS_REGION:-ap-south-1}"
 out_dir="$(mktemp -d)"
