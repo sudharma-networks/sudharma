@@ -68,6 +68,19 @@ jobs:
         run: |
           set -euo pipefail
           curl -fsS "$RPC_BASE_URL/v1/explorer/status" | tee /tmp/explorer-status.json
-          curl -fsS "$RPC_BASE_URL/v1/explorer/mempool?limit=8" | tee /tmp/explorer-mempool.json
+          for attempt in $(seq 1 12); do
+            status="$(curl -sS -o /tmp/explorer-mempool.json -w '%{http_code}' \
+              "$RPC_BASE_URL/v1/explorer/mempool?limit=8")"
+            if [ "$status" = '200' ]; then
+              cat /tmp/explorer-mempool.json
+              break
+            fi
+            if [ "$attempt" -eq 12 ]; then
+              echo "Expected HTTP 200 from /v1/explorer/mempool, got $status" >&2
+              cat /tmp/explorer-mempool.json || true
+              exit 1
+            fi
+            sleep 10
+          done
           curl -fsS "$RPC_BASE_URL/v1/explorer/blocks?limit=2" | tee /tmp/explorer-blocks.json
           echo '{"explorer_public_rpc_deploy":"ok"}'
