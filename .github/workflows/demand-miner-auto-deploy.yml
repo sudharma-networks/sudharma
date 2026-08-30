@@ -10,12 +10,16 @@ on:
       - feature/faucet-recovery-stage2
       - cursor/demand-miner-auto-deploy-83d4
       - cursor/faucet-demand-mining-83d4
+      - cursor/dual-seed-demand-miner-83d4
     paths:
       - .github/workflows/demand-miner-auto-deploy.yml
       - deployment/testnet/remote-ensure-demand-miner.sh
       - deployment/testnet/remote-install-demand-miner-from-urls.sh
+      - deployment/testnet/resolve-seed-instance-id.sh
+      - deployment/testnet/ssm-send-remote-script.sh
       - scripts/publish-demand-miner-binaries.sh
       - deployment/testnet/demand-miner.seed1-live.example.json
+      - deployment/testnet/demand-miner.seed2-live.example.json
       - demandminer/**
       - cmd/sudharma-demand-miner/**
 
@@ -26,7 +30,6 @@ env:
   RPC_BASE_URL: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com
   AWS_REGION: ap-south-1
   SUDHARMA_REPO_REF: feature/faucet-recovery-stage2
-  SEED1_PRIVATE_IP: 172.31.10.171
   TESTNET_DEMAND_MINER_BUCKET: ${{ vars.TESTNET_DEMAND_MINER_BUCKET }}
 
 jobs:
@@ -94,10 +97,14 @@ jobs:
           echo '{"demand_miner_auto_deploy_skipped":"chain_work_not_pending"}'
           echo "Height=${{ steps.gate.outputs.network_height }} mempool=${{ steps.gate.outputs.network_mempool }}"
 
-  ensure-on-seed:
+  publish-binaries:
     needs: assess-chain-work
     if: needs.assess-chain-work.outputs.should_deploy == 'true'
     runs-on: ubuntu-24.04
+    outputs:
+      demand_url: ${{ steps.publish.outputs.demand_url }}
+      node_url: ${{ steps.publish.outputs.node_url }}
+      publish_success: ${{ steps.publish.outcome == 'success' }}
     permissions:
       id-token: write
       contents: read
@@ -111,36 +118,13 @@ jobs:
           role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
           aws-region: ap-south-1
 
-      - name: Resolve Seed-1 instance id
-        id: seed
-        run: |
-          set -euo pipefail
-          instance_id="${TESTNET_SEED1_INSTANCE_ID:-}"
-          if [ -z "$instance_id" ]; then
-            instance_id="$(aws ssm describe-instance-information \
-              --query "InstanceInformationList[?IPAddress==\`${SEED1_PRIVATE_IP}\`].InstanceId | [0]" \
-              --output text 2>/dev/null || true)"
-          fi
-          if [ -z "$instance_id" ] || [ "$instance_id" = "None" ]; then
-            echo "seed_instance_found=false" >> "$GITHUB_OUTPUT"
-            echo 'No Seed-1 instance id configured or discoverable via SSM. Set repository variable TESTNET_SEED1_INSTANCE_ID.' >&2
-            exit 0
-          fi
-          echo "seed_instance_found=true" >> "$GITHUB_OUTPUT"
-          echo "instance_id=$instance_id" >> "$GITHUB_OUTPUT"
-          printf '{"seed_instance_id":"%s","seed_private_ip":"%s"}\n' "$instance_id" "$SEED1_PRIVATE_IP"
-        env:
-          TESTNET_SEED1_INSTANCE_ID: ${{ vars.TESTNET_SEED1_INSTANCE_ID }}
-
       - name: Set up Go
-        if: steps.seed.outputs.seed_instance_found == 'true'
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
 
       - name: Build and publish demand miner binaries to S3
         id: publish
-        if: steps.seed.outputs.seed_instance_found == 'true'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -151,14 +135,64 @@ jobs:
           echo "node_url=$(jq -r .sudharmad_bin_url /tmp/published-binaries.json)" >> "$GITHUB_OUTPUT"
           echo "bucket=$bucket" >> "$GITHUB_OUTPUT"
 
-      - name: Ensure demand miner on Seed-1 via SSM (S3 prebuilt)
-        if: steps.seed.outputs.seed_instance_found == 'true' && steps.publish.outcome == 'success'
+  ensure-on-seeds:
+    needs: [assess-chain-work, publish-binaries]
+    if: needs.assess-chain-work.outputs.should_deploy == 'true'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - seed_name: seed1
+            seed_private_ip: 172.31.10.171
+            seed_config: deployment/testnet/demand-miner.seed1-live.example.json
+            seed_instance_id: ${{ vars.TESTNET_SEED1_INSTANCE_ID }}
+            seed_fallback_instance_id: i-06e7ddb174e4941de
+          - seed_name: seed2
+            seed_private_ip: 172.31.32.195
+            seed_config: deployment/testnet/demand-miner.seed2-live.example.json
+            seed_instance_id: ${{ vars.TESTNET_SEED2_INSTANCE_ID }}
+            seed_fallback_instance_id: ''
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials from GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+
+      - name: Resolve seed instance id
+        id: seed
         run: |
           set -euo pipefail
-          config_b64="$(base64 -w0 deployment/testnet/demand-miner.seed1-live.example.json)"
+          instance_id="$(bash deployment/testnet/resolve-seed-instance-id.sh \
+            "${{ matrix.seed_private_ip }}" \
+            "${{ matrix.seed_instance_id }}" \
+            "${{ matrix.seed_fallback_instance_id }}" 2>/dev/null || true)"
+          if [ -z "$instance_id" ]; then
+            echo "seed_instance_found=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Demand miner auto-deploy::No ${{ matrix.seed_name }} instance id configured or discoverable via SSM (${{ matrix.seed_private_ip }}). Set repository variable TESTNET_${{ matrix.seed_name == 'seed1' && 'SEED1' || 'SEED2' }}_INSTANCE_ID."
+            exit 0
+          fi
+          echo "seed_instance_found=true" >> "$GITHUB_OUTPUT"
+          echo "instance_id=$instance_id" >> "$GITHUB_OUTPUT"
+          printf '{"seed":"%s","seed_instance_id":"%s","seed_private_ip":"%s"}\n' \
+            "${{ matrix.seed_name }}" "$instance_id" "${{ matrix.seed_private_ip }}"
+
+      - name: Ensure demand miner via SSM (S3 prebuilt)
+        if: steps.seed.outputs.seed_instance_found == 'true' && needs.publish-binaries.outputs.publish_success == 'true'
+        run: |
+          set -euo pipefail
+          config_b64="$(base64 -w0 "${{ matrix.seed_config }}")"
           install_b64="$(base64 -w0 deployment/testnet/remote-install-demand-miner-from-urls.sh)"
-          demand_url="${{ steps.publish.outputs.demand_url }}"
-          node_url="${{ steps.publish.outputs.node_url }}"
+          demand_url="${{ needs.publish-binaries.outputs.demand_url }}"
+          node_url="${{ needs.publish-binaries.outputs.node_url }}"
+          config_example="${{ matrix.seed_config }}"
 
           remote_script_file="$(mktemp)"
           {
@@ -166,125 +200,60 @@ jobs:
             printf 'export DEMAND_MINER_BIN_URL=%q\n' "$demand_url"
             printf 'export SUDHARMAD_BIN_URL=%q\n' "$node_url"
             printf 'export DEMAND_MINER_CONFIG_B64=%q\n' "$config_b64"
+            printf 'export SUDHARMA_DEMAND_MINER_CONFIG=%q\n' "$config_example"
             printf 'export SUDHARMA_REPO_REF=%q\n' "$SUDHARMA_REPO_REF"
             printf 'echo %q | base64 -d > /tmp/remote-install-demand-miner-from-urls.sh\n' "$install_b64"
             echo 'chmod +x /tmp/remote-install-demand-miner-from-urls.sh'
             echo 'bash /tmp/remote-install-demand-miner-from-urls.sh'
             echo 'rm -f /tmp/remote-install-demand-miner-from-urls.sh'
           } > "$remote_script_file"
-          wrapper_b64="$(base64 -w0 "$remote_script_file")"
+          bash deployment/testnet/ssm-send-remote-script.sh \
+            "${{ steps.seed.outputs.instance_id }}" \
+            "Install Sudharma demand miner on ${{ matrix.seed_name }} from prebuilt S3 binaries" \
+            "$remote_script_file" \
+            "demand_miner_install"
           rm -f "$remote_script_file"
-          params="$(jq -nc --arg b64 "$wrapper_b64" '{commands:["echo " + ($b64 | @sh) + " | base64 -d | bash"]}')"
-          command_id="$(aws ssm send-command \
-            --instance-ids "${{ steps.seed.outputs.instance_id }}" \
-            --document-name AWS-RunShellScript \
-            --comment "Install Sudharma demand miner from prebuilt S3 binaries (auto-deploy)" \
-            --parameters "$params" \
-            --query 'Command.CommandId' \
-            --output text)"
-          echo "command_id=$command_id" >> "$GITHUB_ENV"
-          for attempt in $(seq 1 60); do
-            status="$(aws ssm get-command-invocation \
-              --command-id "$command_id" \
-              --instance-id "${{ steps.seed.outputs.instance_id }}" \
-              --query 'Status' \
-              --output text 2>/dev/null || echo Pending)"
-            echo "ssm_status=$status attempt=$attempt"
-            case "$status" in
-              Success)
-                invocation="$(aws ssm get-command-invocation \
-                  --command-id "$command_id" \
-                  --instance-id "${{ steps.seed.outputs.instance_id }}" \
-                  --query '{Status:Status,Stdout:StandardOutputContent,Stderr:StandardErrorContent}' \
-                  --output json)"
-                printf '%s\n' "$invocation"
-                if printf '%s' "$invocation" | jq -e '.Stdout | test("demand_miner_install")' >/dev/null; then
-                  exit 0
-                fi
-                echo 'SSM reported Success but install marker missing in stdout.' >&2
-                exit 1
-                ;;
-              Failed|Cancelled|TimedOut)
-                aws ssm get-command-invocation \
-                  --command-id "$command_id" \
-                  --instance-id "${{ steps.seed.outputs.instance_id }}" \
-                  --query '{Status:Status,Stdout:StandardOutputContent,Stderr:StandardErrorContent}' \
-                  --output json
-                exit 1
-                ;;
-            esac
-            sleep 10
-          done
-          echo 'SSM ensure command timed out waiting for completion.' >&2
-          exit 1
-        env:
-          TESTNET_SEED1_INSTANCE_ID: ${{ vars.TESTNET_SEED1_INSTANCE_ID }}
 
-      - name: Ensure demand miner on Seed-1 via SSM (on-seed build fallback)
-        if: steps.seed.outputs.seed_instance_found == 'true' && steps.publish.outcome != 'success'
+      - name: Ensure demand miner via SSM (on-seed build fallback)
+        if: steps.seed.outputs.seed_instance_found == 'true' && needs.publish-binaries.outputs.publish_success != 'true'
         run: |
           set -euo pipefail
-          echo '::warning title=S3 prebuilt publish unavailable::Falling back to on-seed build with apt-installed Go. Create s3://sudharma-testnet-demand-miner-981626123397 for faster installs.'
+          echo '::warning title=S3 prebuilt publish unavailable::Falling back to on-seed build with apt-installed Go on ${{ matrix.seed_name }}.'
           ensure_b64="$(base64 -w0 deployment/testnet/remote-ensure-demand-miner.sh)"
+          config_example="${{ matrix.seed_config }}"
           remote_script_file="$(mktemp)"
           {
             echo 'set -euo pipefail'
             printf 'export SUDHARMA_REPO_REF=%q\n' "$SUDHARMA_REPO_REF"
+            printf 'export SUDHARMA_DEMAND_MINER_CONFIG=%q\n' "$config_example"
             printf 'echo %q | base64 -d > /tmp/remote-ensure-demand-miner.sh\n' "$ensure_b64"
             echo 'chmod +x /tmp/remote-ensure-demand-miner.sh'
             echo 'bash /tmp/remote-ensure-demand-miner.sh'
             echo 'rm -f /tmp/remote-ensure-demand-miner.sh'
           } > "$remote_script_file"
-          wrapper_b64="$(base64 -w0 "$remote_script_file")"
+          bash deployment/testnet/ssm-send-remote-script.sh \
+            "${{ steps.seed.outputs.instance_id }}" \
+            "Ensure Sudharma demand miner on ${{ matrix.seed_name }} via on-seed build" \
+            "$remote_script_file" \
+            "demand_miner_ensure"
           rm -f "$remote_script_file"
-          params="$(jq -nc --arg b64 "$wrapper_b64" '{commands:["echo " + ($b64 | @sh) + " | base64 -d | bash"]}')"
-          command_id="$(aws ssm send-command \
-            --instance-ids "${{ steps.seed.outputs.instance_id }}" \
-            --document-name AWS-RunShellScript \
-            --comment "Ensure Sudharma demand miner via on-seed build (auto-deploy fallback)" \
-            --parameters "$params" \
-            --query 'Command.CommandId' \
-            --output text)"
-          echo "command_id=$command_id" >> "$GITHUB_ENV"
-          for attempt in $(seq 1 90); do
-            status="$(aws ssm get-command-invocation \
-              --command-id "$command_id" \
-              --instance-id "${{ steps.seed.outputs.instance_id }}" \
-              --query 'Status' \
-              --output text 2>/dev/null || echo Pending)"
-            echo "ssm_status=$status attempt=$attempt"
-            case "$status" in
-              Success)
-                invocation="$(aws ssm get-command-invocation \
-                  --command-id "$command_id" \
-                  --instance-id "${{ steps.seed.outputs.instance_id }}" \
-                  --query '{Status:Status,Stdout:StandardOutputContent,Stderr:StandardErrorContent}' \
-                  --output json)"
-                printf '%s\n' "$invocation"
-                if printf '%s' "$invocation" | jq -e '.Stdout | test("demand_miner_ensure")' >/dev/null; then
-                  exit 0
-                fi
-                echo 'SSM reported Success but ensure marker missing in stdout.' >&2
-                exit 1
-                ;;
-              Failed|Cancelled|TimedOut)
-                aws ssm get-command-invocation \
-                  --command-id "$command_id" \
-                  --instance-id "${{ steps.seed.outputs.instance_id }}" \
-                  --query '{Status:Status,Stdout:StandardOutputContent,Stderr:StandardErrorContent}' \
-                  --output json
-                exit 1
-                ;;
-            esac
-            sleep 10
-          done
-          echo 'SSM fallback ensure command timed out waiting for completion.' >&2
-          exit 1
-        env:
-          TESTNET_SEED1_INSTANCE_ID: ${{ vars.TESTNET_SEED1_INSTANCE_ID }}
 
+      - name: Report missing seed target
+        if: steps.seed.outputs.seed_instance_found != 'true'
+        run: |
+          if [ "${{ github.event_name }}" = 'schedule' ] || [ "${{ github.event_name }}" = 'workflow_dispatch' ]; then
+            echo "::warning title=Skipping ${{ matrix.seed_name }}::Instance id not configured for ${{ matrix.seed_private_ip }}"
+          fi
+
+  verify-chain-progress:
+    needs: [assess-chain-work, ensure-on-seeds]
+    if: >-
+      always() &&
+      needs.assess-chain-work.outputs.should_deploy == 'true' &&
+      needs.ensure-on-seeds.result == 'success'
+    runs-on: ubuntu-24.04
+    steps:
       - name: Verify chain advanced after ensure
-        if: steps.seed.outputs.seed_instance_found == 'true'
         run: |
           set -euo pipefail
           sleep 20
@@ -303,31 +272,24 @@ jobs:
             if (!progressed) process.exit(2);
           "
         continue-on-error: true
+        env:
+          RPC_BASE_URL: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com
 
       - name: Post-ensure public status snapshot
-        if: always() && steps.seed.outputs.seed_instance_found == 'true'
+        if: always()
         run: |
           curl -fsS "$RPC_BASE_URL/v1/status" | tee /tmp/post-ensure-status.json
           curl -fsS "$RPC_BASE_URL/v1/faucet/diagnostics" | tee /tmp/post-ensure-diagnostics.json
-          node ./scripts/faucet-recovery-monitor.mjs | tee /tmp/post-ensure-readiness.json || true
-
-      - name: Report missing Seed-1 target
-        if: steps.seed.outputs.seed_instance_found != 'true'
-        run: |
-          echo '::warning title=Demand miner auto-deploy needs Seed-1 instance id::Set repository variable TESTNET_SEED1_INSTANCE_ID to the SSM-managed Seed-1 EC2 instance id (host 172.31.10.171).'
-          if [ "${{ github.event_name }}" = 'schedule' ] || [ "${{ github.event_name }}" = 'workflow_dispatch' ]; then
-            exit 2
-          fi
 
   trigger-faucet-recovery:
-    needs: [assess-chain-work, ensure-on-seed]
+    needs: [assess-chain-work, ensure-on-seeds]
     if: >-
       always() &&
       needs.assess-chain-work.result == 'success' &&
       needs.assess-chain-work.outputs.should_attempt_recovery == 'true' &&
       (
-        (needs.assess-chain-work.outputs.should_deploy != 'true' && needs.ensure-on-seed.result == 'skipped') ||
-        (needs.assess-chain-work.outputs.should_deploy == 'true' && needs.ensure-on-seed.result == 'success')
+        (needs.assess-chain-work.outputs.should_deploy != 'true' && needs.ensure-on-seeds.result == 'skipped') ||
+        (needs.assess-chain-work.outputs.should_deploy == 'true' && needs.ensure-on-seeds.result == 'success')
       )
     runs-on: ubuntu-24.04
     permissions:
@@ -408,6 +370,8 @@ jobs:
           body="$(printf '%s\n' "$response" | sed '$d')"
           printf '%s\n' "$body"
           echo "{\"recovery_http_status\":$status,\"failed_address\":\"$FAILED_ADDRESS\"}"
+        env:
+          RPC_BASE_URL: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com
 
       - name: Verify payout chain state
         if: steps.readiness.outputs.should_attempt == 'true'
@@ -415,3 +379,5 @@ jobs:
           set -euo pipefail
           curl -fsS "$RPC_BASE_URL/v1/transactions/$FAILED_TXID" | tee /tmp/recovery-tx-status.json || echo '{"status":"not_found"}' > /tmp/recovery-tx-status.json
           node ./scripts/analyze-faucet-public-state.mjs | tee /tmp/recovery-analysis-after-miner.json
+        env:
+          RPC_BASE_URL: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com

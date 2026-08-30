@@ -5,6 +5,7 @@ set -euo pipefail
 demand_url="${DEMAND_MINER_BIN_URL:?DEMAND_MINER_BIN_URL is required}"
 node_url="${SUDHARMAD_BIN_URL:?SUDHARMAD_BIN_URL is required}"
 config_b64="${DEMAND_MINER_CONFIG_B64:-}"
+config_example="${SUDHARMA_DEMAND_MINER_CONFIG:-deployment/testnet/demand-miner.seed1-live.example.json}"
 repo_ref="${SUDHARMA_REPO_REF:-feature/faucet-recovery-stage2}"
 repo_url="${SUDHARMA_REPO_URL:-https://github.com/sudharma-networks/sudharma.git}"
 workdir="${SUDHARMA_DEMAND_MINER_SRC:-/var/lib/sudharma-demand-miner/src}"
@@ -58,10 +59,20 @@ DEMAND_MINER_BIN="$tmpdir/sudharma-demand-miner" \
 SUDHARMAD_BIN="$tmpdir/sudharmad" \
 bash "$workdir/deployment/testnet/install-demand-miner.sh" --enable
 
-if command -v jq >/dev/null 2>&1 && [ -f /etc/sudharma/demand-miner.json ] && [ -f "$workdir/deployment/testnet/demand-miner.seed1-live.example.json" ]; then
+if command -v jq >/dev/null 2>&1 && [ -f /etc/sudharma/demand-miner.json ] && [ -f "$workdir/$config_example" ]; then
   jq -s \
-    '.[0] * (.[1] | {poll_every,cooldown,failure_backoff,child_timeout,scheduled_sweep_every,max_blocks_per_sweep})' \
-    /etc/sudharma/demand-miner.json "$workdir/deployment/testnet/demand-miner.seed1-live.example.json" \
+    '.[0] * (.[1] | {
+      poll_every,
+      cooldown,
+      failure_backoff,
+      child_timeout,
+      scheduled_sweep_every,
+      max_blocks_per_sweep,
+      faucet_min_balance,
+      faucet_funding_blocks,
+      wake_listen
+    })' \
+    /etc/sudharma/demand-miner.json "$workdir/$config_example" \
     > /tmp/demand-miner-schedule.json
   install -m 0640 /tmp/demand-miner-schedule.json /etc/sudharma/demand-miner.json
   chown root:sudharma-miner /etc/sudharma/demand-miner.json
