@@ -6,9 +6,17 @@ MINER_BINARY="${MINER_BINARY:-/usr/local/libexec/sudharma-demand-miner/sudharmad
 SEED_PEER="${SEED_PEER:-127.0.0.1:28444}"
 BLOCKS="${BLOCKS:-1}"
 
-if ! command -v "$MINER_BINARY" >/dev/null 2>&1; then
-  MINER_BINARY="$(command -v sudharmad || true)"
-fi
+for candidate in \
+  "$MINER_BINARY" \
+  /usr/local/bin/sudharmad \
+  /usr/local/libexec/sudharma-demand-miner/sudharmad \
+  "$(command -v sudharmad 2>/dev/null || true)"; do
+  if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+    MINER_BINARY="$candidate"
+    break
+  fi
+done
+
 if [ -z "$MINER_BINARY" ] || [ ! -x "$MINER_BINARY" ]; then
   echo "faucet_refill_mine: miner binary unavailable" >&2
   exit 1
