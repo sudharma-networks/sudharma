@@ -59,6 +59,28 @@ require_literal '--environment file:///tmp/lambda-environment-base-wrapper.json'
 require_literal "trap 'rollback_shared_lambda' ERR"
 require_literal 'name: Verify shared public RPC before faucet activation'
 
+# A late shared-route regression after the faucet becomes ready must also fail
+# closed. The post-activation verification step must disable the faucet and
+# restore the prior Lambda code/environment using the same rollback snapshot.
+require_literal 'name: Verify shared public RPC after faucet activation'
+post_line="$(grep -n -m1 'name: Verify shared public RPC after faucet activation' "$workflow" | cut -d: -f1 || true)"
+verify_config_line="$(grep -n -m1 'name: Verify deployed Lambda configuration' "$workflow" | cut -d: -f1 || true)"
+[ -n "$post_line" ] || fail 'missing post-activation shared RPC verification step'
+[ -n "$verify_config_line" ] || fail 'missing deployed Lambda configuration verification step'
+post_block="$(sed -n "${post_line},$((verify_config_line - 1))p" "$workflow")"
+if ! grep -Fq -- 'rollback_shared_lambda()' <<<"$post_block"; then
+  fail 'post-activation shared RPC verification must define rollback_shared_lambda'
+fi
+if ! grep -Fq -- "trap 'rollback_shared_lambda' ERR" <<<"$post_block"; then
+  fail 'post-activation shared RPC verification must trap ERR and rollback'
+fi
+if ! grep -Fq -- '--environment file:///tmp/lambda-environment-base-wrapper.json' <<<"$post_block"; then
+  fail 'post-activation rollback must restore original Lambda environment'
+fi
+if ! grep -Fq -- '--zip-file fileb:///tmp/lambda-code-rollback.zip' <<<"$post_block"; then
+  fail 'post-activation rollback must restore previous Lambda code'
+fi
+
 # The public RPC Lambda is shared with website/explorer reads. A faucet recovery
 # deployment must not regress routes already served by that Lambda.
 require_literal 'visitor-runtime.mjs' "$workflow"
@@ -114,4 +136,4 @@ for forbidden in '--runtime ' '--handler ' '--timeout ' '--memory-size '; do
   fi
 done
 
-printf 'PASS: faucet deployment contract is manual-only, has a read-only AWS/OIDC preflight that proves rollback permissions, preserves shared Lambda routes/environment/configuration, rolls shared Lambda code/environment back on pre-activation smoke failure, is deep-health gated, fail-closed on unexpected errors, disables before code update, and promotes the tested artifact\n'
+printf 'PASS: faucet deployment contract is manual-only, has a read-only AWS/OIDC preflight that proves rollback permissions, preserves shared Lambda routes/environment/configuration, rolls shared Lambda code/environment back on pre- and post-activation smoke failure, is deep-health gated, fail-closed on unexpected errors, disables before code update, and promotes the tested artifact\n'
