@@ -16,10 +16,18 @@ class ActivityHistoryResilienceTest {
     }
 
     @Test
-    fun `activity still loads local history when received block scan is unavailable`() {
+    fun `activity still loads local history when received discovery is unavailable`() {
         val repository = source("src/main/java/network/sudharma/wallet/SudharmaWalletRepository.kt")
         assertTrue(repository.contains("runCatching { syncReceivedTransactions() }"))
         assertTrue(repository.contains("preferences.transactionRecords()"))
+    }
+
+    @Test
+    fun `ordinary received transactions use explorer address history before block fallback`() {
+        val repository = source("src/main/java/network/sudharma/wallet/SudharmaWalletRepository.kt")
+        assertTrue(repository.contains("ExplorerAddressHistoryClient"))
+        assertTrue(repository.contains("history(account.address"))
+        assertTrue(repository.contains("ReceivedTransactionScanner.scan"))
     }
 
     @Test
