@@ -41,7 +41,7 @@ events {{ worker_connections 32; }}
 http {{
     access_log off;
     server {{
-        listen 127.0.0.1:0;
+        listen 127.0.0.1:18080;
 {textwrap.indent(block, "        ")}
         location / {{ return 404; }}
     }}
