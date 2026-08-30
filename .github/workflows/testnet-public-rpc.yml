@@ -90,9 +90,10 @@ jobs:
           role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
           aws-region: ap-south-1
 
-      - name: Verify faucet resources exist
+      - name: Verify AWS identity and faucet resources
         run: |
           set -euo pipefail
+          aws sts get-caller-identity --query '{Account:Account,Arn:Arn}' --output json
           aws dynamodb describe-table \
             --table-name "$FAUCET_TABLE_NAME" \
             --query 'Table.{Name:TableName,Status:TableStatus}' \
@@ -101,6 +102,27 @@ jobs:
             --secret-id "$FAUCET_SECRET_ID" \
             --query '{Name:Name,ARN:ARN}' \
             --output json
+
+      - name: Snapshot Lambda environment
+        run: |
+          set -euo pipefail
+          aws lambda get-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --query 'Environment.Variables' \
+            --output json > /tmp/lambda-environment-base.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const base = JSON.parse(fs.readFileSync('/tmp/lambda-environment-base.json', 'utf8')) ?? {};
+          const common = {
+            SEED_1_URL: 'http://172.31.10.171:29100',
+            SEED_2_URL: 'http://172.31.32.195:29100',
+            UPSTREAM_TIMEOUT_MS: '3500',
+            FAUCET_TABLE_NAME: process.env.FAUCET_TABLE_NAME,
+            FAUCET_SECRET_ID: process.env.FAUCET_SECRET_ID,
+          };
+          fs.writeFileSync('/tmp/lambda-environment-disabled.json', JSON.stringify({ Variables: { ...base, ...common, FAUCET_ENABLED: 'false' } }));
+          fs.writeFileSync('/tmp/lambda-environment-enabled.json', JSON.stringify({ Variables: { ...base, ...common, FAUCET_ENABLED: 'true' } }));
+          NODE
 
       - name: Stage faucet disabled
         run: |
@@ -111,7 +133,7 @@ jobs:
             --handler index.handler \
             --timeout 10 \
             --memory-size 128 \
-            --environment "Variables={SEED_1_URL=http://172.31.10.171:29100,SEED_2_URL=http://172.31.32.195:29100,UPSTREAM_TIMEOUT_MS=3500,FAUCET_ENABLED=false,FAUCET_TABLE_NAME=$FAUCET_TABLE_NAME,FAUCET_SECRET_ID=$FAUCET_SECRET_ID}" \
+            --environment file:///tmp/lambda-environment-disabled.json \
             --no-cli-pager >/dev/null
           aws lambda wait function-updated --function-name "$LAMBDA_NAME"
 
@@ -136,7 +158,7 @@ jobs:
           disable_faucet() {
             aws lambda update-function-configuration \
               --function-name "$LAMBDA_NAME" \
-              --environment "Variables={SEED_1_URL=http://172.31.10.171:29100,SEED_2_URL=http://172.31.32.195:29100,UPSTREAM_TIMEOUT_MS=3500,FAUCET_ENABLED=false,FAUCET_TABLE_NAME=$FAUCET_TABLE_NAME,FAUCET_SECRET_ID=$FAUCET_SECRET_ID}" \
+              --environment file:///tmp/lambda-environment-disabled.json \
               --no-cli-pager >/dev/null
             aws lambda wait function-updated --function-name "$LAMBDA_NAME"
           }
@@ -154,7 +176,7 @@ jobs:
 
           aws lambda update-function-configuration \
             --function-name "$LAMBDA_NAME" \
-            --environment "Variables={SEED_1_URL=http://172.31.10.171:29100,SEED_2_URL=http://172.31.32.195:29100,UPSTREAM_TIMEOUT_MS=3500,FAUCET_ENABLED=true,FAUCET_TABLE_NAME=$FAUCET_TABLE_NAME,FAUCET_SECRET_ID=$FAUCET_SECRET_ID}" \
+            --environment file:///tmp/lambda-environment-enabled.json \
             --no-cli-pager >/dev/null
           aws lambda wait function-updated --function-name "$LAMBDA_NAME"
 
