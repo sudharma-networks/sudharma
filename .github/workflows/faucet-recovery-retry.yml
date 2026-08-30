@@ -22,6 +22,7 @@ env:
   LAMBDA_NAME: Sudharma-Testnet-Wallet-Proxy
   FAUCET_TABLE_NAME: Sudharma-Testnet-Faucet
   FAUCET_SECRET_ID: sudharma/testnet/faucet-wallet
+  FAUCET_RECOVERY_ADDRESS: 16d7dc9ec0495109007860a584c7cf9055da9abf
   FAILED_ADDRESS: 16d7dc9ec0495109007860a584c7cf9055da9abf
   FAILED_TXID: b66bde192c92d192b47ca6e972911e4bfb310a0f343b6ef15b77c468d8a989cc
 
@@ -116,6 +117,7 @@ jobs:
             UPSTREAM_TIMEOUT_MS: '3500',
             FAUCET_TABLE_NAME: process.env.FAUCET_TABLE_NAME,
             FAUCET_SECRET_ID: process.env.FAUCET_SECRET_ID,
+            FAUCET_RECOVERY_ADDRESS: process.env.FAUCET_RECOVERY_ADDRESS,
           };
           fs.writeFileSync('/tmp/lambda-environment-disabled.json', JSON.stringify({ Variables: { ...base, ...common, FAUCET_ENABLED: 'false' } }));
           fs.writeFileSync('/tmp/lambda-environment-enabled.json', JSON.stringify({ Variables: { ...base, ...common, FAUCET_ENABLED: 'true' } }));

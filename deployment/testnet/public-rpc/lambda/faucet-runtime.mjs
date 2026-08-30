@@ -536,7 +536,7 @@ function summarizeSignerMempoolTxs(mempoolBody, signerAddress) {
     .map((tx) => ({ id: tx.ID, to: tx.To, nonce: tx.Nonce, amount: tx.Amount, fee: tx.Fee }));
 }
 
-export async function checkFaucetDiagnostics({ store, rpc, signer }) {
+export async function checkFaucetDiagnostics({ store, rpc, signer, recoveryAddress = null }) {
   const readiness = await checkFaucetReadiness({ store, rpc, signer }).then(() => true).catch(() => false);
   const account = await rpc.account(signer.address);
   let networkStatus = null;
@@ -572,6 +572,24 @@ export async function checkFaucetDiagnostics({ store, rpc, signer }) {
     }
   }
 
+  let preparedRecovery = null;
+  if (typeof recoveryAddress === 'string' && recoveryAddress.length > 0) {
+    try {
+      const record = await store.getAddress(recoveryAddress);
+      if (record) {
+        preparedRecovery = {
+          address: recoveryAddress,
+          initial_status: record.initial_status ?? null,
+          initial_txid: record.initial_txid ?? null,
+          initial_last_error_category: record.initial_last_error_category ?? null,
+          initial_last_http_status: record.initial_last_http_status ?? null,
+        };
+      }
+    } catch {
+      preparedRecovery = null;
+    }
+  }
+
   return {
     ready: readiness,
     signer: {
@@ -585,6 +603,7 @@ export async function checkFaucetDiagnostics({ store, rpc, signer }) {
       mempool: networkStatus.mempool ?? null,
     } : null,
     seed_mempool: seedMempool,
+    prepared_recovery: preparedRecovery,
     mempool_inference: {
       network_mempool_count: networkStatus?.mempool ?? null,
       seed_mempool_endpoint_available: seedMempool.available,
@@ -669,7 +688,12 @@ export function createRuntimeFaucetHandler({ seeds, fetchImpl = globalThis.fetch
     if (request.kind === 'faucetDiagnostics') {
       return {
         statusCode: 200,
-        payload: await checkFaucetDiagnostics({ store, rpc, signer: runtime.signer }),
+        payload: await checkFaucetDiagnostics({
+          store,
+          rpc,
+          signer: runtime.signer,
+          recoveryAddress: env.FAUCET_RECOVERY_ADDRESS || null,
+        }),
       };
     }
 

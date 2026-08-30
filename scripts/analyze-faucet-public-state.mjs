@@ -91,9 +91,13 @@ export function analyzeFaucetPublicState({
 
   if (typeof lastErrorCategory === 'string' && lastErrorCategory.length > 0) {
     analysis.last_error_category = lastErrorCategory;
+  } else if (typeof faucetDiagnostics?.prepared_recovery?.initial_last_error_category === 'string') {
+    analysis.last_error_category = faucetDiagnostics.prepared_recovery.initial_last_error_category;
   }
   if (Number.isInteger(lastHttpStatus)) {
     analysis.last_http_status = lastHttpStatus;
+  } else if (Number.isInteger(faucetDiagnostics?.prepared_recovery?.initial_last_http_status)) {
+    analysis.last_http_status = faucetDiagnostics.prepared_recovery.initial_last_http_status;
   }
 
   if (analysis.last_error_category === 'invalid_nonce') {

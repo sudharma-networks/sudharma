@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { attachUpstreamNonceMismatch, classifyUpstreamError, createOperationTimer, createRpc, createRuntimeFaucetHandler, parsePrometheusGauge } from './faucet-runtime.mjs';
+import { attachUpstreamNonceMismatch, checkFaucetDiagnostics, classifyUpstreamError, createOperationTimer, createRpc, createRuntimeFaucetHandler, parsePrometheusGauge } from './faucet-runtime.mjs';
 
 test('dependency timing logs only operation outcome and latency', async () => {
   const records = [];
@@ -204,4 +204,46 @@ test('mempool probe fails over to the next seed when the first seed returns a no
   assert.equal(calls.length, 2);
   assert.match(calls[0], /^https:\/\/seed-a\.example/);
   assert.match(calls[1], /^https:\/\/seed-b\.example/);
+});
+
+test('diagnostics include prepared recovery state when recovery address is configured', async () => {
+  const recoveryAddress = '16d7dc9ec0495109007860a584c7cf9055da9abf';
+  const rpc = {
+    async account() {
+      return { balance: 24998000000, confirmed_nonce: 2, next_nonce: 3 };
+    },
+    async status() {
+      return { height: 12, mempool: 2 };
+    },
+    async mempool() {
+      throw new Error('mempool unavailable');
+    },
+    async metrics() {
+      throw new Error('metrics unavailable');
+    },
+  };
+  const store = {
+    async checkReadWrite() {},
+    async getAddress(address) {
+      assert.equal(address, recoveryAddress);
+      return {
+        initial_status: 'prepared',
+        initial_txid: 'b'.repeat(64),
+        initial_last_error_category: 'invalid_nonce',
+        initial_last_http_status: 422,
+      };
+    },
+  };
+
+  const payload = await checkFaucetDiagnostics({
+    store,
+    rpc,
+    signer: { address: '9ccdc094489874bed888ffe4bdf9b8298f4c5131' },
+    recoveryAddress,
+  });
+
+  assert.equal(payload.prepared_recovery.initial_status, 'prepared');
+  assert.equal(payload.prepared_recovery.initial_last_error_category, 'invalid_nonce');
+  assert.equal(payload.prepared_recovery.initial_last_http_status, 422);
+  assert.equal(payload.mempool_inference.chain_advancement_required, true);
 });
