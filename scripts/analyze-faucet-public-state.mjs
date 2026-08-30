@@ -24,7 +24,7 @@ function expectedTxId(from, to, nonce) {
 async function fetchJson(path) {
   const response = await fetch(`${RPC_BASE_URL}${path}`, { redirect: 'error' });
   const body = await response.json().catch(() => ({}));
-  return { status: response.status, body };
+  return { status: response.status, body, ok: response.ok };
 }
 
 export function analyzeFaucetPublicState({
@@ -51,6 +51,7 @@ export function analyzeFaucetPublicState({
     faucet_ready: faucetHealth?.ready ?? null,
     network_height: networkStatus?.height ?? null,
     network_mempool: networkStatus?.mempool ?? null,
+    mempool_route_available: mempool.ok === true,
     signer_mempool_txs: signerMempoolTxs,
     signer: {
       address: FAUCET_SIGNER,

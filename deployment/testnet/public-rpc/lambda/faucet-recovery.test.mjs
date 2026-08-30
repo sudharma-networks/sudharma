@@ -168,7 +168,46 @@ test('uncertain initial payout records safe diagnostics without failing the prep
   assert.ok(calls.some((entry) => entry[0] === 'recordInitialUncertainty'));
 });
 
-test('prepared initial payout without stored payout payload fails closed instead of returning 409', async () => {
+test('prepared initial payout without stored payout payload is reconstructed from signer nonce when txid matches', async () => {
+  const signer = createSigner('0'.repeat(63) + '1');
+  const prepared = signer.signTransaction(ADDRESS, 100 * COIN, 7);
+  const calls = [];
+  const store = {
+    async reserveInitial() { return false; },
+    async getAddress() {
+      return { initial_status: 'prepared', initial_txid: prepared.ID };
+    },
+    async prepareInitial(address, payout) { calls.push(['prepareInitial', address, payout.ID]); },
+    async acquirePayoutLock() { calls.push(['lock']); return true; },
+    async releasePayoutLock() { calls.push(['unlock']); },
+    async markInitialSubmitted(address, txid) { calls.push(['markInitialSubmitted', address, txid]); },
+  };
+  const rpc = {
+    async account() { return { balance: 10_000 * COIN, next_nonce: 7 }; },
+    async transaction(txid) {
+      assert.equal(txid, prepared.ID);
+      throw new FaucetError(404, 'transaction not found');
+    },
+    async submit(tx) {
+      calls.push(['submit', tx.ID]);
+      assert.equal(tx.ID, prepared.ID);
+      assert.equal(tx.Nonce, prepared.Nonce);
+      assert.equal(tx.Amount, prepared.Amount);
+      assert.equal(tx.To, prepared.To);
+      return { accepted: true, transaction_id: tx.ID };
+    },
+  };
+
+  const service = createFaucetService({ store, rpc, signer, now: () => NOW });
+  const result = await service.requestInitial(ADDRESS);
+
+  assert.equal(result.status, 'submitted');
+  assert.equal(result.transaction_id, prepared.ID);
+  assert.ok(calls.some((entry) => entry[0] === 'prepareInitial'));
+  assert.ok(calls.some((entry) => entry[0] === 'submit'));
+});
+
+test('prepared initial payout without stored payout payload fails closed when txid does not match signer nonce', async () => {
   const signer = createSigner('0'.repeat(63) + '1');
   const store = {
     async reserveInitial() { return false; },
@@ -176,7 +215,9 @@ test('prepared initial payout without stored payout payload fails closed instead
       return { initial_status: 'prepared', initial_txid: CHALLENGE_TX_ID };
     },
   };
-  const rpc = {};
+  const rpc = {
+    async account() { return { balance: 10_000 * COIN, next_nonce: 7 }; },
+  };
   const service = createFaucetService({ store, rpc, signer, now: () => NOW });
   await assert.rejects(service.requestInitial(ADDRESS), /recovery data is unavailable/);
 });

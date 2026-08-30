@@ -135,6 +135,33 @@ function challengeRewardResult(address, transactionId, claim, completedAt) {
   };
 }
 
+async function reconstructPreparedInitialPayout({ rpc, signer, address, transactionId }) {
+  const account = await rpc.account(signer.address);
+  const nonce = account?.next_nonce ?? account?.nextNonce;
+  if (!Number.isSafeInteger(nonce) || nonce < 0) return null;
+
+  const payout = signer.signTransaction(address, INITIAL_GRANT_SUDH * COIN, nonce);
+  return payout.ID === transactionId ? payout : null;
+}
+
+async function resolvePreparedInitialPayout({ store, rpc, signer, address, state, transactionId, now }) {
+  if (state?.initial_payout?.ID === transactionId) {
+    return state.initial_payout;
+  }
+
+  const reconstructed = await reconstructPreparedInitialPayout({ rpc, signer, address, transactionId });
+  if (!reconstructed) return null;
+
+  if (typeof store.prepareInitial === 'function') {
+    try {
+      await store.prepareInitial(address, reconstructed, now());
+    } catch {
+      // Best-effort backfill for legacy prepared rows missing payout payload.
+    }
+  }
+  return reconstructed;
+}
+
 async function ensurePreparedPayout({ store, rpc, payout }) {
   if (!payout || typeof payout !== 'object' || !LOWER_HEX_64.test(payout.ID || '')) {
     throw new FaucetError(503, 'faucet payout recovery data is unavailable');
@@ -164,7 +191,7 @@ async function ensurePreparedPayout({ store, rpc, payout }) {
   }
 }
 
-async function reconcileInitialGrant({ store, rpc, address, state, now }) {
+async function reconcileInitialGrant({ store, rpc, signer, address, state, now }) {
   const transactionId = state?.initial_txid;
   const status = state?.initial_status;
   if (
@@ -176,7 +203,21 @@ async function reconcileInitialGrant({ store, rpc, address, state, now }) {
   }
 
   if (status === 'prepared' && state?.initial_payout?.ID !== transactionId) {
-    throw new FaucetError(503, 'faucet payout recovery data is unavailable');
+    const payout = await resolvePreparedInitialPayout({
+      store, rpc, signer, address, state, transactionId, now,
+    });
+    if (!payout) {
+      throw new FaucetError(503, 'faucet payout recovery data is unavailable');
+    }
+    const recovered = await ensurePreparedPayout({ store, rpc, payout });
+    if (typeof store.markInitialSubmitted === 'function') {
+      await store.markInitialSubmitted(address, transactionId, now());
+    }
+    if (recovered.confirmed) {
+      await store.completeInitial(address, transactionId, now());
+      return initialGrantResult(address, transactionId, 'confirmed');
+    }
+    return initialGrantResult(address, transactionId, 'submitted');
   }
 
   if ((status === 'prepared' || status === 'submitted') && state?.initial_payout?.ID === transactionId) {
@@ -241,7 +282,7 @@ export function createFaucetService({ store, rpc, signer, now = Date.now }) {
       const reserved = await store.reserveInitial(address, now());
       if (!reserved) {
         const state = await store.getAddress(address);
-        const reconciled = await reconcileInitialGrant({ store, rpc, address, state, now });
+        const reconciled = await reconcileInitialGrant({ store, rpc, signer, address, state, now });
         if (reconciled) return reconciled;
         throw new FaucetError(409, 'initial 100 SUDH grant was already requested for this address');
       }
@@ -300,7 +341,7 @@ export function createFaucetService({ store, rpc, signer, now = Date.now }) {
 
       let state = await store.getAddress(address);
       if (state?.initial_status === 'submitted' || state?.initial_status === 'prepared') {
-        const reconciled = await reconcileInitialGrant({ store, rpc, address, state, now });
+        const reconciled = await reconcileInitialGrant({ store, rpc, signer, address, state, now });
         if (reconciled?.status === 'confirmed') {
           state = { ...state, initial_status: 'paid' };
         }

@@ -417,17 +417,17 @@ jobs:
           set -u
           start_ms="${recovery_started_ms:?missing recovery start time}"
           log_group="/aws/lambda/$LAMBDA_NAME"
-          raw_logs="$(mktemp)"
-          if aws logs filter-log-events \
-            --log-group-name "$log_group" \
-            --start-time "$start_ms" \
-            --filter-pattern '"faucet_dependency"' \
-            --max-items 50 \
-            --query 'events[].message' \
-            --output text > "$raw_logs"; then
-            node ./scripts/sanitize-faucet-live-logs.mjs < "$raw_logs"
-            echo '{"recovery_log_capture":"OK"}'
-          else
-            echo '{"recovery_log_capture":"DENIED_OR_FAILED"}'
-          fi
-          rm -f "$raw_logs"
+          for pattern in '"faucet_dependency"' '"wallet_faucet_error"'; do
+            raw_step="$(mktemp)"
+            if aws logs filter-log-events \
+              --log-group-name "$log_group" \
+              --start-time "$start_ms" \
+              --filter-pattern "$pattern" \
+              --max-items 50 \
+              --query 'events[].message' \
+              --output text > "$raw_step"; then
+              node ./scripts/sanitize-faucet-live-logs.mjs < "$raw_step"
+            fi
+            rm -f "$raw_step"
+          done
+          echo '{"recovery_log_capture":"OK"}'
