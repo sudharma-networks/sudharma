@@ -1,0 +1,86 @@
+name: Explorer Seed Nginx Read-Only Probe
+
+on:
+  push:
+    branches:
+      - feature/public-testnet-wallet-v2
+    paths:
+      - '.github/workflows/explorer-seed-nginx-readonly-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: ap-south-1
+      SEED_PRIVATE_IPS: '172.31.10.171 172.31.32.195'
+    steps:
+      - name: Configure AWS credentials from GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+
+      - name: Inspect private nginx bridge without changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          index=0
+          for private_ip in $SEED_PRIVATE_IPS; do
+            index=$((index + 1))
+            instance_id="$(aws ssm describe-instance-information \
+              --query "InstanceInformationList[?IPAddress=='${private_ip}' && PingStatus=='Online'] | [0].InstanceId" \
+              --output text)"
+            if [ -z "$instance_id" ] || [ "$instance_id" = 'None' ]; then
+              echo "seed-${index}: Online SSM instance not found" >&2
+              exit 1
+            fi
+            echo "::add-mask::$instance_id"
+
+            command_id="$(aws ssm send-command \
+              --instance-ids "$instance_id" \
+              --document-name AWS-RunShellScript \
+              --comment "Sudharma private nginx read-only probe" \
+              --parameters 'commands=["set -eu","nginx -t","echo ===NGINX_29100_FILES===","files=$(grep -RlE '\''listen[[:space:]]+29100([[:space:];]|$)'\'' /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null || true)","if [ -z \"$files\" ]; then echo no_29100_config_found; else for f in $files; do echo ===FILE:$f===; cat \"$f\"; done; fi","echo ===LOCAL_BRIDGE_STATUS===","curl -sS -i http://127.0.0.1:29100/v1/status | head -n 20 || true","echo ===LOCAL_BRIDGE_EXPLORER===","curl -sS -i http://127.0.0.1:29100/v1/explorer/status | head -n 20 || true"]' \
+              --query 'Command.CommandId' \
+              --output text)"
+            echo "::add-mask::$command_id"
+
+            for attempt in $(seq 1 30); do
+              status="$(aws ssm get-command-invocation \
+                --command-id "$command_id" \
+                --instance-id "$instance_id" \
+                --query Status \
+                --output text 2>/dev/null || true)"
+              case "$status" in
+                Success) break ;;
+                Failed|Cancelled|TimedOut|Cancelling)
+                  echo "seed-${index}: nginx probe ended with ${status}" >&2
+                  break
+                  ;;
+              esac
+              sleep 2
+            done
+
+            aws ssm get-command-invocation \
+              --command-id "$command_id" \
+              --instance-id "$instance_id" \
+              --query '{status:Status,stdout:StandardOutputContent,stderr:StandardErrorContent}' \
+              --output json
+          done
+
+      - name: Record safety boundary
+        if: always()
+        run: |
+          echo 'nginx-config-writes=0'
+          echo 'nginx-reloads=0'
+          echo 'seed-service-restarts=0'
+          echo 'seed-binaries-changed=0'
+          echo 'gpu-pow-deployment=0'
