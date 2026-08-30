@@ -12,7 +12,7 @@ fail() {
 
 require_literal() {
   local needle="$1"
-  grep -Fq "$needle" "$workflow" || fail "missing required deployment contract: $needle"
+  grep -Fq -- "$needle" "$workflow" || fail "missing required deployment contract: $needle"
 }
 
 require_literal 'workflow_dispatch:'
