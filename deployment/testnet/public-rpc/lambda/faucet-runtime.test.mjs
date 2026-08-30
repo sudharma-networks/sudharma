@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createOperationTimer, createRpc, createRuntimeFaucetHandler } from './faucet-runtime.mjs';
+import { classifyUpstreamError, createOperationTimer, createRpc, createRuntimeFaucetHandler } from './faucet-runtime.mjs';
 
 test('dependency timing logs only operation outcome and latency', async () => {
   const records = [];
@@ -148,5 +148,21 @@ test('RPC diagnostics classify additional seed failures from status and safe key
     assert.equal(parsed.http_status, item.status);
     assert.equal(parsed.error_category, item.category);
     assert.equal(JSON.stringify(records).includes(item.error), false);
+  }
+});
+
+test('upstream classifier maps live seed submit phrases without using raw bodies', () => {
+  const cases = [
+    { status: 422, error: 'transaction signature or identity is invalid', category: 'invalid_signature' },
+    { status: 422, error: 'transaction rejected by mempool validation: transaction rejected by mempool: invalid transaction nonce: expected 3, got 4', category: 'invalid_nonce' },
+    { status: 422, error: 'transaction rejected by mempool validation: transaction rejected by mempool: insufficient balance: have 1, need 2', category: 'insufficient_balance' },
+    { status: 422, error: 'transaction rejected by mempool validation: transaction rejected by mempool: invalid transaction fee', category: 'invalid_fee' },
+    { status: 422, error: 'transaction already exists in mempool: aa', category: 'duplicate_transaction' },
+    { status: 422, error: 'transaction already confirmed: aa', category: 'duplicate_transaction' },
+    { status: 422, error: 'transaction accepted locally but relay failed: peer timeout', category: 'transaction_rejected' },
+    { status: 404, error: 'transaction not found', category: 'not_found' },
+  ];
+  for (const item of cases) {
+    assert.equal(classifyUpstreamError(item.status, item.error), item.category);
   }
 });

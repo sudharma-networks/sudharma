@@ -309,14 +309,18 @@ export function createStore(tableName, timed, clientOverride = null) {
   };
 }
 
-function classifyUpstreamError(statusCode, message) {
+export function classifyUpstreamError(statusCode, message) {
   const text = String(message || '').toLowerCase();
   if (statusCode === 404) return 'not_found';
-  if (text.includes('signature')) return 'invalid_signature';
+  if (text.includes('signature') || text.includes('identity is invalid')) return 'invalid_signature';
   if (text.includes('nonce')) return 'invalid_nonce';
   if (text.includes('insufficient balance')) return 'insufficient_balance';
   if (text.includes('fee')) return 'invalid_fee';
-  if (text.includes('already exists') || text.includes('already processed')) return 'duplicate_transaction';
+  if (
+    text.includes('already exists')
+    || text.includes('already processed')
+    || text.includes('already confirmed')
+  ) return 'duplicate_transaction';
   if (text.includes('transaction id')) return 'invalid_transaction_id';
   if (statusCode === 400) return 'invalid_request';
   if (statusCode === 422) return 'transaction_rejected';
