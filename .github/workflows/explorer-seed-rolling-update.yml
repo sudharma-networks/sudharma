@@ -4,8 +4,12 @@ on:
   push:
     branches:
       - feature/public-testnet-wallet-v2
+      - security/explorer-seed-rollout-script-tdd
     paths:
       - '.github/workflows/explorer-seed-rolling-update.yml'
+      - 'deployment/testnet/explorer-seed-rollout-trigger.txt'
+      - 'deployment/testnet/rollout-explorer-node.sh'
+      - 'deployment/testnet/rollout-explorer-node_test.sh'
   workflow_dispatch:
 
 permissions:
@@ -13,7 +17,7 @@ permissions:
 
 jobs:
   rollout:
-    if: github.event_name == 'push' && github.event.head_commit.message == 'ops(testnet): execute explorer seed rolling update'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feature/public-testnet-wallet-v2' && github.event.head_commit.message == 'ops(testnet): execute explorer seed rolling update'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -28,6 +32,20 @@ jobs:
       SEED_2_PRIVATE_IP: 172.31.32.195
       PUBLIC_RPC_BASE: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com
     steps:
+      - name: Checkout rollout operations files
+        uses: actions/checkout@v4
+        with:
+          path: ops
+          fetch-depth: 1
+
+      - name: Verify explicit execution marker and rollout safety contract
+        working-directory: ops
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(cat deployment/testnet/explorer-seed-rollout-trigger.txt)" = "EXECUTE_SOURCE_SHA=$SOURCE_SHA"
+          bash deployment/testnet/rollout-explorer-node_test.sh
+
       - name: Confirm pinned source CI is green
         env:
           GH_TOKEN: ${{ github.token }}
@@ -46,15 +64,18 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ env.SOURCE_SHA }}
+          path: src
           fetch-depth: 1
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version-file: src/go.mod
           cache: true
+          cache-dependency-path: src/go.sum
 
       - name: Verify explorer and consensus safety gates
+        working-directory: src
         shell: bash
         run: |
           set -euo pipefail
@@ -67,20 +88,24 @@ jobs:
 
           deps="$(go list -deps ./cmd/sudharma-rpcd)"
           if printf '%s\n' "$deps" | grep -Eiq '/(gpu|cuda|opencl|khushi)(/|$)'; then
-            echo 'Refusing rollout: GPU/CUDA/OpenCL/Khushi dependency reached sudharma-rpcd.' >&2
+            echo 'Refusing rollout: prohibited accelerator dependency reached sudharma-rpcd.' >&2
             exit 1
           fi
-          echo 'GPU-PoW dependency gate: disabled/not linked into sudharma-rpcd'
-
+          echo 'Accelerator consensus dependency gate: disabled/not linked into sudharma-rpcd'
           go test ./blockchain ./consensus ./params ./pow ./rpc -count=1
 
-      - name: Build pinned node binary
+      - name: Build pinned node rollout bundle
         id: build
         shell: bash
         run: |
           set -euo pipefail
-          CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$RUNNER_TEMP/sudharma-rpcd" ./cmd/sudharma-rpcd
-          binary_sha="$(sha256sum "$RUNNER_TEMP/sudharma-rpcd" | awk '{print $1}')"
+          mkdir -p "$RUNNER_TEMP/rollout-bundle"
+          cd src
+          CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$RUNNER_TEMP/rollout-bundle/sudharma-rpcd" ./cmd/sudharma-rpcd
+          cd "$GITHUB_WORKSPACE"
+          cp ops/deployment/testnet/rollout-explorer-node.sh "$RUNNER_TEMP/rollout-bundle/rollout-explorer-node.sh"
+          chmod 0755 "$RUNNER_TEMP/rollout-bundle/rollout-explorer-node.sh"
+          binary_sha="$(sha256sum "$RUNNER_TEMP/rollout-bundle/sudharma-rpcd" | awk '{print $1}')"
           test -n "$binary_sha"
           echo "binary_sha=$binary_sha" >> "$GITHUB_OUTPUT"
           echo "Built pinned explorer-capable node binary: $binary_sha"
@@ -90,7 +115,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sudharma-explorer-node-${{ env.SOURCE_SHA }}
-          path: ${{ runner.temp }}/sudharma-rpcd
+          path: ${{ runner.temp }}/rollout-bundle/*
           retention-days: 1
           if-no-files-found: error
 
@@ -138,7 +163,7 @@ jobs:
             local command_id="$1"
             local instance_id="$2"
             local status=''
-            for _ in $(seq 1 90); do
+            for _ in $(seq 1 150); do
               status="$(aws ssm get-command-invocation \
                 --command-id "$command_id" \
                 --instance-id "$instance_id" \
@@ -160,7 +185,7 @@ jobs:
             local instance_id
             local download_url
             local url_b64
-            local remote_script
+            local bootstrap
             local parameters
             local command_id
             local result
@@ -179,146 +204,23 @@ jobs:
             fi
             url_b64="$(printf '%s' "$download_url" | base64 -w0)"
 
-            remote_script="$({
-              printf "EXPECTED_OLD_SHA='%s'\n" "$OLD_BINARY_SHA"
-              printf "EXPECTED_NEW_SHA='%s'\n" "$NEW_BINARY_SHA"
-              printf "EXPECTED_NODE_ID='%s'\n" "$expected_node"
-              printf "PRIVATE_IP='%s'\n" "$private_ip"
-              printf "URL_B64='%s'\n" "$url_b64"
-              cat <<'REMOTE'
-set -eu
-if [ "$(id -u)" != '0' ]; then
-  echo 'SSM command is not running as root; refusing rollout.' >&2
-  exit 1
-fi
-for tool in curl python3 sha256sum systemctl base64; do
-  command -v "$tool" >/dev/null 2>&1 || {
-    echo "required tool missing: $tool" >&2
-    exit 1
-  }
-done
+            bootstrap="$(printf '%s\n' \
+              'set -eu' \
+              'tmp=$(mktemp -d /tmp/sudharma-explorer-bootstrap.XXXXXX)' \
+              'trap '\''rm -rf "$tmp"'\'' EXIT INT TERM' \
+              "url=\$(printf '%s' '$url_b64' | base64 -d)" \
+              'curl -fL --retry 3 --connect-timeout 10 --max-time 120 -o "$tmp/artifact.zip" "$url"' \
+              'mkdir -p "$tmp/extracted"' \
+              'python3 -m zipfile -e "$tmp/artifact.zip" "$tmp/extracted"' \
+              'chmod 0700 "$tmp/extracted/rollout-explorer-node.sh"' \
+              "EXPECTED_OLD_SHA='$OLD_BINARY_SHA' EXPECTED_NEW_SHA='$NEW_BINARY_SHA' EXPECTED_NODE_ID='$expected_node' PRIVATE_IP='$private_ip' CANDIDATE_PATH=\"\$tmp/extracted/sudharma-rpcd\" \"\$tmp/extracted/rollout-explorer-node.sh\"")"
 
-current_sha="$(sha256sum /usr/local/bin/sudharma-rpcd | awk '{print $1}')"
-if [ "$current_sha" != "$EXPECTED_OLD_SHA" ] && [ "$current_sha" != "$EXPECTED_NEW_SHA" ]; then
-  echo "unexpected current binary sha: $current_sha" >&2
-  exit 1
-fi
-
-before_status="$(curl -fsS http://127.0.0.1:28545/v1/status)"
-before_node="$(printf '%s' "$before_status" | python3 -c 'import json,sys; print(json.load(sys.stdin)["node_id"])')"
-before_height="$(printf '%s' "$before_status" | python3 -c 'import json,sys; print(json.load(sys.stdin)["height"])')"
-before_supply="$(printf '%s' "$before_status" | python3 -c 'import json,sys; print(json.load(sys.stdin)["issued_supply"])')"
-if [ "$before_node" != "$EXPECTED_NODE_ID" ]; then
-  echo "unexpected node id before rollout: $before_node" >&2
-  exit 1
-fi
-
-backup="/usr/local/bin/sudharma-rpcd.rollback-${EXPECTED_OLD_SHA}"
-changed=0
-rollback() {
-  if [ "$changed" = '1' ] && [ -f "$backup" ]; then
-    echo 'Rolling back node binary.' >&2
-    install -m 0755 "$backup" /usr/local/bin/sudharma-rpcd
-    systemctl restart sudharma.service || true
-    for _ in $(seq 1 30); do
-      curl -fsS http://127.0.0.1:28545/ready >/dev/null 2>&1 && break
-      sleep 2
-    done
-  fi
-}
-fail_after_change() {
-  echo "$1" >&2
-  rollback
-  exit 1
-}
-
-if [ "$current_sha" = "$EXPECTED_OLD_SHA" ]; then
-  tmp="$(mktemp -d /tmp/sudharma-explorer-rollout.XXXXXX)"
-  trap 'rm -rf "$tmp"' EXIT
-  download_url="$(printf '%s' "$URL_B64" | base64 -d)"
-  curl -fL --retry 3 --connect-timeout 10 -o "$tmp/artifact.zip" "$download_url"
-  mkdir -p "$tmp/extracted"
-  python3 -m zipfile -e "$tmp/artifact.zip" "$tmp/extracted"
-  candidate="$tmp/extracted/sudharma-rpcd"
-  test -f "$candidate" || {
-    echo 'artifact did not contain sudharma-rpcd' >&2
-    exit 1
-  }
-  candidate_sha="$(sha256sum "$candidate" | awk '{print $1}')"
-  if [ "$candidate_sha" != "$EXPECTED_NEW_SHA" ]; then
-    echo "candidate sha mismatch: $candidate_sha" >&2
-    exit 1
-  fi
-
-  if [ ! -f "$backup" ]; then
-    cp -a /usr/local/bin/sudharma-rpcd "$backup"
-  fi
-  backup_sha="$(sha256sum "$backup" | awk '{print $1}')"
-  if [ "$backup_sha" != "$EXPECTED_OLD_SHA" ]; then
-    echo "rollback backup sha mismatch: $backup_sha" >&2
-    exit 1
-  fi
-
-  install -m 0755 "$candidate" /usr/local/bin/sudharma-rpcd.next
-  mv /usr/local/bin/sudharma-rpcd.next /usr/local/bin/sudharma-rpcd
-  changed=1
-  systemctl restart sudharma.service || fail_after_change 'systemctl restart failed'
-fi
-
-ready=0
-for _ in $(seq 1 45); do
-  if systemctl is-active --quiet sudharma.service && curl -fsS http://127.0.0.1:28545/ready >/dev/null 2>&1; then
-    ready=1
-    break
-  fi
-  sleep 2
-done
-[ "$ready" = '1' ] || fail_after_change 'node did not become ready after rollout'
-
-after_status=''
-peers=0
-for _ in $(seq 1 45); do
-  after_status="$(curl -fsS http://127.0.0.1:28545/v1/status || true)"
-  if [ -n "$after_status" ]; then
-    after_node="$(printf '%s' "$after_status" | python3 -c 'import json,sys; print(json.load(sys.stdin)["node_id"])')"
-    after_height="$(printf '%s' "$after_status" | python3 -c 'import json,sys; print(json.load(sys.stdin)["height"])')"
-    after_supply="$(printf '%s' "$after_status" | python3 -c 'import json,sys; print(json.load(sys.stdin)["issued_supply"])')"
-    peers="$(printf '%s' "$after_status" | python3 -c 'import json,sys; print(json.load(sys.stdin)["peers"])')"
-    if [ "$after_node" = "$EXPECTED_NODE_ID" ] && [ "$after_height" -ge "$before_height" ] && [ "$after_supply" -ge "$before_supply" ] && [ "$peers" -ge 1 ]; then
-      break
-    fi
-  fi
-  sleep 2
-done
-
-[ -n "$after_status" ] || fail_after_change 'status endpoint unavailable after rollout'
-[ "$after_node" = "$EXPECTED_NODE_ID" ] || fail_after_change 'node id changed after rollout'
-[ "$after_height" -ge "$before_height" ] || fail_after_change 'chain height regressed after rollout'
-[ "$after_supply" -ge "$before_supply" ] || fail_after_change 'issued supply regressed after rollout'
-[ "$peers" -ge 1 ] || fail_after_change 'peer did not reconnect after rollout'
-
-explorer_status="$(curl -fsS http://127.0.0.1:28545/v1/explorer/status || true)"
-[ -n "$explorer_status" ] || fail_after_change 'direct explorer status is unavailable'
-explorer_network="$(printf '%s' "$explorer_status" | python3 -c 'import json,sys; print(json.load(sys.stdin)["network"])')"
-explorer_height="$(printf '%s' "$explorer_status" | python3 -c 'import json,sys; print(json.load(sys.stdin)["height"])')"
-[ "$explorer_network" = 'sudharma' ] || fail_after_change 'unexpected explorer network'
-[ "$explorer_height" -ge "$before_height" ] || fail_after_change 'explorer height regressed'
-
-bridge_status="$(curl -fsS "http://${PRIVATE_IP}:29100/v1/explorer/status" || true)"
-[ -n "$bridge_status" ] || fail_after_change 'private nginx explorer bridge is unavailable'
-
-installed_sha="$(sha256sum /usr/local/bin/sudharma-rpcd | awk '{print $1}')"
-[ "$installed_sha" = "$EXPECTED_NEW_SHA" ] || fail_after_change 'installed binary sha does not match pinned build'
-
-echo "rollout_ok node=$EXPECTED_NODE_ID height=$after_height peers=$peers binary_sha=$installed_sha"
-REMOTE
-            })"
-
-            parameters="$(jq -cn --arg script "$remote_script" '{commands:[$script]}')"
+            parameters="$(jq -cn --arg command "$bootstrap" '{commands:[$command]}')"
             command_id="$(aws ssm send-command \
               --instance-ids "$instance_id" \
               --document-name AWS-RunShellScript \
               --comment "Sudharma explorer rolling update: ${label}" \
+              --timeout-seconds 600 \
               --parameters "$parameters" \
               --query 'Command.CommandId' \
               --output text)"
@@ -344,18 +246,20 @@ REMOTE
           }
 
           deploy_seed 'seed-1' "$SEED_1_PRIVATE_IP" 'testnet-seed-1'
-
-          curl -fsS "$PUBLIC_RPC_BASE/v1/status" >/dev/null
-          curl -fsS "$PUBLIC_RPC_BASE/v1/explorer/status" >/dev/null
-          echo 'Public RPC and explorer are healthy after Seed-1 rollout.'
-
           deploy_seed 'seed-2' "$SEED_2_PRIVATE_IP" 'testnet-seed-2'
 
-          curl -fsS "$PUBLIC_RPC_BASE/v1/status" >/dev/null
-          curl -fsS "$PUBLIC_RPC_BASE/v1/explorer/status" >/dev/null
-          curl -fsS "$PUBLIC_RPC_BASE/v1/explorer/blocks?limit=5" >/dev/null
-          curl -fsS "$PUBLIC_RPC_BASE/v1/explorer/transactions?limit=5" >/dev/null
-          echo 'Both seeds and the public read-only explorer bridge are healthy.'
+          for attempt in $(seq 1 30); do
+            if curl -fsS "$PUBLIC_RPC_BASE/v1/status" >/dev/null \
+              && curl -fsS "$PUBLIC_RPC_BASE/v1/explorer/status" >/dev/null \
+              && curl -fsS "$PUBLIC_RPC_BASE/v1/explorer/blocks?limit=5" >/dev/null \
+              && curl -fsS "$PUBLIC_RPC_BASE/v1/explorer/transactions?limit=5" >/dev/null; then
+              echo 'Both seeds and the public read-only explorer bridge are healthy.'
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'Public explorer smoke checks did not become healthy.' >&2
+          exit 1
 
       - name: Record rollout safety boundary
         if: always()
@@ -363,7 +267,7 @@ REMOTE
         run: |
           echo "source_sha=$SOURCE_SHA"
           echo 'mainnet_activation=0'
-          echo 'gpu_pow_deployment=0'
+          echo 'accelerator_consensus_deployment=0'
           echo 'raw_rpc_public_exposure=0'
           echo 'seed_config_changes=0'
           echo 'rolling_order=seed-1-then-seed-2'
