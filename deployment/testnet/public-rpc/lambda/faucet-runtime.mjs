@@ -34,13 +34,16 @@ export function createOperationTimer({ logger = console, now = Date.now } = {}) 
       logger.info({ event: 'faucet_dependency', operation, outcome: 'success', latency_ms: now() - started });
       return result;
     } catch (error) {
-      logger.info({
+      const record = {
         event: 'faucet_dependency',
         operation,
         outcome: 'error',
         error_name: String(error?.name || 'Error'),
         latency_ms: now() - started,
-      });
+      };
+      if (Number.isInteger(error?.upstreamStatus)) record.http_status = error.upstreamStatus;
+      if (typeof error?.errorCategory === 'string') record.error_category = error.errorCategory;
+      logger.info(record);
       throw error;
     }
   };
@@ -301,7 +304,22 @@ export function createStore(tableName, timed, clientOverride = null) {
   };
 }
 
-function createRpc({ seeds, fetchImpl, timeoutMs, timed }) {
+function classifyUpstreamError(statusCode, message) {
+  const text = String(message || '').toLowerCase();
+  if (statusCode === 404) return 'not_found';
+  if (text.includes('signature')) return 'invalid_signature';
+  if (text.includes('nonce')) return 'invalid_nonce';
+  if (text.includes('insufficient balance')) return 'insufficient_balance';
+  if (text.includes('fee')) return 'invalid_fee';
+  if (text.includes('already exists') || text.includes('already processed')) return 'duplicate_transaction';
+  if (text.includes('transaction id')) return 'invalid_transaction_id';
+  if (statusCode === 400) return 'invalid_request';
+  if (statusCode === 422) return 'transaction_rejected';
+  if (statusCode >= 500) return 'upstream_unavailable';
+  return 'http_error';
+}
+
+export function createRpc({ seeds, fetchImpl, timeoutMs, timed }) {
   async function call(operation, method, path, body) {
     const request = {
       method,
@@ -309,17 +327,28 @@ function createRpc({ seeds, fetchImpl, timeoutMs, timed }) {
       headers: body == null ? {} : { 'content-type': 'application/json; charset=utf-8' },
       body: body == null ? Buffer.alloc(0) : Buffer.from(JSON.stringify(body), 'utf8'),
     };
-    const result = await timed(operation, () => proxyWithFailover(request, { seeds, fetchImpl, timeoutMs }));
-    let payload;
-    try {
-      payload = JSON.parse(result.body.toString('utf8'));
-    } catch {
-      throw new FaucetError(503, 'invalid response from testnet node');
-    }
-    if (result.statusCode < 200 || result.statusCode >= 300) {
-      throw new FaucetError(result.statusCode >= 500 ? 503 : result.statusCode, payload?.error || 'testnet node rejected request');
-    }
-    return payload;
+    return timed(operation, async () => {
+      const result = await proxyWithFailover(request, { seeds, fetchImpl, timeoutMs });
+      let payload;
+      try {
+        payload = JSON.parse(result.body.toString('utf8'));
+      } catch {
+        const error = new FaucetError(503, 'invalid response from testnet node');
+        error.upstreamStatus = result.statusCode;
+        error.errorCategory = 'invalid_response';
+        throw error;
+      }
+      if (result.statusCode < 200 || result.statusCode >= 300) {
+        const error = new FaucetError(
+          result.statusCode >= 500 ? 503 : result.statusCode,
+          payload?.error || 'testnet node rejected request',
+        );
+        error.upstreamStatus = result.statusCode;
+        error.errorCategory = classifyUpstreamError(result.statusCode, payload?.error);
+        throw error;
+      }
+      return payload;
+    });
   }
 
   return {
