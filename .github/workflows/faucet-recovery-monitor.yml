@@ -20,6 +20,8 @@ env:
 jobs:
   monitor:
     runs-on: ubuntu-24.04
+    outputs:
+      recovery_blocked: ${{ steps.monitor.outputs.recovery_blocked }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -67,3 +69,4 @@ jobs:
       id-token: write
       contents: read
     uses: ./.github/workflows/demand-miner-auto-deploy.yml
+    secrets: inherit

@@ -103,6 +103,12 @@ sudo DEMAND_MINER_BIN="$PWD/sudharma-demand-miner" SUDHARMAD_BIN="$PWD/sudharmad
 
 Only one supervisor host should be active initially. Do not enable a second seed host as a fallback without a separate coordination design and review.
 
+### Automatic deployment (GitHub Actions)
+
+The `Demand Miner Auto Deploy` workflow runs every 10 minutes and is also invoked when faucet recovery monitoring detects `chain_advancement_required`. When mempool work is pending it uses AWS SSM to run `deployment/testnet/remote-ensure-demand-miner.sh` on Seed-1, which builds/installs the supervisor and keeps it running. The supervisor then polls loopback RPC every 5 seconds and mines one block whenever valid transactions are pending.
+
+Set repository variable `TESTNET_SEED1_INSTANCE_ID` to the Seed-1 EC2 instance id, or tag the instance so auto-discovery can find it. The GitHub Actions testnet role must allow `ssm:SendCommand` on that instance. After the chain advances, the same workflow can automatically retry the prepared faucet payout (brief enable, still fail-closed for normal traffic).
+
 ### Rollback
 
 Rollback is limited to the isolated supervisor, its dedicated mining binary, and its own ephemeral data. It must not touch the public-testnet node state or any shared `/usr/local/bin/sudharmad`:
