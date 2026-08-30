@@ -66,6 +66,10 @@ export function matchRoute(methodInput, pathInput) {
     if (method !== 'GET') reject('method not allowed', 405);
     return { kind: 'status', method, path };
   }
+  if (path === '/v1/mempool') {
+    if (method !== 'GET') reject('method not allowed', 405);
+    return { kind: 'mempool', method, path };
+  }
   if (path === '/v1/transactions') {
     if (method !== 'POST') reject('method not allowed', 405);
     return { kind: 'submitTransaction', method, path };

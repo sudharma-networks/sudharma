@@ -14,6 +14,7 @@ test('allows the public wallet and faucet route shapes', () => {
     ['GET', '/health', 'health'],
     ['GET', '/ready', 'ready'],
     ['GET', '/v1/status', 'status'],
+    ['GET', '/v1/mempool', 'mempool'],
     ['GET', `/v1/accounts/${ADDRESS}`, 'account'],
     ['POST', '/v1/transactions', 'submitTransaction'],
     ['GET', '/v1/transactions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'transactionStatus'],
@@ -30,7 +31,7 @@ test('rejects forbidden, malformed and wrong-method routes', () => {
   const cases = [
     ['GET', '/metrics'],
     ['GET', '/v1/blocks/0'],
-    ['GET', '/v1/mempool'],
+    ['POST', '/v1/mempool'],
     ['POST', '/health'],
     ['GET', '/v1/accounts/'],
     ['GET', '/v1/accounts/alice'],

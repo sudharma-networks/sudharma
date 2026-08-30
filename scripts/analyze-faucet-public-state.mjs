@@ -32,6 +32,7 @@ export function analyzeFaucetPublicState({
   faucetHealth,
   signerAccount,
   networkStatus,
+  mempool,
   failedTx,
   failedAddressTx,
 } = {}) {
@@ -39,6 +40,10 @@ export function analyzeFaucetPublicState({
   const nextNonce = signerAccount?.next_nonce ?? signerAccount?.nextNonce;
   const balance = signerAccount?.balance;
   const expectedFailedTxId = expectedTxId(FAUCET_SIGNER, FAILED_ADDRESS, 3);
+  const mempoolTxs = Array.isArray(mempool?.body?.transactions) ? mempool.body.transactions : [];
+  const signerMempoolTxs = mempoolTxs
+    .filter((tx) => tx?.From === FAUCET_SIGNER)
+    .map((tx) => ({ id: tx.ID, to: tx.To, nonce: tx.Nonce, amount: tx.Amount, fee: tx.Fee }));
 
   const analysis = {
     rpc_base_url: RPC_BASE_URL,
@@ -46,6 +51,7 @@ export function analyzeFaucetPublicState({
     faucet_ready: faucetHealth?.ready ?? null,
     network_height: networkStatus?.height ?? null,
     network_mempool: networkStatus?.mempool ?? null,
+    signer_mempool_txs: signerMempoolTxs,
     signer: {
       address: FAUCET_SIGNER,
       balance,
@@ -61,15 +67,23 @@ export function analyzeFaucetPublicState({
     },
     grant_cost_coin: grant,
     balance_covers_next_grant: Number.isSafeInteger(balance) && balance >= grant.total,
-    mempool_may_block_nonce: Number.isInteger(networkStatus?.mempool) && networkStatus.mempool > 0 && nextNonce === 3,
+    mempool_may_block_nonce: signerMempoolTxs.length > 0 || (
+      Number.isInteger(networkStatus?.mempool) && networkStatus.mempool > 0 && nextNonce === 3
+    ),
   };
 
   if (!analysis.balance_covers_next_grant) {
     analysis.likely_blocker = 'insufficient_balance';
     analysis.recommendation = 'Fund the faucet signer before resubmitting nonce-3 payouts.';
+  } else if (signerMempoolTxs.some((tx) => tx.id === FAILED_TXID)) {
+    analysis.likely_blocker = 'prepared_tx_already_pending';
+    analysis.recommendation = 'Reconcile DynamoDB to submitted; the prepared tx is already in mempool.';
+  } else if (signerMempoolTxs.length > 0) {
+    analysis.likely_blocker = 'mempool_contention';
+    analysis.recommendation = 'Clear or mine conflicting faucet mempool transactions before resubmitting nonce 3.';
   } else if (analysis.mempool_may_block_nonce) {
     analysis.likely_blocker = 'mempool_contention';
-    analysis.recommendation = 'Inspect seed mempool for stuck faucet transactions before resubmitting nonce 3.';
+    analysis.recommendation = 'Inspect seed mempool for stuck transactions before resubmitting nonce 3.';
   } else if (failedTx.status === 404) {
     analysis.likely_blocker = 'submit_rejected_not_on_chain';
     analysis.recommendation = 'Deploy diagnostics-only Lambda, capture seed.submit_transaction error_category, then resubmit prepared payout once.';
@@ -92,11 +106,12 @@ export function analyzeFaucetPublicState({
 }
 
 async function main() {
-  const [faucetInfo, faucetHealth, signerAccount, networkStatus, failedTx, failedAddressTx] = await Promise.all([
+  const [faucetInfo, faucetHealth, signerAccount, networkStatus, mempool, failedTx, failedAddressTx] = await Promise.all([
     fetchJson('/v1/faucet/info'),
     fetchJson('/v1/faucet/health'),
     fetchJson(`/v1/accounts/${FAUCET_SIGNER}`),
     fetchJson('/v1/status'),
+    fetchJson('/v1/mempool?limit=20'),
     fetchJson(`/v1/transactions/${FAILED_TXID}`),
     fetchJson(`/v1/explorer/addresses/${FAILED_ADDRESS}?limit=1`).catch(() => ({ status: 0, body: {} })),
   ]);
@@ -106,6 +121,7 @@ async function main() {
     faucetHealth: faucetHealth.body,
     signerAccount: signerAccount.body,
     networkStatus: networkStatus.body,
+    mempool,
     failedTx,
     failedAddressTx,
   });

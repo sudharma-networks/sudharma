@@ -21,6 +21,8 @@ jobs:
         run: bash ./scripts/check-faucet-diagnostics-only-contract_test.sh
       - name: Verify auto diagnostics deploy contract
         run: bash ./scripts/check-faucet-diagnostics-auto-deploy-contract_test.sh
+      - name: Verify prepared payout recovery contract
+        run: bash ./scripts/check-faucet-prepared-payout-recovery-contract_test.sh
       - name: Verify live diagnostics log sanitizer contract
         run: bash ./scripts/check-faucet-live-diagnostics-contract_test.sh
       - name: Test live diagnostics log sanitizer
