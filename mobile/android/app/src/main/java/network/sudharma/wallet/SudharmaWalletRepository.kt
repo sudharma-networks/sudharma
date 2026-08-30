@@ -69,9 +69,22 @@ class SudharmaWalletRepository(context: Context) {
 
     suspend fun activityHistory(): List<WalletActivityItem> {
         syncReceivedTransactions()
-        val records = preferences.transactionRecords()
+        val account = account()
+        val rpc = rpcClient()
+        val rawRecords = preferences.transactionRecords()
+        val enrichedRecords = TransactionRecordEnricher.enrich(
+            records = rawRecords,
+            walletAddress = account.address,
+            fetchStatus = rpc::transaction,
+        )
+        enrichedRecords.forEach { enriched ->
+            val previous = rawRecords.firstOrNull { it.id == enriched.id }
+            if (previous != null && previous != enriched) {
+                preferences.addTransactionRecord(enriched)
+            }
+        }
         val adapter = adapter()
-        return TransactionActivityLoader.load(records, adapter::status)
+        return TransactionActivityLoader.load(enrichedRecords, adapter::status)
     }
 
     suspend fun syncReceivedTransactions() {
