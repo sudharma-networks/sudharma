@@ -46,11 +46,17 @@ class SudharmaWalletRepository(context: Context) {
 
     suspend fun faucetInfo(): TestnetFaucetClient.Info = faucetClient().info().also { lastFaucetInfo = it }
 
-    suspend fun requestInitialTestTokens(): TestnetFaucetClient.InitialGrant =
-        faucetClient().requestInitial(account().address)
+    suspend fun requestInitialTestTokens(): TestnetFaucetClient.InitialGrant {
+        val grant = faucetClient().requestInitial(account().address)
+        persistTestTokenReceipt(grant.transactionId, grant.amountSudh)
+        return grant
+    }
 
-    suspend fun claimChallengeReward(transactionId: String): TestnetFaucetClient.ChallengeReward =
-        faucetClient().claimChallenge(account().address, transactionId)
+    suspend fun claimChallengeReward(transactionId: String): TestnetFaucetClient.ChallengeReward {
+        val reward = faucetClient().claimChallenge(account().address, transactionId)
+        persistTestTokenReceipt(reward.rewardTransactionId, reward.rewardSudh)
+        return reward
+    }
 
     suspend fun send(to: String, amountText: String, challengeMode: Boolean = false): TransactionStatus {
         val account = account()
@@ -84,7 +90,11 @@ class SudharmaWalletRepository(context: Context) {
     }
 
     suspend fun activityHistory(): List<WalletActivityItem> {
-        syncReceivedTransactions()
+        // The currently deployed public RPC may not expose /v1/blocks/{height}.
+        // Received-history discovery is therefore best-effort; a missing scan route
+        // must never hide locally persisted sends, faucet grants, or challenge rewards.
+        runCatching { syncReceivedTransactions() }
+
         val account = account()
         val rpc = rpcClient()
         val rawRecords = preferences.transactionRecords()
@@ -135,6 +145,41 @@ class SudharmaWalletRepository(context: Context) {
         lastFaucetInfo = null
     }
 
+    private suspend fun persistTestTokenReceipt(transactionId: String, amountSudh: Int) {
+        val walletAddress = account().address
+        val remote = runCatching { rpcClient().transaction(transactionId).transaction }.getOrNull()
+        val amountAtomic = remote?.amount ?: Math.multiplyExact(amountSudh.toLong(), COIN_ATOMIC)
+        val counterparty = remote?.from
+            ?.takeIf { it.matches(Regex("^[0-9a-f]{40}$")) }
+            ?: PLACEHOLDER_COUNTERPARTY
+        val fee = remote?.fee ?: 0L
+
+        preferences.addTransactionRecord(
+            WalletTransactionRecord(
+                id = transactionId,
+                direction = TransactionDirection.RECEIVED,
+                amountAtomic = amountAtomic,
+                counterparty = counterparty,
+                feeAtomic = fee,
+                timestampMs = System.currentTimeMillis(),
+            ),
+        )
+
+        // If the RPC returned a transaction, only retain it as a receipt for this wallet.
+        if (remote != null && remote.to != walletAddress) {
+            // Defensive cleanup by replacing the record with the safe fallback shape.
+            preferences.addTransactionRecord(
+                WalletTransactionRecord(
+                    id = transactionId,
+                    direction = TransactionDirection.RECEIVED,
+                    amountAtomic = Math.multiplyExact(amountSudh.toLong(), COIN_ATOMIC),
+                    counterparty = PLACEHOLDER_COUNTERPARTY,
+                    timestampMs = System.currentTimeMillis(),
+                ),
+            )
+        }
+    }
+
     private fun adapter(): SudharmaChainAdapter {
         val url = preferences.rpcUrl
         require(url.isNotBlank()) { "Sudharma Testnet RPC is not configured" }
@@ -154,6 +199,8 @@ class SudharmaWalletRepository(context: Context) {
     }
 
     companion object {
+        private const val COIN_ATOMIC = 100_000_000L
+
         fun parseCoinAmount(text: String): Long {
             val value = text.trim()
             require(value.matches(Regex("^(0|[1-9][0-9]*)(\\.[0-9]{1,8})?$"))) { "Invalid SUDH amount" }
