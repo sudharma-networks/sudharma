@@ -94,7 +94,8 @@ fun WalletApp(repository: SudharmaWalletRepository, activity: FragmentActivity) 
         )
     }
 
-    val sensitive = WalletPresentationPolicy.isSensitive(screen)
+    // This private treasury build blocks screenshots and screen recording on every screen.
+    val sensitive = true
     DisposableEffect(sensitive) {
         activity.setSensitiveScreen(sensitive)
         onDispose { if (sensitive) activity.setSensitiveScreen(false) }
@@ -165,6 +166,7 @@ fun WalletApp(repository: SudharmaWalletRepository, activity: FragmentActivity) 
             activity = activity,
             onBack = { screen = WalletScreen.HOME },
             onBackup = { screen = WalletScreen.BACKUP },
+            onRemoved = { screen = WalletScreen.WELCOME },
         )
         WalletScreen.BACKUP -> BackupScreen(repository, onBack = { screen = WalletScreen.SETTINGS })
     }
@@ -730,9 +732,12 @@ private fun SettingsScreen(
     activity: FragmentActivity,
     onBack: () -> Unit,
     onBackup: () -> Unit,
+    onRemoved: () -> Unit,
 ) {
     var rpc by remember { mutableStateOf(repository.preferences.rpcUrl) }
     var message by remember { mutableStateOf("") }
+    var removeTreasury by remember { mutableStateOf(false) }
+    var removePin by remember { mutableStateOf("") }
     ScreenFrame("Settings", onBack) {
         Text("Network", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -758,6 +763,25 @@ private fun SettingsScreen(
         Text("Security", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         if (repository.isTreasuryWallet()) {
             Text("Treasury recovery stays offline in your original encrypted JSON and raw private-key backup.", style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick = { removeTreasury = true }, modifier = Modifier.fillMaxWidth()) {
+                Text("Remove treasury wallet from this device")
+            }
+            if (removeTreasury) {
+                Text("Enter your PIN to erase the app-held treasury key. Your original JSON and raw-key backups are not changed.")
+                PinField("PIN", removePin) { removePin = it }
+                Button(
+                    onClick = {
+                        if (repository.verifyPin(removePin)) {
+                            repository.resetWallet()
+                            onRemoved()
+                        } else {
+                            message = "Incorrect PIN"
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Confirm removal") }
+                TextButton(onClick = { removeTreasury = false; removePin = "" }) { Text("Cancel") }
+            }
         } else {
             OutlinedButton(onClick = onBackup, modifier = Modifier.fillMaxWidth()) { Text("Back up recovery phrase") }
         }
