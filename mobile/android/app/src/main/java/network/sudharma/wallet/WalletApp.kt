@@ -9,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -45,7 +46,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -419,6 +419,25 @@ private fun HomeScreen(
 }
 
 @Composable
+private fun TransactionReferenceActions(transactionId: String) {
+    val context = LocalContext.current
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(transactionId, style = MaterialTheme.typography.bodySmall)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Sudharma transaction ID", transactionId))
+            }, modifier = Modifier.weight(1f)) { Text("Copy ID") }
+            OutlinedButton(onClick = {
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, android.net.Uri.parse(ExplorerLinks.transactionUrl(transactionId))),
+                )
+            }, modifier = Modifier.weight(1f)) { Text("Explorer") }
+        }
+    }
+}
+
+@Composable
 private fun ReceiveScreen(repository: SudharmaWalletRepository, onBack: () -> Unit) {
     val context = LocalContext.current
     val account = remember { repository.account() }
@@ -488,7 +507,7 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
         TestnetBadge()
         result?.let {
             Text("Transaction accepted", style = MaterialTheme.typography.titleLarge)
-            Text(it.id, style = MaterialTheme.typography.bodySmall)
+            TransactionReferenceActions(it.id)
             Text("Status: ${it.state}")
             Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Done") }
             return@ScreenFrame
@@ -573,10 +592,11 @@ private fun ActivityScreen(repository: SudharmaWalletRepository, onBack: () -> U
         if (message.isNotEmpty()) Text(message)
         statuses.forEach { tx ->
             Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp)) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(tx.id.take(14) + "…" + tx.id.takeLast(8), fontWeight = FontWeight.Medium)
                     Text(tx.state.name)
                     if (tx.state == TransactionState.CONFIRMED) Text("Confirmations: ${tx.confirmations}")
+                    TransactionReferenceActions(tx.id)
                 }
             }
         }
