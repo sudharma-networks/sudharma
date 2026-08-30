@@ -10,6 +10,8 @@ on:
         options:
           - bootstrap
           - poll
+  schedule:
+    - cron: '*/5 * * * *'
 
 permissions:
   contents: read
@@ -38,5 +40,5 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          COMMUNITY_MODE: ${{ inputs.mode }}
+          COMMUNITY_MODE: ${{ github.event_name == 'schedule' && 'poll' || inputs.mode }}
         run: node scripts/telegram/community-observed-worker.js

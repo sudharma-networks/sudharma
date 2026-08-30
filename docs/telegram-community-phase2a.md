@@ -1,6 +1,6 @@
 # Sudharma Telegram Community Bot — Phase 2A
 
-Status: manual-only rollout until controlled smoke tests pass
+Status: live commands-only community bridge; five-minute scheduled polling enabled after controlled smoke tests
 
 Phase 2A extends the existing Sudharma Telegram bot to the public community group `@sudharma_community`. It is intentionally commands-only: ordinary conversation is ignored and the bot has no moderation powers.
 
@@ -36,7 +36,8 @@ Rules:
 - GitHub `@mention` syntax and raw HTML-comment delimiters in user text are neutralized before issue creation;
 - retries use the Telegram `update_id` marker to avoid creating a duplicate issue;
 - deduplication state trusts only report issues authored by `github-actions[bot]`, so an ordinary public GitHub issue cannot spoof a processed Telegram update;
-- deduplication searches a 24-hour history, matching Telegram's maximum pending-update lifetime, while abuse-rate counting remains a separate rolling one-hour window.
+- deduplication searches a 24-hour history, matching Telegram's maximum pending-update lifetime, while abuse-rate counting remains a separate rolling one-hour window;
+- replies allow delivery when an original Telegram reply target has been removed or is no longer available, preventing one stale update from blocking later commands.
 
 Abuse controls:
 
@@ -77,10 +78,13 @@ Do not display, paste, rotate, or resend the bot token while performing this ste
 
 Workflow: **Telegram Community** (`.github/workflows/telegram-community.yml`)
 
-Initial rollout is manual-only. It supports two `workflow_dispatch` modes:
+The live workflow supports both automatic and manual operation:
 
-- `bootstrap`
-- `poll`
+- scheduled `poll` every five minutes;
+- manual `bootstrap`;
+- manual `poll`.
+
+Scheduled events always force `COMMUNITY_MODE=poll`; they cannot invoke bootstrap. Manual `workflow_dispatch` runs retain the explicit `bootstrap` / `poll` selector.
 
 It uses only:
 
@@ -94,7 +98,7 @@ Runs are serialized under one concurrency group so overlapping poll workers cann
 
 ## Bootstrap procedure
 
-Run bootstrap only after the bot is a non-admin member of `@sudharma_community` and Group Privacy Mode is confirmed enabled.
+Bootstrap is a one-time setup/recovery operation. Run it only after the bot is a non-admin member of `@sudharma_community` and Group Privacy Mode is confirmed enabled.
 
 From GitHub on Android:
 
@@ -103,7 +107,7 @@ From GitHub on Android:
 3. Open **Telegram Community**.
 4. Tap **Run workflow**.
 5. Select `mode: bootstrap`.
-6. Run it against `main` after the manual-only Phase 2A PR has been merged.
+6. Run it against `main`.
 
 Bootstrap performs only this sequence:
 
@@ -117,7 +121,7 @@ A bootstrap failure must be investigated before polling. Do not blindly disable 
 
 ## Controlled `/help` smoke test
 
-After bootstrap succeeds:
+The initial live rollout used this test after bootstrap:
 
 1. In `@sudharma_community`, send:
 
@@ -125,46 +129,52 @@ After bootstrap succeeds:
 /help
 ```
 
-2. Immediately run **Telegram Community** with `mode: poll`.
+2. Run **Telegram Community** with `mode: poll`.
 3. Verify exactly one bot reply appears in the official community group.
 4. Verify the reply lists the supported commands and states that Sudharma is pre-mainnet/public-testnet experimental software.
 5. Verify no GitHub issue was created from `/help`.
 
-If this test fails, keep recurring polling disabled.
+This controlled `/help` smoke test passed before recurring polling activation.
 
 ## Controlled `/report` smoke test
 
-After `/help` succeeds, send a clearly non-sensitive test report such as:
+The initial live rollout used a clearly non-sensitive test report such as:
 
 ```text
 /report Phase 2A controlled test report for Telegram-to-GitHub intake verification only
 ```
 
-Then:
+Verification requirements:
 
-1. Run **Telegram Community** with `mode: poll`.
-2. Verify exactly one public GitHub issue is created.
-3. Verify its body contains the Phase 2A source marker and a link to the Telegram test message.
-4. Verify the issue is authored by `github-actions[bot]` and does not contain Telegram numeric user identity data.
-5. Verify the bot replies in Telegram with the new GitHub issue URL.
-6. Run `mode: poll` again.
-7. Verify no duplicate GitHub issue is created.
+1. run **Telegram Community** with `mode: poll`;
+2. verify exactly one public GitHub issue is created;
+3. verify its body contains the Phase 2A source marker and a link to the Telegram test message;
+4. verify the issue is authored by `github-actions[bot]` and does not contain Telegram numeric user identity data;
+5. verify the bot replies in Telegram with the new GitHub issue URL;
+6. verify retry/dedup handling in automated tests and ensure subsequent polling does not create another issue from an already-confirmed update.
 
-Close the controlled smoke-test issue after the evidence is recorded.
+The live `/report` smoke test passed and created the controlled report issue before recurring polling activation.
 
-## Recurring schedule gate
+## Recurring schedule
 
-The five-minute recurring poll schedule must **not** be added until all of these are true:
+The five-minute recurring poll schedule is enabled only after all of these rollout gates were satisfied:
 
-- Phase 2A implementation CI is green;
-- bot is a normal member of `@sudharma_community` and not an admin;
-- Group Privacy Mode is enabled;
+- Phase 2A implementation CI green;
+- bot present as a normal member of `@sudharma_community` and not an admin;
+- Group Privacy Mode enabled;
 - bootstrap succeeded;
 - controlled `/help` succeeded;
 - controlled `/report` created exactly one issue and returned its URL;
-- retry/dedup behavior was verified.
+- retry/dedup behavior covered by the worker's regression tests;
+- stale/missing Telegram reply targets no longer block the queue.
 
-Schedule activation is a separate, small PR with its own tests and exact-head CI. The intended cadence is no more frequent than every five minutes.
+The schedule cadence is:
+
+```text
+*/5 * * * *
+```
+
+Scheduled runs use the same protected secret, least-privilege GitHub token, concurrency group, rate limits, and five-minute job timeout as manual poll runs.
 
 ## Expected command responses
 
@@ -183,7 +193,7 @@ Schedule activation is a separate, small PR with its own tests and exact-head CI
 For Phase 2A only, the narrowest emergency stop is:
 
 1. remove the bot from `@sudharma_community`; or
-2. disable/remove the recurring schedule if schedule activation has already been merged.
+2. disable/remove the recurring schedule.
 
 Revoking the Telegram bot token is a broader emergency action because the same token is also used by the working Phase 1 announcement bridge. Use token revocation only when the token itself is suspected to be compromised or when stopping both phases is intended.
 
@@ -194,6 +204,7 @@ Revoking the Telegram bot token is a broader emergency action because the same t
 - Do not disable Group Privacy Mode as a troubleshooting shortcut.
 - A configured webhook causes bootstrap to fail by design. Identify the webhook owner/integration before changing it.
 - A failed actionable Telegram update is deliberately left unacknowledged so it can be retried.
+- Replies use Telegram's `allow_sending_without_reply` fallback so deleted or expired source messages do not stall the queue.
 - `/report` retries search the previous 24 hours of `github-actions[bot]`-authored GitHub issues for the exact Telegram `update_id` marker before creating a new issue.
 - The rolling abuse limit counts only qualifying Telegram-created issues from the previous hour, not the full 24-hour dedup history.
 
