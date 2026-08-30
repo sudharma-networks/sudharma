@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   workflow_call:
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '*/30 * * * *'
   push:
     branches:
       - feature/faucet-recovery-stage2
@@ -49,9 +49,11 @@ jobs:
           should_deploy="$(node --input-type=module -e "
             const fs = await import('node:fs');
             const payload = JSON.parse(fs.readFileSync('/tmp/demand-miner-assess.json', 'utf8'));
+            const scheduled = process.env.GITHUB_EVENT_NAME === 'schedule';
             const blocked = payload.readiness?.should_attempt_recovery === false
               && payload.readiness?.chain_advancement_required === true;
-            process.stdout.write(blocked ? 'true' : 'false');
+            const pending = Number(payload.snapshot?.mempool ?? 0) > 0;
+            process.stdout.write(scheduled || blocked || pending ? 'true' : 'false');
           ")"
           network_mempool="$(node --input-type=module -e "
             const fs = await import('node:fs');
@@ -79,6 +81,8 @@ jobs:
           echo "network_height=$network_height" >> "$GITHUB_OUTPUT"
           echo "chain_advancement_required=$chain_advancement_required" >> "$GITHUB_OUTPUT"
           cat /tmp/demand-miner-assess.json
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
 
       - name: Skip when chain does not need demand mining
         if: steps.gate.outputs.should_deploy != 'true'
@@ -315,10 +319,11 @@ jobs:
     needs: [assess-chain-work, ensure-on-seed]
     if: >-
       always() &&
+      needs.assess-chain-work.result == 'success' &&
       needs.assess-chain-work.outputs.should_attempt_recovery == 'true' &&
       (
-        needs.assess-chain-work.outputs.should_deploy != 'true' ||
-        needs.ensure-on-seed.result == 'success'
+        (needs.assess-chain-work.outputs.should_deploy != 'true' && needs.ensure-on-seed.result == 'skipped') ||
+        (needs.assess-chain-work.outputs.should_deploy == 'true' && needs.ensure-on-seed.result == 'success')
       )
     runs-on: ubuntu-24.04
     permissions:

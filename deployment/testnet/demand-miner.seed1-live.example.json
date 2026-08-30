@@ -9,8 +9,10 @@
   "miner_binary": "/usr/local/libexec/sudharma-demand-miner/sudharmad",
   "data_directory": "/var/lib/sudharma-demand-miner",
   "lock_file": "/run/sudharma-demand-miner/lock",
-  "poll_every": "5s",
-  "cooldown": "15s",
+  "poll_every": "1m",
+  "cooldown": "1m",
   "failure_backoff": "30s",
-  "child_timeout": "5m"
+  "child_timeout": "5m",
+  "scheduled_sweep_every": "30m",
+  "max_blocks_per_sweep": 32
 }

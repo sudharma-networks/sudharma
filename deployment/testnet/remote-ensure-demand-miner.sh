@@ -47,6 +47,29 @@ sync_repo() {
   fi
 }
 
+sync_schedule_config() {
+  if [ ! -f /etc/sudharma/demand-miner.json ] || [ ! -f "$workdir/$config_example" ]; then
+    return 0
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    apt-get update -qq
+    apt-get install -y -qq jq
+  fi
+  jq -s \
+    '.[0] * (.[1] | {
+      poll_every,
+      cooldown,
+      failure_backoff,
+      child_timeout,
+      scheduled_sweep_every,
+      max_blocks_per_sweep
+    })' \
+    /etc/sudharma/demand-miner.json "$workdir/$config_example" > /tmp/demand-miner-schedule.json
+  install -m 0640 /tmp/demand-miner-schedule.json /etc/sudharma/demand-miner.json
+  chown root:sudharma-miner /etc/sudharma/demand-miner.json
+  systemctl restart sudharma-demand-miner.service
+}
+
 build_and_install() {
   local build_dir
   build_dir="$(mktemp -d /var/lib/sudharma-demand-miner/build-XXXXXX)"
@@ -89,6 +112,7 @@ main() {
   ensure_go
   sync_repo
   build_and_install
+  sync_schedule_config
   printf '{"demand_miner_ensure":"ok","service":"active"}\n'
 }
 

@@ -105,7 +105,7 @@ Only one supervisor host should be active initially. Do not enable a second seed
 
 ### Automatic deployment (GitHub Actions)
 
-The `Demand Miner Auto Deploy` workflow runs every 10 minutes and is also invoked when faucet recovery monitoring detects `chain_advancement_required`. When mempool work is pending it uses AWS SSM to run `deployment/testnet/remote-ensure-demand-miner.sh` on Seed-1, which builds/installs the supervisor and keeps it running. The supervisor then polls loopback RPC every 5 seconds and mines one block whenever valid transactions are pending.
+The `Demand Miner Auto Deploy` workflow runs every 30 minutes and is also invoked when faucet recovery monitoring detects `chain_advancement_required` or pending mempool work. When work is pending it uses AWS SSM to run `deployment/testnet/remote-ensure-demand-miner.sh` on Seed-1, which builds/installs the supervisor and keeps it running. The supervisor polls loopback RPC every minute, mines blocks until the mempool is empty whenever demand appears, and repeats a scheduled sweep every 30 minutes to clear any remaining pending transactions.
 
 Set repository variable `TESTNET_SEED1_INSTANCE_ID` to the Seed-1 EC2 instance id, or tag the instance so auto-discovery can find it. The GitHub Actions testnet role must allow `ssm:SendCommand` on that instance. After the chain advances, the same workflow can automatically retry the prepared faucet payout (brief enable, still fail-closed for normal traffic).
 

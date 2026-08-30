@@ -58,6 +58,16 @@ DEMAND_MINER_BIN="$tmpdir/sudharma-demand-miner" \
 SUDHARMAD_BIN="$tmpdir/sudharmad" \
 bash "$workdir/deployment/testnet/install-demand-miner.sh" --enable
 
+if command -v jq >/dev/null 2>&1 && [ -f /etc/sudharma/demand-miner.json ] && [ -f "$workdir/deployment/testnet/demand-miner.seed1-live.example.json" ]; then
+  jq -s \
+    '.[0] * (.[1] | {poll_every,cooldown,failure_backoff,child_timeout,scheduled_sweep_every,max_blocks_per_sweep})' \
+    /etc/sudharma/demand-miner.json "$workdir/deployment/testnet/demand-miner.seed1-live.example.json" \
+    > /tmp/demand-miner-schedule.json
+  install -m 0640 /tmp/demand-miner-schedule.json /etc/sudharma/demand-miner.json
+  chown root:sudharma-miner /etc/sudharma/demand-miner.json
+  systemctl restart sudharma-demand-miner.service
+fi
+
 systemctl is-active --quiet sudharma-demand-miner.service
 curl --fail --silent --max-time 5 http://127.0.0.1:28545/v1/status | tee /tmp/demand-miner-status-after-install.json
 printf '{"demand_miner_install":"ok","service":"active"}\n'

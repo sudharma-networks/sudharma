@@ -50,13 +50,22 @@ type Supervisor struct {
 	miner   BlockMiner
 	sleeper Sleeper
 	logger  Logger
+	now     func() time.Time
 }
 
 func NewSupervisor(config Config, status StatusSource, miner BlockMiner, sleeper Sleeper, logger Logger) *Supervisor {
-	return &Supervisor{config: config, status: status, miner: miner, sleeper: sleeper, logger: logger}
+	return &Supervisor{
+		config:  config,
+		status:  status,
+		miner:   miner,
+		sleeper: sleeper,
+		logger:  logger,
+		now:     time.Now,
+	}
 }
 
 func (s *Supervisor) Run(ctx context.Context) error {
+	lastSweep := s.now()
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -74,24 +83,59 @@ func (s *Supervisor) Run(ctx context.Context) error {
 			return err
 		}
 
-		if status.Mempool <= 0 {
-			if err := s.sleeper.Sleep(ctx, s.config.PollDuration()); err != nil {
+		scheduledDue := !s.now().Before(lastSweep.Add(s.config.ScheduledSweepDuration()))
+		if status.Mempool > 0 || scheduledDue {
+			if err := s.clearPendingMempool(ctx); err != nil {
+				s.logError("sweep_error", err)
+				if err := s.sleeper.Sleep(ctx, s.config.FailureBackoffDuration()); err != nil {
+					return err
+				}
+				continue
+			}
+			lastSweep = s.now()
+			if err := s.sleeper.Sleep(ctx, s.config.CooldownDuration()); err != nil {
 				return err
 			}
 			continue
 		}
 
-		if err := s.miner.MineOne(ctx); err != nil {
-			s.logError("mine_error", err)
-			if err := s.sleeper.Sleep(ctx, s.config.FailureBackoffDuration()); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := s.sleeper.Sleep(ctx, s.config.CooldownDuration()); err != nil {
+		if err := s.sleeper.Sleep(ctx, s.config.PollDuration()); err != nil {
 			return err
 		}
 	}
+}
+
+func (s *Supervisor) clearPendingMempool(ctx context.Context) error {
+	limit := s.config.BlocksPerSweepLimit()
+	for mined := 0; mined < limit; mined++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		status, err := s.status.Status(ctx)
+		if err != nil {
+			return err
+		}
+		if err := s.validateStatusIdentity(status); err != nil {
+			return err
+		}
+		if status.Mempool <= 0 {
+			return nil
+		}
+
+		if err := s.miner.MineOne(ctx); err != nil {
+			return err
+		}
+	}
+
+	status, err := s.status.Status(ctx)
+	if err != nil {
+		return err
+	}
+	if status.Mempool > 0 {
+		return fmt.Errorf("mempool still has %d transactions after %d blocks", status.Mempool, limit)
+	}
+	return nil
 }
 
 func (s *Supervisor) validateStatusIdentity(status Status) error {
