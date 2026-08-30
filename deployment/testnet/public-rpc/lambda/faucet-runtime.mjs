@@ -591,6 +591,9 @@ export async function checkFaucetDiagnostics({ store, rpc, signer }) {
       likely_prepared_nonce_blocked: !seedMempool.available
         && Number.isInteger(networkStatus?.mempool)
         && networkStatus.mempool > 0,
+      chain_advancement_required: Number.isInteger(networkStatus?.mempool)
+        && networkStatus.mempool > 0
+        && Number.isInteger(networkStatus?.height),
     },
     testnet_only: true,
   };

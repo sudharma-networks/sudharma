@@ -7,10 +7,14 @@ test('recovery readiness skips while mempool nonce conflict remains', () => {
     failed_payout: { chain_status: 'not_found' },
     likely_blocker: 'mempool_nonce_conflict',
     network_mempool: 2,
+    network_height: 12,
+    chain_advancement_required: true,
     last_error_category: 'invalid_nonce',
   });
   assert.equal(result.should_attempt_recovery, false);
   assert.equal(result.reason, 'mempool_nonce_conflict');
+  assert.equal(result.chain_advancement_required, true);
+  assert.equal(result.network_height, 12);
 });
 
 test('recovery readiness allows retry when blocker cleared', () => {

@@ -20,6 +20,8 @@ export function evaluateFaucetRecoveryReadiness(analysis) {
       should_attempt_recovery: false,
       reason: 'mempool_nonce_conflict',
       network_mempool: analysis.network_mempool,
+      network_height: analysis.network_height ?? null,
+      chain_advancement_required: analysis.chain_advancement_required ?? true,
       last_error_category: analysis.last_error_category ?? null,
     };
   }

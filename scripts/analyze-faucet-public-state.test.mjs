@@ -74,6 +74,24 @@ test('public analyzer infers mempool nonce conflict from diagnostics when seed m
   assert.equal(analysis.likely_blocker, 'mempool_nonce_conflict');
 });
 
+test('public analyzer flags chain advancement required when mempool blocks recovery', () => {
+  const analysis = analyzeFaucetPublicState({
+    faucetDiagnostics: {
+      ready: true,
+      mempool_inference: { likely_prepared_nonce_blocked: true, chain_advancement_required: true },
+      network: { height: 12, mempool: 2 },
+    },
+    networkStatus: { height: 12, mempool: 2 },
+    failedTx: { status: 404, body: { error: 'transaction not found' } },
+    failedAddressTx: { status: 200, body: {} },
+    signerAccount: { balance: 24998000000, confirmed_nonce: 2, next_nonce: 3 },
+    lastErrorCategory: 'invalid_nonce',
+  });
+
+  assert.equal(analysis.chain_advancement_required, true);
+  assert.equal(analysis.operator_actions?.length, 3);
+});
+
 test('public analyzer detects insufficient signer balance', () => {
   const analysis = analyzeFaucetPublicState({
     faucetInfo: { enabled: false },

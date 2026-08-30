@@ -1,7 +1,10 @@
 #!/usr/bin/env node
+import { analyzeFaucetPublicState } from './analyze-faucet-public-state.mjs';
 import { evaluateFaucetRecoveryReadiness } from './evaluate-faucet-recovery-readiness.mjs';
 
 const RPC_BASE_URL = process.env.RPC_BASE_URL || 'https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com';
+const FAUCET_SIGNER = process.env.FAUCET_SIGNER || '9ccdc094489874bed888ffe4bdf9b8298f4c5131';
+const FAILED_TXID = process.env.FAILED_TXID || 'b66bde192c92d192b47ca6e972911e4bfb310a0f343b6ef15b77c468d8a989cc';
 
 async function fetchJson(path) {
   const response = await fetch(`${RPC_BASE_URL}${path}`, { redirect: 'error' });
@@ -10,25 +13,38 @@ async function fetchJson(path) {
 }
 
 async function main() {
-  const [status, diagnostics] = await Promise.all([
-    fetchJson('/v1/status'),
+  const [faucetInfo, faucetHealth, faucetDiagnostics, signerAccount, networkStatus, mempool, failedTx] = await Promise.all([
+    fetchJson('/v1/faucet/info'),
+    fetchJson('/v1/faucet/health'),
     fetchJson('/v1/faucet/diagnostics'),
+    fetchJson(`/v1/accounts/${FAUCET_SIGNER}`),
+    fetchJson('/v1/status'),
+    fetchJson('/v1/mempool?limit=20'),
+    fetchJson(`/v1/transactions/${FAILED_TXID}`),
   ]);
+
+  const analysis = analyzeFaucetPublicState({
+    faucetInfo: faucetInfo.body,
+    faucetHealth: faucetHealth.body,
+    faucetDiagnostics: faucetDiagnostics.ok ? faucetDiagnostics.body : null,
+    signerAccount: signerAccount.body,
+    networkStatus: networkStatus.body,
+    mempool,
+    failedTx,
+    failedAddressTx: { status: 0, body: {} },
+    lastErrorCategory: process.env.LAST_ERROR_CATEGORY || undefined,
+  });
+
+  const readiness = evaluateFaucetRecoveryReadiness(analysis);
 
   const snapshot = {
     checked_at: new Date().toISOString(),
-    height: status.body?.height ?? null,
-    mempool: status.body?.mempool ?? null,
-    seed_mempool: diagnostics.ok ? diagnostics.body?.seed_mempool ?? null : null,
-    mempool_inference: diagnostics.ok ? diagnostics.body?.mempool_inference ?? null : null,
+    height: analysis.network_height ?? null,
+    mempool: analysis.network_mempool ?? null,
+    likely_blocker: analysis.likely_blocker ?? null,
+    chain_advancement_required: analysis.chain_advancement_required ?? false,
+    operator_actions: analysis.operator_actions ?? [],
   };
-
-  const readiness = evaluateFaucetRecoveryReadiness({
-    failed_payout: { chain_status: 'not_found' },
-    likely_blocker: snapshot.mempool === 0 ? 'submit_rejected_not_on_chain' : 'mempool_nonce_conflict',
-    network_mempool: snapshot.mempool,
-    last_error_category: snapshot.mempool === 0 ? null : 'invalid_nonce',
-  });
 
   process.stdout.write(`${JSON.stringify({ snapshot, readiness }, null, 2)}\n`);
   process.exit(readiness.should_attempt_recovery ? 0 : 2);

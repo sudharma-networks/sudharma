@@ -132,6 +132,22 @@ export function analyzeFaucetPublicState({
     analysis.failed_address_state = failedAddressTx.body;
   }
 
+  const chainAdvancementRequired = (analysis.network_mempool ?? 0) > 0
+    && analysis.failed_payout?.chain_status === 'not_found'
+    && (
+      analysis.likely_blocker === 'mempool_nonce_conflict'
+      || analysis.likely_blocker === 'mempool_contention'
+      || faucetDiagnostics?.mempool_inference?.chain_advancement_required === true
+    );
+  if (chainAdvancementRequired) {
+    analysis.chain_advancement_required = true;
+    analysis.operator_actions = [
+      'Mine blocks on testnet seeds so mempool transactions confirm (chain height may be stalled).',
+      'Or clear conflicting mempool transactions occupying the faucet signer nonce 3 slot on seeds.',
+      'After mempool clears and height advances, recovery will auto-retry via scheduled workflows.',
+    ];
+  }
+
   return analysis;
 }
 
