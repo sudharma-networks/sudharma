@@ -40,7 +40,10 @@ function safeLog(logger, level, record) {
 }
 
 function isFaucetRoute(kind) {
-  return kind === 'faucetInfo' || kind === 'faucetInitial' || kind === 'faucetChallenge';
+  return kind === 'faucetInfo'
+    || kind === 'faucetHealth'
+    || kind === 'faucetInitial'
+    || kind === 'faucetChallenge';
 }
 
 export function createHandler(options = {}) {
