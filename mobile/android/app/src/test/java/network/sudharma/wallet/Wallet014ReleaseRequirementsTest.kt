@@ -4,6 +4,7 @@ import java.io.File
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+// Final 0.1.4 integration verification: this file intentionally exercises user-visible release requirements.
 class Wallet014ReleaseRequirementsTest {
     private fun source(path: String): String {
         val candidates = listOf(
