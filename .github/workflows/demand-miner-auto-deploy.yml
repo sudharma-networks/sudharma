@@ -23,6 +23,7 @@ env:
   RPC_BASE_URL: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com
   AWS_REGION: ap-south-1
   SUDHARMA_REPO_REF: feature/faucet-recovery-stage2
+  SEED1_PRIVATE_IP: 172.31.10.171
 
 jobs:
   assess-chain-work:
@@ -107,6 +108,17 @@ jobs:
             instance_id="$(aws ec2 describe-instances \
               --filters "Name=tag:Name,Values=*testnet*seed*" "Name=instance-state-name,Values=running" \
               --query 'Reservations[0].Instances[0].InstanceId' \
+              --output text 2>/dev/null || true)"
+          fi
+          if [ -z "$instance_id" ] || [ "$instance_id" = "None" ]; then
+            instance_id="$(aws ec2 describe-instances \
+              --filters "Name=private-ip-address,Values=${SEED1_PRIVATE_IP}" "Name=instance-state-name,Values=running" \
+              --query 'Reservations[0].Instances[0].InstanceId' \
+              --output text 2>/dev/null || true)"
+          fi
+          if [ -z "$instance_id" ] || [ "$instance_id" = "None" ]; then
+            instance_id="$(aws ssm describe-instance-information \
+              --query "InstanceInformationList[?IPAddress==\`${SEED1_PRIVATE_IP}\`].InstanceId | [0]" \
               --output text 2>/dev/null || true)"
           fi
           if [ -z "$instance_id" ] || [ "$instance_id" = "None" ]; then
@@ -200,8 +212,10 @@ jobs:
       - name: Report missing Seed-1 target
         if: steps.seed.outputs.seed_instance_found != 'true'
         run: |
-          echo '::warning title=Demand miner auto-deploy needs Seed-1 instance id::Set repository variable TESTNET_SEED1_INSTANCE_ID or tag the seed EC2 instance so auto-deploy can install the supervisor via SSM.'
-          exit 2
+          echo '::warning title=Demand miner auto-deploy needs Seed-1 instance id::Set repository variable TESTNET_SEED1_INSTANCE_ID, tag the seed EC2 instance, or ensure SSM manages the host at 172.31.10.171.'
+          if [ "${{ github.event_name }}" = 'schedule' ] || [ "${{ github.event_name }}" = 'workflow_dispatch' ]; then
+            exit 2
+          fi
 
   trigger-faucet-recovery:
     needs: [assess-chain-work, ensure-on-seed]
