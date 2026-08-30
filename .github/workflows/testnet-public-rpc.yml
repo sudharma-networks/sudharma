@@ -322,6 +322,12 @@ jobs:
             exit "$original_status"
           }
           trap 'rollback_shared_lambda' ERR
+          expected_code_sha256="$(openssl dgst -sha256 -binary build/public-rpc/sudharma-testnet-wallet-proxy.zip | openssl base64 -A)"
+          deployed_code_sha256="$(aws lambda get-function --function-name "$LAMBDA_NAME" --query 'Configuration.CodeSha256' --output text)"
+          if [ "$deployed_code_sha256" != "$expected_code_sha256" ]; then
+            echo "Deployed Lambda code identity does not match the tested artifact." >&2
+            exit 1
+          fi
           curl -fsS "$RPC_BASE_URL/v1/status" >/tmp/status-post.json
           node -e "const s=require('/tmp/status-post.json'); if (!s || s.network !== 'sudharma') process.exit(1); console.log(JSON.stringify({network:s.network,coin:s.coin,symbol:s.symbol,height:s.height,peers:s.peers}))"
           curl -fsS "$RPC_BASE_URL/v1/website/visitors" >/tmp/visitors-post.json
