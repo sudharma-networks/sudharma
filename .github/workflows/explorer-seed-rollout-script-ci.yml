@@ -5,11 +5,15 @@ on:
     paths:
       - 'deployment/testnet/rollout-explorer-node.sh'
       - 'deployment/testnet/rollout-explorer-node_test.sh'
+      - 'deployment/testnet/rollout-explorer-nginx-allowlist.sh'
+      - 'deployment/testnet/rollout-explorer-nginx-allowlist_test.sh'
       - '.github/workflows/explorer-seed-rollout-script-ci.yml'
   pull_request:
     paths:
       - 'deployment/testnet/rollout-explorer-node.sh'
       - 'deployment/testnet/rollout-explorer-node_test.sh'
+      - 'deployment/testnet/rollout-explorer-nginx-allowlist.sh'
+      - 'deployment/testnet/rollout-explorer-nginx-allowlist_test.sh'
       - '.github/workflows/explorer-seed-rollout-script-ci.yml'
 
 permissions:
@@ -22,3 +26,5 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify guarded explorer seed rollout script
         run: bash deployment/testnet/rollout-explorer-node_test.sh
+      - name: Verify explorer nginx allowlist rollout script
+        run: bash deployment/testnet/rollout-explorer-nginx-allowlist_test.sh
