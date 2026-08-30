@@ -28,6 +28,11 @@ test('community workflow uses least privilege and serialized polling', () => {
   assert.match(workflow, /cancel-in-progress:\s*false/);
 });
 
+test('community workflow bounds each serialized operation with a short timeout', () => {
+  const workflow = fs.readFileSync(communityWorkflowPath, 'utf8');
+  assert.match(workflow, /jobs:[\s\S]*community:[\s\S]*timeout-minutes:\s*5/);
+});
+
 test('community workflow reuses the protected Telegram environment secret and GitHub token', () => {
   const workflow = fs.readFileSync(communityWorkflowPath, 'utf8');
   assert.match(workflow, /environment:\s*telegram-publishing/);
