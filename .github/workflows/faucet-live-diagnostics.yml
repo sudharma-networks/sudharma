@@ -8,6 +8,7 @@ on:
       - .github/workflows/faucet-live-diagnostics.yml
       - scripts/sanitize-faucet-live-logs.mjs
       - scripts/sanitize-faucet-live-logs.test.mjs
+      - scripts/compute-faucet-diag-start.mjs
       - scripts/check-faucet-live-diagnostics-contract_test.sh
   workflow_dispatch:
 
@@ -60,15 +61,7 @@ jobs:
             --output json > /tmp/failed-address.json; then
             echo '{"dynamodb_get_item":"OK"}'
             cat /tmp/failed-address.json
-            node --input-type=module <<'NODE'
-            import fs from 'node:fs';
-            const item = JSON.parse(fs.readFileSync('/tmp/failed-address.json', 'utf8')) ?? {};
-            const prepared = Number.parseInt(item.initial_prepared_at || item.initial_reserved_at || '', 10);
-            const fallback = Number.parseInt(process.env.DIAG_START_MS || '', 10);
-            const start = Number.isFinite(prepared) ? Math.max(0, prepared - 120_000) : fallback;
-            fs.appendFileSync(process.env.GITHUB_ENV, `DIAG_START_MS=${start}\n`);
-            console.log(JSON.stringify({ diag_start_ms: start, used_prepared_at: Number.isFinite(prepared) }));
-            NODE
+            node ./scripts/compute-faucet-diag-start.mjs /tmp/failed-address.json
           else
             echo '{"dynamodb_get_item":"DENIED_OR_FAILED"}'
           fi
