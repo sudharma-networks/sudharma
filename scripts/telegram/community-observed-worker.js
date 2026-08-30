@@ -9,6 +9,31 @@ const {
 
 const SAFE_DIAGNOSTIC_CODE_RE = /^telegram-api-[1-5]\d{2}-(?:reply-target-missing|thread-missing|chat-not-found|membership|permission-denied|rate-limited|other)$/;
 
+function withReplyTargetFallback(telegram) {
+  if (!telegram || typeof telegram !== 'object' || typeof telegram.sendMessage !== 'function') {
+    throw new Error('Telegram reply-fallback dependency is invalid');
+  }
+
+  const wrapped = Object.create(telegram);
+  wrapped.sendMessage = async (payload) => {
+    if (!payload || typeof payload !== 'object') {
+      return telegram.sendMessage(payload);
+    }
+
+    const nextPayload = {
+      ...payload,
+      reply_parameters: payload.reply_parameters && typeof payload.reply_parameters === 'object'
+        ? {
+            ...payload.reply_parameters,
+            allow_sending_without_reply: true,
+          }
+        : payload.reply_parameters,
+    };
+    return telegram.sendMessage(nextPayload);
+  };
+  return wrapped;
+}
+
 function instrumentDependency(scope, dependency, operations, logger = console) {
   if (!dependency || typeof dependency !== 'object') {
     throw new Error('Observed dependency is invalid');
@@ -46,9 +71,10 @@ async function main() {
   const rawTelegram = createTelegramAdapter({ token: config.telegramToken });
   const rawGithub = createGithubAdapter({ token: config.githubToken, repository: config.repository });
 
+  const resilientTelegram = withReplyTargetFallback(rawTelegram);
   const telegram = instrumentDependency(
     'telegram',
-    rawTelegram,
+    resilientTelegram,
     ['getMe', 'getWebhookInfo', 'deleteWebhook', 'getUpdates', 'sendMessage'],
   );
   const github = instrumentDependency(
@@ -76,5 +102,6 @@ if (require.main === module) {
 }
 
 module.exports = {
+  withReplyTargetFallback,
   instrumentDependency,
 };
