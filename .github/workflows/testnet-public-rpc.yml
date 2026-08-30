@@ -130,7 +130,7 @@ jobs:
           curl -fsS "$RPC_BASE_URL/v1/status" >/tmp/status.json
           node -e "const s=require('/tmp/status.json'); if (!s || s.network !== 'sudharma') process.exit(1); console.log(JSON.stringify({network:s.network,coin:s.coin,symbol:s.symbol,height:s.height,peers:s.peers}))"
 
-      - name: Activate faucet and smoke-test public info
+      - name: Activate faucet and smoke-test public readiness
         run: |
           set -euo pipefail
           disable_faucet() {
@@ -141,24 +141,40 @@ jobs:
             aws lambda wait function-updated --function-name "$LAMBDA_NAME"
           }
 
+          fail_closed() {
+            echo "$1"
+            if [ -n "${2:-}" ]; then
+              printf '%s\n' "$2"
+            fi
+            disable_faucet
+            exit 1
+          }
+
           aws lambda update-function-configuration \
             --function-name "$LAMBDA_NAME" \
             --environment "Variables={SEED_1_URL=http://172.31.10.171:29100,SEED_2_URL=http://172.31.32.195:29100,UPSTREAM_TIMEOUT_MS=3500,FAUCET_ENABLED=true,FAUCET_TABLE_NAME=$FAUCET_TABLE_NAME,FAUCET_SECRET_ID=$FAUCET_SECRET_ID}" \
             --no-cli-pager >/dev/null
           aws lambda wait function-updated --function-name "$LAMBDA_NAME"
 
-          response="$(curl -sS -w '\n%{http_code}' "$RPC_BASE_URL/v1/faucet/info")"
-          status="$(printf '%s\n' "$response" | tail -n1)"
-          body="$(printf '%s\n' "$response" | sed '$d')"
-
-          if [ "$status" != '200' ]; then
-            echo "Faucet smoke test returned HTTP $status; disabling faucet again."
-            printf '%s\n' "$body"
-            disable_faucet
-            exit 1
+          info_response="$(curl -sS -w '\n%{http_code}' "$RPC_BASE_URL/v1/faucet/info")"
+          info_status="$(printf '%s\n' "$info_response" | tail -n1)"
+          info_body="$(printf '%s\n' "$info_response" | sed '$d')"
+          if [ "$info_status" != '200' ]; then
+            fail_closed "Faucet info smoke test returned HTTP $info_status; disabling faucet again." "$info_body"
+          fi
+          if ! BODY="$info_body" node --input-type=module -e "const body=JSON.parse(process.env.BODY); if (body.enabled !== true || typeof body.challenge_address !== 'string') process.exit(1); console.log(JSON.stringify({enabled:body.enabled,challenge_address:body.challenge_address,initial_grant_sudh:body.initial_grant_sudh,challenge_send_sudh:body.challenge_send_sudh,challenge_reward_sudh:body.challenge_reward_sudh,max_rounds:body.max_rounds,cooldown_hours:body.cooldown_hours,testnet_only:body.testnet_only}))"; then
+            fail_closed 'Faucet info payload validation failed; disabling faucet again.' "$info_body"
           fi
 
-          BODY="$body" node --input-type=module -e "const body=JSON.parse(process.env.BODY); if (body.enabled !== true || typeof body.challenge_address !== 'string') process.exit(1); console.log(JSON.stringify({enabled:body.enabled,challenge_address:body.challenge_address,initial_grant_sudh:body.initial_grant_sudh,challenge_send_sudh:body.challenge_send_sudh,challenge_reward_sudh:body.challenge_reward_sudh,max_rounds:body.max_rounds,cooldown_hours:body.cooldown_hours,testnet_only:body.testnet_only}))"
+          health_response="$(curl -sS -w '\n%{http_code}' "$RPC_BASE_URL/v1/faucet/health")"
+          health_status="$(printf '%s\n' "$health_response" | tail -n1)"
+          health_body="$(printf '%s\n' "$health_response" | sed '$d')"
+          if [ "$health_status" != '200' ]; then
+            fail_closed "Faucet deep health returned HTTP $health_status; disabling faucet again." "$health_body"
+          fi
+          if ! BODY="$health_body" node --input-type=module -e "const body=JSON.parse(process.env.BODY); if (body.ready !== true) process.exit(1); console.log(JSON.stringify({ready:body.ready}))"; then
+            fail_closed 'Faucet deep health payload validation failed; disabling faucet again.' "$health_body"
+          fi
 
       - name: Verify normal public RPC after faucet activation
         run: |
