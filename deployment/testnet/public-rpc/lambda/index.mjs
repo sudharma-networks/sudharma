@@ -5,21 +5,27 @@ const DEFAULT_SEEDS = [
   'http://172.31.10.171:29100',
   'http://172.31.32.195:29100',
 ];
+const EXPLORER_CORS_HEADERS = { 'access-control-allow-origin': '*' };
 
-function jsonResponse(statusCode, payload) {
+function jsonResponse(statusCode, payload, extraHeaders = {}) {
   return {
     statusCode,
     headers: {
       'cache-control': 'no-store',
       'content-type': 'application/json; charset=utf-8',
       'x-content-type-options': 'nosniff',
+      ...extraHeaders,
     },
     body: JSON.stringify(payload),
     isBase64Encoded: false,
   };
 }
 
-function gatewayResponse(result) {
+function visitorJsonResponse(statusCode, payload) {
+  return jsonResponse(statusCode, payload, { 'access-control-allow-origin': '*' });
+}
+
+function gatewayResponse(result, extraHeaders = {}) {
   const contentType = result.headers['content-type'] || 'application/json; charset=utf-8';
   const textual = /^(application\/json|text\/)/i.test(contentType);
   return {
@@ -28,6 +34,7 @@ function gatewayResponse(result) {
       ...result.headers,
       'cache-control': 'no-store',
       'x-content-type-options': 'nosniff',
+      ...extraHeaders,
     },
     body: textual ? result.body.toString('utf8') : result.body.toString('base64'),
     isBase64Encoded: !textual,
@@ -46,12 +53,25 @@ function isFaucetRoute(kind) {
     || kind === 'faucetChallenge';
 }
 
+function isVisitorRoute(kind) {
+  return kind === 'websiteVisitorsRead' || kind === 'websiteVisitorsRecord';
+}
+
+function isExplorerRoute(kind) {
+  return typeof kind === 'string' && kind.startsWith('explorer');
+}
+
+function isExplorerPath(path) {
+  return typeof path === 'string' && path.startsWith('/v1/explorer/');
+}
+
 export function createHandler(options = {}) {
   const seeds = options.seeds || DEFAULT_SEEDS;
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   const timeoutMs = options.timeoutMs;
   const logger = options.logger || console;
   const faucetHandler = options.faucetHandler || null;
+  const visitorHandler = options.visitorHandler || null;
 
   return async function walletProxyHandler(event, context = {}) {
     const started = Date.now();
@@ -66,7 +86,11 @@ export function createHandler(options = {}) {
         method: event?.requestContext?.http?.method || 'unknown',
         path: event?.rawPath || 'unknown',
       });
-      return jsonResponse(statusCode, { error: error instanceof RequestError ? error.message : 'invalid request' });
+      return jsonResponse(
+        statusCode,
+        { error: error instanceof RequestError ? error.message : 'invalid request' },
+        isExplorerPath(event?.rawPath) ? EXPLORER_CORS_HEADERS : {},
+      );
     }
 
     safeLog(logger, 'info', {
@@ -76,6 +100,39 @@ export function createHandler(options = {}) {
       route: request.kind,
       request_id: context?.awsRequestId || null,
     });
+
+    if (isVisitorRoute(request.kind)) {
+      if (typeof visitorHandler !== 'function') {
+        return visitorJsonResponse(503, { error: 'website visitor counter is temporarily unavailable' });
+      }
+      try {
+        const result = await visitorHandler(request, { context });
+        const statusCode = Number.isInteger(result?.statusCode) ? result.statusCode : 200;
+        const payload = result?.payload ?? result ?? { total: 0 };
+        safeLog(logger, 'info', {
+          event: 'website_visitor_response',
+          route: request.kind,
+          status_code: statusCode,
+          latency_ms: Date.now() - started,
+          request_id: context?.awsRequestId || null,
+        });
+        return visitorJsonResponse(statusCode, payload);
+      } catch (error) {
+        const statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : 500;
+        safeLog(logger, statusCode >= 500 ? 'error' : 'warn', {
+          event: 'website_visitor_error',
+          route: request.kind,
+          status_code: statusCode,
+          latency_ms: Date.now() - started,
+          request_id: context?.awsRequestId || null,
+        });
+        return visitorJsonResponse(statusCode, {
+          error: statusCode >= 500
+            ? 'website visitor counter is temporarily unavailable'
+            : String(error?.message || 'visitor request rejected'),
+        });
+      }
+    }
 
     if (isFaucetRoute(request.kind)) {
       if (typeof faucetHandler !== 'function') {
@@ -115,6 +172,7 @@ export function createHandler(options = {}) {
       }
     }
 
+    const responseHeaders = isExplorerRoute(request.kind) ? EXPLORER_CORS_HEADERS : {};
     try {
       const result = await proxyWithFailover(request, { seeds, fetchImpl, timeoutMs });
       safeLog(logger, 'info', {
@@ -126,7 +184,7 @@ export function createHandler(options = {}) {
         latency_ms: Date.now() - started,
         request_id: context?.awsRequestId || null,
       });
-      return gatewayResponse(result);
+      return gatewayResponse(result, responseHeaders);
     } catch (error) {
       const unavailable = error instanceof UpstreamUnavailableError;
       safeLog(logger, unavailable ? 'warn' : 'error', {
@@ -142,9 +200,9 @@ export function createHandler(options = {}) {
           error: request.kind === 'submitTransaction'
             ? 'transaction outcome is uncertain because wallet service is unavailable; check transaction status before retrying'
             : 'wallet service is temporarily unavailable',
-        });
+        }, responseHeaders);
       }
-      return jsonResponse(500, { error: 'internal wallet proxy error' });
+      return jsonResponse(500, { error: 'internal wallet proxy error' }, responseHeaders);
     }
   };
 }
@@ -172,8 +230,22 @@ if (process.env.FAUCET_ENABLED === 'true') {
   };
 }
 
+let productionVisitorHandler = null;
+if (process.env.FAUCET_TABLE_NAME) {
+  let visitorHandlerPromise;
+  productionVisitorHandler = async (request) => {
+    if (!visitorHandlerPromise) {
+      visitorHandlerPromise = import('./visitor-runtime.mjs')
+        .then((module) => module.createVisitorHandler({ tableName: process.env.FAUCET_TABLE_NAME }));
+    }
+    const visitorHandler = await visitorHandlerPromise;
+    return visitorHandler(request);
+  };
+}
+
 export const handler = createHandler({
   seeds: configuredSeeds,
   timeoutMs: runtimeTimeoutMs,
   faucetHandler: productionFaucetHandler,
+  visitorHandler: productionVisitorHandler,
 });
