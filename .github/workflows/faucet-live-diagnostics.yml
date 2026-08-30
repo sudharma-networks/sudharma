@@ -56,7 +56,7 @@ jobs:
       - name: Read recent safe faucet dependency logs
         run: |
           set -u
-          start_ms="$(date -u -d '8 hours ago' +%s%3N)"
+          start_ms="$(date -u -d '2 hours ago' +%s%3N)"
           log_group="/aws/lambda/$LAMBDA_NAME"
           for pattern in '"faucet_dependency"' '"wallet_faucet_error"'; do
             echo "=== filter $pattern ==="
