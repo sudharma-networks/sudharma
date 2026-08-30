@@ -441,8 +441,8 @@ jobs:
             --table-name "$FAUCET_TABLE_NAME" \
             --key "$key" \
             --consistent-read \
-            --projection-expression 'initial_status, initial_txid, initial_error, initial_last_error_category, initial_last_http_status, initial_submitted_at, initial_paid_at' \
-            --query 'Item.{initial_status:initial_status.S,initial_txid:initial_txid.S,initial_error:initial_error.S,initial_last_error_category:initial_last_error_category.S,initial_last_http_status:initial_last_http_status.N,initial_submitted_at:initial_submitted_at.N,initial_paid_at:initial_paid_at.N}' \
+            --projection-expression 'initial_status, initial_txid, initial_error, initial_last_error_category, initial_last_http_status, initial_last_expected_nonce, initial_last_submitted_nonce, initial_submitted_at, initial_paid_at' \
+            --query 'Item.{initial_status:initial_status.S,initial_txid:initial_txid.S,initial_error:initial_error.S,initial_last_error_category:initial_last_error_category.S,initial_last_http_status:initial_last_http_status.N,initial_last_expected_nonce:initial_last_expected_nonce.N,initial_last_submitted_nonce:initial_last_submitted_nonce.N,initial_submitted_at:initial_submitted_at.N,initial_paid_at:initial_paid_at.N}' \
             --output json | tee /tmp/recovery-dynamodb.json
           node ./scripts/analyze-faucet-public-state.mjs | tee /tmp/public-analysis-after.json
 

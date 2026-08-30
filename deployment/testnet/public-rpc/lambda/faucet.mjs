@@ -327,6 +327,8 @@ export function createFaucetService({ store, rpc, signer, now = Date.now }) {
             await store.recordInitialUncertainty(address, {
               http_status: error.upstreamStatus,
               error_category: error.errorCategory,
+              expected_nonce: error.expectedNonce,
+              submitted_nonce: error.submittedNonce,
             }, now());
           }
           throw error;
@@ -352,6 +354,8 @@ export function createFaucetService({ store, rpc, signer, now = Date.now }) {
           await store.recordInitialUncertainty(address, {
             http_status: error.upstreamStatus,
             error_category: error.errorCategory,
+            expected_nonce: error.expectedNonce,
+            submitted_nonce: error.submittedNonce,
           }, now());
         } else if (!error?.uncertain && typeof store.failInitial === 'function') {
           await store.failInitial(address, String(error?.message || error));

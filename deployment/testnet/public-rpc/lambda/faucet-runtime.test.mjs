@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { attachUpstreamNonceMismatch, classifyUpstreamError, createOperationTimer, createRpc, createRuntimeFaucetHandler } from './faucet-runtime.mjs';
+import { attachUpstreamNonceMismatch, classifyUpstreamError, createOperationTimer, createRpc, createRuntimeFaucetHandler, parsePrometheusGauge } from './faucet-runtime.mjs';
 
 test('dependency timing logs only operation outcome and latency', async () => {
   const records = [];
@@ -171,6 +171,13 @@ test('attachUpstreamNonceMismatch extracts expected and submitted nonce safely',
   const error = attachUpstreamNonceMismatch(new Error('seed rejected'), 'invalid transaction nonce: expected 4, got 3');
   assert.equal(error.expectedNonce, 4);
   assert.equal(error.submittedNonce, 3);
+});
+
+test('parsePrometheusGauge reads sudharma mempool metric', () => {
+  const body = '# HELP sudharma_mempool_transactions Transactions currently in the mempool.\n'
+    + '# TYPE sudharma_mempool_transactions gauge\n'
+    + 'sudharma_mempool_transactions 2\n';
+  assert.equal(parsePrometheusGauge(body, 'sudharma_mempool_transactions'), 2);
 });
 
 test('mempool probe fails over to the next seed when the first seed returns a non-json 404', async () => {

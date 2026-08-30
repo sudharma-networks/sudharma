@@ -48,6 +48,8 @@ export function createOperationTimer({ logger = console, now = Date.now } = {}) 
       };
       if (Number.isInteger(error?.upstreamStatus)) record.http_status = error.upstreamStatus;
       if (typeof error?.errorCategory === 'string') record.error_category = error.errorCategory;
+      if (Number.isInteger(error?.expectedNonce)) record.expected_nonce = error.expectedNonce;
+      if (Number.isInteger(error?.submittedNonce)) record.submitted_nonce = error.submittedNonce;
       writeDiagnosticLog(logger, record);
       throw error;
     }
@@ -172,12 +174,16 @@ export function createStore(tableName, timed, clientOverride = null) {
       const errorCategory = typeof diagnostic?.error_category === 'string'
         ? diagnostic.error_category.slice(0, 64)
         : null;
+      const expectedNonce = Number.isInteger(diagnostic?.expected_nonce) ? diagnostic.expected_nonce : null;
+      const submittedNonce = Number.isInteger(diagnostic?.submitted_nonce) ? diagnostic.submitted_nonce : null;
       await send('dynamodb.record_initial_uncertainty', new UpdateCommand({
         TableName: tableName,
         Key: { pk: `ADDR#${address}` },
         UpdateExpression: 'SET initial_last_uncertain_at = :at'
           + (httpStatus == null ? '' : ', initial_last_http_status = :http_status')
-          + (errorCategory == null ? '' : ', initial_last_error_category = :error_category'),
+          + (errorCategory == null ? '' : ', initial_last_error_category = :error_category')
+          + (expectedNonce == null ? '' : ', initial_last_expected_nonce = :expected_nonce')
+          + (submittedNonce == null ? '' : ', initial_last_submitted_nonce = :submitted_nonce'),
         ConditionExpression: 'initial_status = :prepared OR initial_status = :reserved',
         ExpressionAttributeValues: {
           ':prepared': 'prepared',
@@ -185,6 +191,8 @@ export function createStore(tableName, timed, clientOverride = null) {
           ':at': at,
           ...(httpStatus == null ? {} : { ':http_status': httpStatus }),
           ...(errorCategory == null ? {} : { ':error_category': errorCategory }),
+          ...(expectedNonce == null ? {} : { ':expected_nonce': expectedNonce }),
+          ...(submittedNonce == null ? {} : { ':submitted_nonce': submittedNonce }),
         },
       }));
     },
@@ -359,6 +367,15 @@ export function attachUpstreamNonceMismatch(error, message) {
   return error;
 }
 
+export function parsePrometheusGauge(body, metricName) {
+  const text = String(body || '');
+  const pattern = new RegExp(`^${metricName}\\s+(\\d+)\\s*$`, 'm');
+  const match = pattern.exec(text);
+  if (!match) return null;
+  const value = Number.parseInt(match[1], 10);
+  return Number.isInteger(value) ? value : null;
+}
+
 export function createRpc({ seeds, fetchImpl, timeoutMs, timed }) {
   async function call(operation, method, path, body) {
     const request = {
@@ -429,6 +446,32 @@ export function createRpc({ seeds, fetchImpl, timeoutMs, timed }) {
     });
   }
 
+  async function probeSeedRaw(operation, method, path) {
+    const request = {
+      method,
+      path,
+      headers: {},
+      body: Buffer.alloc(0),
+    };
+    return timed(operation, async () => {
+      let lastError;
+      for (let index = 0; index < seeds.length; index++) {
+        try {
+          const result = await fetchOnce(seeds[index], request, { fetchImpl, timeoutMs });
+          if (result.statusCode >= 200 && result.statusCode < 300) {
+            return { seed_index: index, bodyText: result.body.toString('utf8') };
+          }
+          lastError = new FaucetError(503, 'testnet node rejected request');
+          lastError.upstreamStatus = result.statusCode;
+          lastError.errorCategory = classifyUpstreamError(result.statusCode, result.body.toString('utf8'));
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      throw lastError || new FaucetError(503, 'testnet node rejected request');
+    });
+  }
+
   return {
     account(address) {
       return call('seed.account', 'GET', `/v1/accounts/${address}`);
@@ -442,6 +485,9 @@ export function createRpc({ seeds, fetchImpl, timeoutMs, timed }) {
     mempool(limit = 50) {
       const bounded = Number.isInteger(limit) && limit >= 1 && limit <= 500 ? limit : 50;
       return probeSeed('seed.mempool', 'GET', `/v1/mempool?limit=${bounded}`).then((result) => result.payload);
+    },
+    metrics() {
+      return probeSeedRaw('seed.metrics', 'GET', '/metrics').then((result) => result.bodyText);
     },
     async submit(transaction) {
       try {
@@ -459,6 +505,8 @@ export function createRpc({ seeds, fetchImpl, timeoutMs, timed }) {
         uncertain.uncertain = true;
         if (Number.isInteger(error?.upstreamStatus)) uncertain.upstreamStatus = error.upstreamStatus;
         if (typeof error?.errorCategory === 'string') uncertain.errorCategory = error.errorCategory;
+        if (Number.isInteger(error?.expectedNonce)) uncertain.expectedNonce = error.expectedNonce;
+        if (Number.isInteger(error?.submittedNonce)) uncertain.submittedNonce = error.submittedNonce;
         throw uncertain;
       }
     },
@@ -505,9 +553,23 @@ export async function checkFaucetDiagnostics({ store, rpc, signer }) {
       available: true,
       count: Number.isInteger(mempoolBody?.count) ? mempoolBody.count : null,
       signer_txs: summarizeSignerMempoolTxs(mempoolBody, signer.address),
+      source: 'seed_mempool',
     };
   } catch {
-    seedMempool = { available: false, count: null, signer_txs: [] };
+    try {
+      const metricsBody = await rpc.metrics();
+      const metricsCount = parsePrometheusGauge(metricsBody, 'sudharma_mempool_transactions');
+      if (Number.isInteger(metricsCount)) {
+        seedMempool = {
+          available: true,
+          count: metricsCount,
+          signer_txs: [],
+          source: 'seed_metrics',
+        };
+      }
+    } catch {
+      seedMempool = { available: false, count: null, signer_txs: [] };
+    }
   }
 
   return {

@@ -167,6 +167,8 @@ export function createHandler(options = {}) {
         };
         if (Number.isInteger(error?.upstreamStatus)) errorRecord.http_status = error.upstreamStatus;
         if (typeof error?.errorCategory === 'string') errorRecord.error_category = error.errorCategory;
+        if (Number.isInteger(error?.expectedNonce)) errorRecord.expected_nonce = error.expectedNonce;
+        if (Number.isInteger(error?.submittedNonce)) errorRecord.submitted_nonce = error.submittedNonce;
         safeLog(logger, statusCode >= 500 ? 'error' : 'warn', errorRecord);
         return jsonResponse(statusCode, {
           error: statusCode >= 500

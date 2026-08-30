@@ -1,0 +1,30 @@
+name: Faucet Recovery Monitor
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/faucet-recovery-stage2
+    paths:
+      - .github/workflows/faucet-recovery-monitor.yml
+      - scripts/faucet-recovery-monitor.mjs
+
+permissions:
+  contents: read
+
+env:
+  RPC_BASE_URL: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com
+
+jobs:
+  monitor:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Monitor mempool readiness
+        run: node ./scripts/faucet-recovery-monitor.mjs | tee /tmp/faucet-monitor.json
+
+      - name: Report recovery still blocked
+        if: failure()
+        run: cat /tmp/faucet-monitor.json
