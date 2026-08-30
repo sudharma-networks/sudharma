@@ -15,6 +15,40 @@ const REPORT_DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000;
 const COMMUNITY_REPORT_MARKER_RE = /<!-- sudharma-telegram-community-report:v1 update_id=\d+ -->/;
 const GITHUB_ACTIONS_BOT_LOGIN = 'github-actions[bot]';
 
+function classifyTelegramApiFailure(data, response) {
+  const description = typeof data?.description === 'string' ? data.description.toLowerCase() : '';
+  const candidateCode = Number.isInteger(data?.error_code)
+    ? data.error_code
+    : (Number.isInteger(response?.status) ? response.status : null);
+  const errorCode = Number.isInteger(candidateCode) && candidateCode >= 100 && candidateCode <= 599
+    ? candidateCode
+    : null;
+
+  let category = 'other';
+  if (description.includes('message to be replied not found')) {
+    category = 'reply-target-missing';
+  } else if (description.includes('message thread not found')) {
+    category = 'thread-missing';
+  } else if (description.includes('chat not found')) {
+    category = 'chat-not-found';
+  } else if (description.includes('bot was kicked') || description.includes('bot is not a member')) {
+    category = 'membership';
+  } else if (description.includes('not enough rights') || description.includes('forbidden')) {
+    category = 'permission-denied';
+  } else if (errorCode === 429 || description.includes('too many requests')) {
+    category = 'rate-limited';
+  }
+
+  return errorCode === null ? null : `telegram-api-${errorCode}-${category}`;
+}
+
+function telegramApiError(method, data, response) {
+  const error = new Error(`Telegram API ${method} failed`);
+  const diagnosticCode = classifyTelegramApiFailure(data, response);
+  if (diagnosticCode) error.diagnosticCode = diagnosticCode;
+  return error;
+}
+
 function createTelegramAdapter({ token, fetchImpl = globalThis.fetch }) {
   if (typeof token !== 'string' || token.length === 0) {
     throw new Error('Telegram bot token is required');
@@ -43,7 +77,7 @@ function createTelegramAdapter({ token, fetchImpl = globalThis.fetch }) {
     }
 
     if (!response.ok || !data || data.ok !== true) {
-      throw new Error(`Telegram API ${method} failed`);
+      throw telegramApiError(method, data, response);
     }
     return data.result;
   }
