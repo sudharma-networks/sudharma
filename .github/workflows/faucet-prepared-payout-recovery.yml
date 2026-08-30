@@ -112,12 +112,17 @@ jobs:
             --environment file:///tmp/lambda-environment-enabled.json \
             --no-cli-pager >/dev/null
           aws lambda wait function-updated --function-name "$LAMBDA_NAME"
-          curl -fsS "$RPC_BASE_URL/v1/faucet/info" | tee /tmp/faucet-info-enabled.json
-          node --input-type=module -e "
-            const body = JSON.parse(require('node:fs').readFileSync('/tmp/faucet-info-enabled.json', 'utf8'));
-            if (body.enabled !== true) process.exit(1);
-            console.log(JSON.stringify({brief_enable:'ok',enabled:body.enabled}));
-          "
+          for attempt in $(seq 1 15); do
+            info_body="$(curl -fsS "$RPC_BASE_URL/v1/faucet/info")"
+            if BODY="$info_body" node --input-type=module -e "const body=JSON.parse(process.env.BODY); process.exit(body.enabled === true ? 0 : 1)"; then
+              echo "$info_body"
+              echo '{"brief_enable":"ready"}'
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'Faucet enable did not become visible on the public RPC endpoint.' >&2
+          exit 1
 
       - name: Resubmit prepared payout for failed address only
         if: steps.gate.outputs.skip_recovery != 'true'
@@ -147,8 +152,8 @@ jobs:
             --no-cli-pager >/dev/null
           aws lambda wait function-updated --function-name "$LAMBDA_NAME"
           curl -fsS "$RPC_BASE_URL/v1/faucet/info" | tee /tmp/faucet-info-disabled.json
-          node --input-type=module -e "
-            const body = JSON.parse(require('node:fs').readFileSync('/tmp/faucet-info-disabled.json', 'utf8'));
+          BODY="$(cat /tmp/faucet-info-disabled.json)" node --input-type=module -e "
+            const body = JSON.parse(process.env.BODY);
             if (body.enabled !== false) process.exit(1);
             console.log(JSON.stringify({brief_enable:'closed',enabled:body.enabled}));
           "
