@@ -84,9 +84,23 @@ func (s *Supervisor) Run(ctx context.Context) error {
 		}
 
 		scheduledDue := !s.now().Before(lastSweep.Add(s.config.ScheduledSweepDuration()))
-		if status.Mempool > 0 || scheduledDue {
+		if status.Mempool > 0 {
 			if err := s.clearPendingMempool(ctx); err != nil {
 				s.logError("sweep_error", err)
+				if err := s.sleeper.Sleep(ctx, s.config.FailureBackoffDuration()); err != nil {
+					return err
+				}
+				continue
+			}
+			lastSweep = s.now()
+			if err := s.sleeper.Sleep(ctx, s.config.CooldownDuration()); err != nil {
+				return err
+			}
+			continue
+		}
+		if scheduledDue {
+			if err := s.miner.MineOne(ctx); err != nil {
+				s.logError("scheduled_reward_error", err)
 				if err := s.sleeper.Sleep(ctx, s.config.FailureBackoffDuration()); err != nil {
 					return err
 				}

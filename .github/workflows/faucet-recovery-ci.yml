@@ -35,7 +35,7 @@ jobs:
       - name: Verify live diagnostics log sanitizer contract
         run: bash ./scripts/check-faucet-live-diagnostics-contract_test.sh
       - name: Test live diagnostics log sanitizer
-        run: node --test ./scripts/sanitize-faucet-live-logs.test.mjs ./scripts/compute-faucet-diag-start.test.mjs ./scripts/correlate-faucet-live-logs.test.mjs ./scripts/analyze-faucet-public-state.test.mjs ./scripts/evaluate-faucet-recovery-readiness.test.mjs ./scripts/faucet-fee-utils.test.mjs
+        run: node --test ./scripts/sanitize-faucet-live-logs.test.mjs ./scripts/compute-faucet-diag-start.test.mjs ./scripts/correlate-faucet-live-logs.test.mjs ./scripts/analyze-faucet-public-state.test.mjs ./scripts/evaluate-faucet-recovery-readiness.test.mjs ./scripts/faucet-fee-utils.test.mjs ./scripts/evaluate-faucet-funding-readiness.test.mjs
 
   demand-miner:
     runs-on: ubuntu-latest

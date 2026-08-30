@@ -213,7 +213,7 @@ func TestSupervisorScheduledSweepRunsWithoutPendingTransactions(t *testing.T) {
 	if err := s.Run(context.Background()); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Run: %v", err)
 	}
-	if miner.calls != 0 {
+	if miner.calls != 1 {
 		t.Fatalf("MineOne calls = %d", miner.calls)
 	}
 	if got := inner.durations; len(got) != 2 || got[0] != 10*time.Second || got[1] != 30*time.Second {
