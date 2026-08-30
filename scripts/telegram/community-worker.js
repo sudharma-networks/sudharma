@@ -199,6 +199,28 @@ function createWorker({ telegram, github, now = () => new Date(), logger = conso
     throw new Error('now must be a function');
   }
 
+  async function bootstrap() {
+    if (typeof telegram.getWebhookInfo !== 'function' || typeof telegram.deleteWebhook !== 'function') {
+      throw new Error('Telegram bootstrap dependency is invalid');
+    }
+
+    const bot = await telegram.getMe();
+    if (!bot || typeof bot.username !== 'string' || bot.username.length === 0) {
+      throw new Error('Telegram bot username is unavailable');
+    }
+
+    const webhook = await telegram.getWebhookInfo();
+    if (!webhook || typeof webhook.url !== 'string') {
+      throw new Error('Telegram webhook information is invalid');
+    }
+    if (webhook.url.length > 0) {
+      throw new Error('Telegram bootstrap refused because an existing webhook is configured');
+    }
+
+    await telegram.deleteWebhook({ dropPendingUpdates: true });
+    return { botUsername: bot.username };
+  }
+
   async function poll() {
     const bot = await telegram.getMe();
     if (!bot || typeof bot.username !== 'string' || bot.username.length === 0) {
@@ -256,8 +278,6 @@ function createWorker({ telegram, github, now = () => new Date(), logger = conso
         return;
       }
 
-      // A report must not create a public GitHub issue if this run cannot
-      // also return its URL to the Telegram user.
       ensureReplyBudget();
 
       const issues = await loadRecentIssues();
@@ -345,7 +365,50 @@ function createWorker({ telegram, github, now = () => new Date(), logger = conso
     return { lastConfirmed, replies, createdReports };
   }
 
-  return { poll };
+  return { bootstrap, poll };
+}
+
+function readRuntimeConfig(env) {
+  const required = ['TELEGRAM_BOT_TOKEN', 'GITHUB_TOKEN', 'GITHUB_REPOSITORY', 'COMMUNITY_MODE'];
+  for (const key of required) {
+    if (!env || typeof env[key] !== 'string' || env[key].length === 0) {
+      throw new Error(`${key} is required`);
+    }
+  }
+
+  if (env.COMMUNITY_MODE !== 'bootstrap' && env.COMMUNITY_MODE !== 'poll') {
+    throw new Error('COMMUNITY_MODE must be bootstrap or poll');
+  }
+
+  return {
+    telegramToken: env.TELEGRAM_BOT_TOKEN,
+    githubToken: env.GITHUB_TOKEN,
+    repository: env.GITHUB_REPOSITORY,
+    mode: env.COMMUNITY_MODE,
+  };
+}
+
+async function main() {
+  const config = readRuntimeConfig(process.env);
+  const telegram = createTelegramAdapter({ token: config.telegramToken });
+  const github = createGithubAdapter({ token: config.githubToken, repository: config.repository });
+  const worker = createWorker({ telegram, github });
+
+  if (config.mode === 'bootstrap') {
+    const result = await worker.bootstrap();
+    console.log(`Telegram community bootstrap completed for @${result.botUsername}`);
+    return;
+  }
+
+  const result = await worker.poll();
+  console.log(`Telegram community poll completed: replies=${result.replies}, reports=${result.createdReports}, last_confirmed=${result.lastConfirmed ?? 'none'}`);
+}
+
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(`Telegram community worker failed: ${error.message}`);
+    process.exitCode = 1;
+  });
 }
 
 module.exports = {
@@ -353,4 +416,5 @@ module.exports = {
   createTelegramAdapter,
   createGithubAdapter,
   createWorker,
+  readRuntimeConfig,
 };
