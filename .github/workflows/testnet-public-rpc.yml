@@ -10,6 +10,11 @@ on:
       - 'scripts/check-faucet-deploy-contract_test.sh'
   workflow_dispatch:
     inputs:
+      preflight:
+        description: Verify AWS OIDC and faucet resources without changing AWS
+        required: true
+        default: false
+        type: boolean
       deploy:
         description: Deploy the tested artifact to the public testnet Lambda
         required: true
@@ -61,9 +66,45 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  aws-preflight:
+    if: github.event_name == 'workflow_dispatch' && (inputs.preflight == true || inputs.deploy == true)
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: ap-south-1
+      LAMBDA_NAME: Sudharma-Testnet-Wallet-Proxy
+      FAUCET_TABLE_NAME: Sudharma-Testnet-Faucet
+      FAUCET_SECRET_ID: sudharma/testnet/faucet-wallet
+    steps:
+      - name: Configure AWS credentials from GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+
+      - name: Verify AWS identity and faucet resources (read-only)
+        run: |
+          set -euo pipefail
+          aws sts get-caller-identity --query '{Account:Account,Arn:Arn}' --output json
+          aws dynamodb describe-table \
+            --table-name "$FAUCET_TABLE_NAME" \
+            --query 'Table.{Name:TableName,Status:TableStatus}' \
+            --output json
+          aws secretsmanager describe-secret \
+            --secret-id "$FAUCET_SECRET_ID" \
+            --query '{Name:Name,ARN:ARN}' \
+            --output json
+          aws lambda get-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --query '{Runtime:Runtime,Handler:Handler,Timeout:Timeout,MemorySize:MemorySize,State:State,LastUpdateStatus:LastUpdateStatus}' \
+            --output json
+
   deploy:
     if: github.event_name == 'workflow_dispatch' && inputs.deploy == true
-    needs: build
+    needs: [build, aws-preflight]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -94,14 +135,8 @@ jobs:
         run: |
           set -euo pipefail
           aws sts get-caller-identity --query '{Account:Account,Arn:Arn}' --output json
-          aws dynamodb describe-table \
-            --table-name "$FAUCET_TABLE_NAME" \
-            --query 'Table.{Name:TableName,Status:TableStatus}' \
-            --output json
-          aws secretsmanager describe-secret \
-            --secret-id "$FAUCET_SECRET_ID" \
-            --query '{Name:Name,ARN:ARN}' \
-            --output json
+          aws dynamodb describe-table --table-name "$FAUCET_TABLE_NAME" --query 'Table.{Name:TableName,Status:TableStatus}' --output json
+          aws secretsmanager describe-secret --secret-id "$FAUCET_SECRET_ID" --query '{Name:Name,ARN:ARN}' --output json
 
       - name: Snapshot Lambda environment
         run: |
@@ -147,10 +182,8 @@ jobs:
           set -euo pipefail
           curl -fsS "$RPC_BASE_URL/v1/status" >/tmp/status.json
           node -e "const s=require('/tmp/status.json'); if (!s || s.network !== 'sudharma') process.exit(1); console.log(JSON.stringify({network:s.network,coin:s.coin,symbol:s.symbol,height:s.height,peers:s.peers}))"
-
           curl -fsS "$RPC_BASE_URL/v1/website/visitors" >/tmp/visitors.json
           node -e "const v=require('/tmp/visitors.json'); if (!Number.isSafeInteger(v.total) || v.total < 0) process.exit(1); console.log(JSON.stringify({website_visitors:v.total}))"
-
           curl -fsS "$RPC_BASE_URL/v1/explorer/status" >/tmp/explorer-status.json
           node -e "const e=require('/tmp/explorer-status.json'); if (!e || typeof e !== 'object') process.exit(1); console.log(JSON.stringify({explorer_status:'ok'}))"
 
@@ -164,18 +197,13 @@ jobs:
               --no-cli-pager >/dev/null
             aws lambda wait function-updated --function-name "$LAMBDA_NAME"
           }
-
           fail_closed() {
             echo "$1"
-            if [ -n "${2:-}" ]; then
-              printf '%s\n' "$2"
-            fi
+            if [ -n "${2:-}" ]; then printf '%s\n' "$2"; fi
             disable_faucet
             exit 1
           }
-
           trap 'disable_faucet' ERR
-
           aws lambda update-function-configuration \
             --function-name "$LAMBDA_NAME" \
             --environment file:///tmp/lambda-environment-enabled.json \
@@ -185,9 +213,7 @@ jobs:
           info_response="$(curl -sS -w '\n%{http_code}' "$RPC_BASE_URL/v1/faucet/info")"
           info_status="$(printf '%s\n' "$info_response" | tail -n1)"
           info_body="$(printf '%s\n' "$info_response" | sed '$d')"
-          if [ "$info_status" != '200' ]; then
-            fail_closed "Faucet info smoke test returned HTTP $info_status; disabling faucet again." "$info_body"
-          fi
+          if [ "$info_status" != '200' ]; then fail_closed "Faucet info smoke test returned HTTP $info_status; disabling faucet again." "$info_body"; fi
           if ! BODY="$info_body" node --input-type=module -e "const body=JSON.parse(process.env.BODY); if (body.enabled !== true || typeof body.challenge_address !== 'string') process.exit(1); console.log(JSON.stringify({enabled:body.enabled,challenge_address:body.challenge_address,initial_grant_sudh:body.initial_grant_sudh,challenge_send_sudh:body.challenge_send_sudh,challenge_reward_sudh:body.challenge_reward_sudh,max_rounds:body.max_rounds,cooldown_hours:body.cooldown_hours,testnet_only:body.testnet_only}))"; then
             fail_closed 'Faucet info payload validation failed; disabling faucet again.' "$info_body"
           fi
@@ -195,13 +221,10 @@ jobs:
           health_response="$(curl -sS -w '\n%{http_code}' "$RPC_BASE_URL/v1/faucet/health")"
           health_status="$(printf '%s\n' "$health_response" | tail -n1)"
           health_body="$(printf '%s\n' "$health_response" | sed '$d')"
-          if [ "$health_status" != '200' ]; then
-            fail_closed "Faucet deep health returned HTTP $health_status; disabling faucet again." "$health_body"
-          fi
+          if [ "$health_status" != '200' ]; then fail_closed "Faucet deep health returned HTTP $health_status; disabling faucet again." "$health_body"; fi
           if ! BODY="$health_body" node --input-type=module -e "const body=JSON.parse(process.env.BODY); if (body.ready !== true) process.exit(1); console.log(JSON.stringify({ready:body.ready}))"; then
             fail_closed 'Faucet deep health payload validation failed; disabling faucet again.' "$health_body"
           fi
-
           trap - ERR
 
       - name: Verify shared public RPC after faucet activation
