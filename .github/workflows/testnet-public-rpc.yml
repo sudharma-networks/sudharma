@@ -282,9 +282,50 @@ jobs:
       - name: Verify shared public RPC after faucet activation
         run: |
           set -euo pipefail
+          rollback_shared_lambda() {
+            local original_status=$?
+            trap - ERR
+            set +e
+            echo 'Post-activation shared RPC check failed; disabling faucet and restoring previous Lambda code and environment.' >&2
+            aws lambda update-function-configuration \
+              --function-name "$LAMBDA_NAME" \
+              --environment file:///tmp/lambda-environment-disabled.json \
+              --no-cli-pager >/dev/null
+            local disable_status=$?
+            if [ "$disable_status" -eq 0 ]; then
+              aws lambda wait function-updated --function-name "$LAMBDA_NAME"
+              disable_status=$?
+            fi
+            aws lambda update-function-code \
+              --function-name "$LAMBDA_NAME" \
+              --zip-file fileb:///tmp/lambda-code-rollback.zip \
+              --no-cli-pager >/dev/null
+            local code_status=$?
+            if [ "$code_status" -eq 0 ]; then
+              aws lambda wait function-updated --function-name "$LAMBDA_NAME"
+              code_status=$?
+            fi
+            aws lambda update-function-configuration \
+              --function-name "$LAMBDA_NAME" \
+              --environment file:///tmp/lambda-environment-base-wrapper.json \
+              --no-cli-pager >/dev/null
+            local env_status=$?
+            if [ "$env_status" -eq 0 ]; then
+              aws lambda wait function-updated --function-name "$LAMBDA_NAME"
+              env_status=$?
+            fi
+            if [ "$disable_status" -ne 0 ] || [ "$code_status" -ne 0 ] || [ "$env_status" -ne 0 ]; then
+              echo "ROLLBACK INCOMPLETE: disable_status=$disable_status code_status=$code_status env_status=$env_status" >&2
+            else
+              echo 'Faucet disabled and previous Lambda code/environment restored.' >&2
+            fi
+            exit "$original_status"
+          }
+          trap 'rollback_shared_lambda' ERR
           curl -fsS "$RPC_BASE_URL/v1/status" >/dev/null
           curl -fsS "$RPC_BASE_URL/v1/website/visitors" >/dev/null
           curl -fsS "$RPC_BASE_URL/v1/explorer/status" >/dev/null
+          trap - ERR
 
       - name: Verify deployed Lambda configuration
         run: |
