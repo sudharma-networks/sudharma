@@ -55,8 +55,30 @@ jobs:
           curl -fsS "$RPC_BASE_URL/v1/faucet/diagnostics" | tee /tmp/pre-reset-diagnostics.json
           node ./scripts/faucet-recovery-monitor.mjs | tee /tmp/pre-reset-readiness.json || true
 
-  step2-clear-mempool:
+  mempool-gate:
     needs: step1-assess
+    runs-on: ubuntu-24.04
+    outputs:
+      mempool_count: ${{ steps.check.outputs.mempool_count }}
+      skip_mining: ${{ steps.check.outputs.skip_mining }}
+    steps:
+      - name: Check whether seed mining is required
+        id: check
+        run: |
+          set -euo pipefail
+          mempool="$(curl -fsS "$RPC_BASE_URL/v1/status" | python3 -c "import sys,json; print(json.load(sys.stdin)['mempool'])")"
+          echo "mempool_count=$mempool" >> "$GITHUB_OUTPUT"
+          if [ "$mempool" = "0" ]; then
+            echo "skip_mining=true" >> "$GITHUB_OUTPUT"
+            echo "Public mempool is already clear — skipping seed mining."
+          else
+            echo "skip_mining=false" >> "$GITHUB_OUTPUT"
+            echo "Public mempool count is $mempool — seed mining may be required."
+          fi
+
+  step2-clear-mempool:
+    needs: mempool-gate
+    if: needs.mempool-gate.outputs.skip_mining != 'true'
     runs-on: ubuntu-24.04
     permissions:
       id-token: write
@@ -128,16 +150,21 @@ jobs:
           exit 1
 
   step2b-wait-mempool:
-    needs: step2-clear-mempool
+    needs: [mempool-gate, step2-clear-mempool]
+    if: always() && needs.mempool-gate.result == 'success' && (needs.mempool-gate.outputs.skip_mining == 'true' || needs.step2-clear-mempool.result == 'success')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Wait for public mempool to clear
+        if: needs.mempool-gate.outputs.skip_mining != 'true'
         run: node ./scripts/wait-for-mempool-clear.mjs
         env:
           RPC_BASE_URL: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com
           MEMPOOL_WAIT_ATTEMPTS: '24'
           MEMPOOL_WAIT_SLEEP_MS: '10000'
+      - name: Confirm mempool already clear
+        if: needs.mempool-gate.outputs.skip_mining == 'true'
+        run: echo "Skipped mempool wait — public mempool was already 0."
 
   step3-reset-dynamodb:
     needs: step2b-wait-mempool
