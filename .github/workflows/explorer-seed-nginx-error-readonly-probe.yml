@@ -1,0 +1,99 @@
+name: Explorer Seed Nginx Error Read-Only Probe
+
+on:
+  push:
+    branches:
+      - feature/public-testnet-wallet-v2
+    paths:
+      - '.github/workflows/explorer-seed-nginx-error-readonly-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: ap-south-1
+      SEED_PRIVATE_IPS: '172.31.10.171 172.31.32.195'
+    steps:
+      - name: Configure AWS credentials from GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+
+      - name: Inspect nginx error handling and response headers without changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          index=0
+          for private_ip in $SEED_PRIVATE_IPS; do
+            index=$((index + 1))
+            instance_id="$(aws ssm describe-instance-information \
+              --query "InstanceInformationList[?IPAddress=='${private_ip}' && PingStatus=='Online'] | [0].InstanceId" \
+              --output text)"
+            test -n "$instance_id"
+            test "$instance_id" != 'None'
+            echo "::add-mask::$instance_id"
+
+            remote_script="$(printf '%s\n' \
+              'set -eu' \
+              "echo seed_index=${index}" \
+              "echo private_ip=${private_ip}" \
+              'echo sites_enabled:' \
+              'ls -la /etc/nginx/sites-enabled 2>/dev/null || true' \
+              'echo direct_explorer_response:' \
+              'direct_code=$(curl -sS -D /tmp/sudh-direct.h -o /tmp/sudh-direct.b -w "%{http_code}" http://127.0.0.1:28545/v1/explorer/status || true); echo code=$direct_code; grep -iE "^(HTTP/|Content-Type:|Server:|Location:)" /tmp/sudh-direct.h 2>/dev/null || true; head -c 300 /tmp/sudh-direct.b 2>/dev/null || true; echo' \
+              'echo bridge_explorer_response:' \
+              "bridge_code=\$(curl -sS -D /tmp/sudh-bridge.h -o /tmp/sudh-bridge.b -w '%{http_code}' 'http://${private_ip}:29100/v1/explorer/status' || true); echo code=\$bridge_code; grep -iE '^(HTTP/|Content-Type:|Server:|Location:)' /tmp/sudh-bridge.h 2>/dev/null || true; head -c 300 /tmp/sudh-bridge.b 2>/dev/null || true; echo" \
+              'echo nginx_error_and_route_directives:' \
+              "nginx -T 2>&1 | grep -nE 'proxy_intercept_errors|error_page|listen[[:space:]].*29100|server_name|location[[:space:]]+=?[[:space:]]*/v1/status|location[[:space:]]+/|proxy_pass' | head -n 320 || true" \
+              'echo safety_probe_complete=yes')"
+            parameters="$(jq -cn --arg command "$remote_script" '{commands:[$command]}')"
+            command_id="$(aws ssm send-command \
+              --instance-ids "$instance_id" \
+              --document-name AWS-RunShellScript \
+              --comment "Sudharma nginx error handling read-only probe" \
+              --parameters "$parameters" \
+              --query 'Command.CommandId' \
+              --output text)"
+            echo "::add-mask::$command_id"
+
+            for _ in $(seq 1 45); do
+              status="$(aws ssm get-command-invocation \
+                --command-id "$command_id" \
+                --instance-id "$instance_id" \
+                --query Status \
+                --output text 2>/dev/null || true)"
+              case "$status" in
+                Success|Failed|Cancelled|TimedOut|Cancelling) break ;;
+              esac
+              sleep 2
+            done
+
+            result="$(aws ssm get-command-invocation \
+              --command-id "$command_id" \
+              --instance-id "$instance_id" \
+              --query '{status:Status,stdout:StandardOutputContent,stderr:StandardErrorContent}' \
+              --output json)"
+            echo "seed-${index}: $result"
+            test "$(printf '%s' "$result" | jq -r '.status')" = 'Success'
+          done
+
+      - name: Record safety boundary
+        if: always()
+        run: |
+          echo 'probe-mode=read-only'
+          echo 'seed-service-restarts=0'
+          echo 'seed-binaries-changed=0'
+          echo 'seed-config-changed=0'
+          echo 'nginx-config-changed=0'
+          echo 'nginx-reloads=0'
+          echo 'rpc-firewall-changes=0'
+          echo 'gpu-pow-deployment=0'
