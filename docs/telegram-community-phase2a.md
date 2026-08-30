@@ -33,8 +33,10 @@ Rules:
 - Telegram photos, videos, documents, voice notes, and other attachments are **not copied** to GitHub in Phase 2A;
 - the created GitHub issue includes a link to the public Telegram source message;
 - Telegram numeric user IDs and profile names are not copied into the GitHub issue;
-- GitHub `@mention` syntax in user text is neutralized before issue creation;
-- retries use the Telegram `update_id` marker to avoid creating a duplicate issue.
+- GitHub `@mention` syntax and raw HTML-comment delimiters in user text are neutralized before issue creation;
+- retries use the Telegram `update_id` marker to avoid creating a duplicate issue;
+- deduplication state trusts only report issues authored by `github-actions[bot]`, so an ordinary public GitHub issue cannot spoof a processed Telegram update;
+- deduplication searches a 24-hour history, matching Telegram's maximum pending-update lifetime, while abuse-rate counting remains a separate rolling one-hour window.
 
 Abuse controls:
 
@@ -88,7 +90,7 @@ permissions:
   issues: write
 ```
 
-Runs are serialized under one concurrency group so overlapping poll workers cannot intentionally process the queue together.
+Runs are serialized under one concurrency group so overlapping poll workers cannot intentionally process the queue together. Each job also has a five-minute timeout so a stalled Telegram or GitHub request cannot hold the serialized worker indefinitely.
 
 ## Bootstrap procedure
 
@@ -143,7 +145,7 @@ Then:
 1. Run **Telegram Community** with `mode: poll`.
 2. Verify exactly one public GitHub issue is created.
 3. Verify its body contains the Phase 2A source marker and a link to the Telegram test message.
-4. Verify it does not contain Telegram numeric user identity data.
+4. Verify the issue is authored by `github-actions[bot]` and does not contain Telegram numeric user identity data.
 5. Verify the bot replies in Telegram with the new GitHub issue URL.
 6. Run `mode: poll` again.
 7. Verify no duplicate GitHub issue is created.
@@ -192,7 +194,8 @@ Revoking the Telegram bot token is a broader emergency action because the same t
 - Do not disable Group Privacy Mode as a troubleshooting shortcut.
 - A configured webhook causes bootstrap to fail by design. Identify the webhook owner/integration before changing it.
 - A failed actionable Telegram update is deliberately left unacknowledged so it can be retried.
-- `/report` retries search recent direct GitHub issue listings for the exact Telegram `update_id` marker before creating a new issue.
+- `/report` retries search the previous 24 hours of `github-actions[bot]`-authored GitHub issues for the exact Telegram `update_id` marker before creating a new issue.
+- The rolling abuse limit counts only qualifying Telegram-created issues from the previous hour, not the full 24-hour dedup history.
 
 ## Scope exclusions
 
