@@ -19,6 +19,8 @@ test('allows the public wallet and faucet route shapes', () => {
     ['POST', '/v1/transactions', 'submitTransaction'],
     ['GET', '/v1/transactions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'transactionStatus'],
     ['GET', '/v1/faucet/info', 'faucetInfo'],
+    ['GET', '/v1/faucet/health', 'faucetHealth'],
+    ['GET', '/v1/faucet/diagnostics', 'faucetDiagnostics'],
     ['POST', '/v1/faucet/request', 'faucetInitial'],
     ['POST', '/v1/faucet/challenge', 'faucetChallenge'],
   ];

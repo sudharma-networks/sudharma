@@ -20,7 +20,7 @@ import {
   createFaucetService,
   createSigner,
 } from './faucet.mjs';
-import { proxyWithFailover } from './upstream.mjs';
+import { proxyWithFailover, fetchOnce } from './upstream.mjs';
 
 function conditionalFailure(error) {
   return error?.name === 'ConditionalCheckFailedException' || error?.name === 'TransactionCanceledException';
@@ -350,6 +350,15 @@ export function classifyUpstreamError(statusCode, message) {
   return 'http_error';
 }
 
+export function attachUpstreamNonceMismatch(error, message) {
+  const text = String(message || '');
+  const match = /expected (\d+), got (\d+)/i.exec(text);
+  if (!match) return error;
+  error.expectedNonce = Number.parseInt(match[1], 10);
+  error.submittedNonce = Number.parseInt(match[2], 10);
+  return error;
+}
+
 export function createRpc({ seeds, fetchImpl, timeoutMs, timed }) {
   async function call(operation, method, path, body) {
     const request = {
@@ -370,10 +379,10 @@ export function createRpc({ seeds, fetchImpl, timeoutMs, timed }) {
         throw error;
       }
       if (result.statusCode < 200 || result.statusCode >= 300) {
-        const error = new FaucetError(
+        const error = attachUpstreamNonceMismatch(new FaucetError(
           result.statusCode >= 500 ? 503 : result.statusCode,
           'testnet node rejected request',
-        );
+        ), payload?.error);
         error.upstreamStatus = result.statusCode;
         error.errorCategory = classifyUpstreamError(result.statusCode, payload?.error);
         throw error;
@@ -382,16 +391,57 @@ export function createRpc({ seeds, fetchImpl, timeoutMs, timed }) {
     });
   }
 
+  async function probeSeed(operation, method, path, body) {
+    const request = {
+      method,
+      path,
+      headers: body == null ? {} : { 'content-type': 'application/json; charset=utf-8' },
+      body: body == null ? Buffer.alloc(0) : Buffer.from(JSON.stringify(body), 'utf8'),
+    };
+    return timed(operation, async () => {
+      let lastError;
+      for (let index = 0; index < seeds.length; index++) {
+        try {
+          const result = await fetchOnce(seeds[index], request, { fetchImpl, timeoutMs });
+          let payload;
+          try {
+            payload = JSON.parse(result.body.toString('utf8'));
+          } catch {
+            lastError = new FaucetError(503, 'invalid response from testnet node');
+            lastError.upstreamStatus = result.statusCode;
+            lastError.errorCategory = 'invalid_response';
+            continue;
+          }
+          if (result.statusCode >= 200 && result.statusCode < 300) {
+            return { seed_index: index, payload };
+          }
+          lastError = attachUpstreamNonceMismatch(new FaucetError(
+            result.statusCode >= 500 ? 503 : result.statusCode,
+            'testnet node rejected request',
+          ), payload?.error);
+          lastError.upstreamStatus = result.statusCode;
+          lastError.errorCategory = classifyUpstreamError(result.statusCode, payload?.error);
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      throw lastError || new FaucetError(503, 'testnet node rejected request');
+    });
+  }
+
   return {
     account(address) {
       return call('seed.account', 'GET', `/v1/accounts/${address}`);
+    },
+    status() {
+      return call('seed.status', 'GET', '/v1/status');
     },
     transaction(transactionId) {
       return call('seed.transaction', 'GET', `/v1/transactions/${transactionId}`);
     },
     mempool(limit = 50) {
       const bounded = Number.isInteger(limit) && limit >= 1 && limit <= 500 ? limit : 50;
-      return call('seed.mempool', 'GET', `/v1/mempool?limit=${bounded}`);
+      return probeSeed('seed.mempool', 'GET', `/v1/mempool?limit=${bounded}`).then((result) => result.payload);
     },
     async submit(transaction) {
       try {
@@ -429,6 +479,52 @@ export async function checkFaucetReadiness({ store, rpc, signer }) {
     throw new FaucetError(503, 'testnet faucet needs funding');
   }
   return { ready: true };
+}
+
+function summarizeSignerMempoolTxs(mempoolBody, signerAddress) {
+  const txs = Array.isArray(mempoolBody?.transactions) ? mempoolBody.transactions : [];
+  return txs
+    .filter((tx) => tx?.From === signerAddress)
+    .map((tx) => ({ id: tx.ID, to: tx.To, nonce: tx.Nonce, amount: tx.Amount, fee: tx.Fee }));
+}
+
+export async function checkFaucetDiagnostics({ store, rpc, signer }) {
+  const readiness = await checkFaucetReadiness({ store, rpc, signer }).then(() => true).catch(() => false);
+  const account = await rpc.account(signer.address);
+  let networkStatus = null;
+  try {
+    networkStatus = await rpc.status();
+  } catch {
+    networkStatus = null;
+  }
+
+  let seedMempool = { available: false, count: null, signer_txs: [] };
+  try {
+    const mempoolBody = await rpc.mempool(50);
+    seedMempool = {
+      available: true,
+      count: Number.isInteger(mempoolBody?.count) ? mempoolBody.count : null,
+      signer_txs: summarizeSignerMempoolTxs(mempoolBody, signer.address),
+    };
+  } catch {
+    seedMempool = { available: false, count: null, signer_txs: [] };
+  }
+
+  return {
+    ready: readiness,
+    signer: {
+      address: signer.address,
+      balance: account?.balance ?? null,
+      confirmed_nonce: account?.confirmed_nonce ?? account?.confirmedNonce ?? null,
+      next_nonce: account?.next_nonce ?? account?.nextNonce ?? null,
+    },
+    network: networkStatus ? {
+      height: networkStatus.height ?? null,
+      mempool: networkStatus.mempool ?? null,
+    } : null,
+    seed_mempool: seedMempool,
+    testnet_only: true,
+  };
 }
 
 function parseBody(request) {
@@ -496,6 +592,12 @@ export function createRuntimeFaucetHandler({ seeds, fetchImpl = globalThis.fetch
       return {
         statusCode: 200,
         payload: await checkFaucetReadiness({ store, rpc, signer: runtime.signer }),
+      };
+    }
+    if (request.kind === 'faucetDiagnostics') {
+      return {
+        statusCode: 200,
+        payload: await checkFaucetDiagnostics({ store, rpc, signer: runtime.signer }),
       };
     }
 

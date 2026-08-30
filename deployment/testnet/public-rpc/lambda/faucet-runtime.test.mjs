@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyUpstreamError, createOperationTimer, createRpc, createRuntimeFaucetHandler } from './faucet-runtime.mjs';
+import { attachUpstreamNonceMismatch, classifyUpstreamError, createOperationTimer, createRpc, createRuntimeFaucetHandler } from './faucet-runtime.mjs';
 
 test('dependency timing logs only operation outcome and latency', async () => {
   const records = [];
@@ -165,4 +165,36 @@ test('upstream classifier maps live seed submit phrases without using raw bodies
   for (const item of cases) {
     assert.equal(classifyUpstreamError(item.status, item.error), item.category);
   }
+});
+
+test('attachUpstreamNonceMismatch extracts expected and submitted nonce safely', () => {
+  const error = attachUpstreamNonceMismatch(new Error('seed rejected'), 'invalid transaction nonce: expected 4, got 3');
+  assert.equal(error.expectedNonce, 4);
+  assert.equal(error.submittedNonce, 3);
+});
+
+test('mempool probe fails over to the next seed when the first seed returns a non-json 404', async () => {
+  const calls = [];
+  const timer = createOperationTimer({ logger: console, now: () => Date.now() });
+  const rpc = createRpc({
+    seeds: ['https://seed-a.example', 'https://seed-b.example'],
+    fetchImpl: async (url) => {
+      calls.push(url);
+      if (url.startsWith('https://seed-a.example')) {
+        return new Response('<html>404</html>', { status: 404, headers: { 'content-type': 'text/html' } });
+      }
+      return new Response(JSON.stringify({
+        count: 1,
+        transactions: [{ ID: 'b'.repeat(64), From: '9'.repeat(40), To: 'a'.repeat(40), Nonce: 3, Amount: 1, Fee: 1 }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    },
+    timeoutMs: 100,
+    timed: timer,
+  });
+
+  const body = await rpc.mempool(20);
+  assert.equal(body.count, 1);
+  assert.equal(calls.length, 2);
+  assert.match(calls[0], /^https:\/\/seed-a\.example/);
+  assert.match(calls[1], /^https:\/\/seed-b\.example/);
 });

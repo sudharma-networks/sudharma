@@ -49,6 +49,7 @@ function safeLog(logger, level, record) {
 function isFaucetRoute(kind) {
   return kind === 'faucetInfo'
     || kind === 'faucetHealth'
+    || kind === 'faucetDiagnostics'
     || kind === 'faucetInitial'
     || kind === 'faucetChallenge';
 }

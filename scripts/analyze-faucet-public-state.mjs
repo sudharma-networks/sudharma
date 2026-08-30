@@ -30,6 +30,7 @@ async function fetchJson(path) {
 export function analyzeFaucetPublicState({
   faucetInfo,
   faucetHealth,
+  faucetDiagnostics,
   signerAccount,
   networkStatus,
   mempool,
@@ -39,20 +40,33 @@ export function analyzeFaucetPublicState({
   lastHttpStatus,
 } = {}) {
   const grant = grantCostCoin();
-  const nextNonce = signerAccount?.next_nonce ?? signerAccount?.nextNonce;
-  const balance = signerAccount?.balance;
+  const nextNonce = signerAccount?.next_nonce ?? signerAccount?.nextNonce
+    ?? faucetDiagnostics?.signer?.next_nonce;
+  const balance = signerAccount?.balance ?? faucetDiagnostics?.signer?.balance;
   const expectedFailedTxId = expectedTxId(FAUCET_SIGNER, FAILED_ADDRESS, 3);
+  const diagnosticsSignerTxs = Array.isArray(faucetDiagnostics?.seed_mempool?.signer_txs)
+    ? faucetDiagnostics.seed_mempool.signer_txs
+    : [];
   const mempoolTxs = Array.isArray(mempool?.body?.transactions) ? mempool.body.transactions : [];
-  const signerMempoolTxs = mempoolTxs
-    .filter((tx) => tx?.From === FAUCET_SIGNER)
-    .map((tx) => ({ id: tx.ID, to: tx.To, nonce: tx.Nonce, amount: tx.Amount, fee: tx.Fee }));
+  const signerMempoolTxs = diagnosticsSignerTxs.length > 0
+    ? diagnosticsSignerTxs.map((tx) => ({
+      id: tx.id || tx.ID,
+      to: tx.to || tx.To,
+      nonce: tx.nonce ?? tx.Nonce,
+      amount: tx.amount ?? tx.Amount,
+      fee: tx.fee ?? tx.Fee,
+    }))
+    : mempoolTxs
+      .filter((tx) => tx?.From === FAUCET_SIGNER)
+      .map((tx) => ({ id: tx.ID, to: tx.To, nonce: tx.Nonce, amount: tx.Amount, fee: tx.Fee }));
 
   const analysis = {
     rpc_base_url: RPC_BASE_URL,
     faucet_enabled: faucetInfo?.enabled ?? null,
-    faucet_ready: faucetHealth?.ready ?? null,
-    network_height: networkStatus?.height ?? null,
-    network_mempool: networkStatus?.mempool ?? null,
+    faucet_ready: faucetHealth?.ready ?? faucetDiagnostics?.ready ?? null,
+    network_height: networkStatus?.height ?? faucetDiagnostics?.network?.height ?? null,
+    network_mempool: networkStatus?.mempool ?? faucetDiagnostics?.network?.mempool ?? null,
+    seed_mempool_available: faucetDiagnostics?.seed_mempool?.available ?? null,
     mempool_route_available: mempool?.ok === true,
     signer_mempool_txs: signerMempoolTxs,
     signer: {
@@ -119,9 +133,10 @@ export function analyzeFaucetPublicState({
 }
 
 async function main() {
-  const [faucetInfo, faucetHealth, signerAccount, networkStatus, mempool, failedTx, failedAddressTx] = await Promise.all([
+  const [faucetInfo, faucetHealth, faucetDiagnostics, signerAccount, networkStatus, mempool, failedTx, failedAddressTx] = await Promise.all([
     fetchJson('/v1/faucet/info'),
     fetchJson('/v1/faucet/health'),
+    fetchJson('/v1/faucet/diagnostics'),
     fetchJson(`/v1/accounts/${FAUCET_SIGNER}`),
     fetchJson('/v1/status'),
     fetchJson('/v1/mempool?limit=20'),
@@ -132,6 +147,7 @@ async function main() {
   const analysis = analyzeFaucetPublicState({
     faucetInfo: faucetInfo.body,
     faucetHealth: faucetHealth.body,
+    faucetDiagnostics: faucetDiagnostics.ok ? faucetDiagnostics.body : null,
     signerAccount: signerAccount.body,
     networkStatus: networkStatus.body,
     mempool,

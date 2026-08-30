@@ -31,7 +31,7 @@ async function readBounded(response, maxBytes = MAX_RESPONSE_BYTES) {
   return buffer;
 }
 
-async function fetchOnce(seed, request, { fetchImpl, timeoutMs }) {
+export async function fetchOnce(seed, request, { fetchImpl, timeoutMs }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
