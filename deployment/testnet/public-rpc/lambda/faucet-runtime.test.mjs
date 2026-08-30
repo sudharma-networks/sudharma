@@ -78,3 +78,64 @@ test('RPC diagnostics classify seed rejection without logging its response body'
   ]);
   assert.equal(JSON.stringify(records).includes('transaction rejected by mempool'), false);
 });
+
+test('RPC diagnostics keep seed rejection bodies out of thrown faucet errors', async () => {
+  const timer = createOperationTimer({
+    logger: { info() {} },
+    now: (() => { let tick = 0; return () => ++tick; })(),
+  });
+  const rpc = createRpc({
+    seeds: ['https://seed-a.example', 'https://seed-b.example'],
+    fetchImpl: async () => new Response(
+      JSON.stringify({ error: 'transaction rejected by mempool: invalid transaction signature' }),
+      { status: 422 },
+    ),
+    timeoutMs: 100,
+    timed: timer,
+  });
+
+  await assert.rejects(
+    async () => {
+      try {
+        await rpc.transaction('b'.repeat(64));
+      } catch (error) {
+        assert.equal(error.upstreamStatus, 422);
+        assert.equal(error.errorCategory, 'invalid_signature');
+        assert.equal(error.message, 'testnet node rejected request');
+        throw error;
+      }
+    },
+    /testnet node rejected request/,
+  );
+});
+
+test('RPC diagnostics classify additional seed failures from status and safe keywords', async () => {
+  const cases = [
+    { status: 409, error: 'nonce is stale for this account', category: 'invalid_nonce' },
+    { status: 400, error: 'insufficient balance to cover amount and fee', category: 'insufficient_balance' },
+    { status: 400, error: 'fee below minimum', category: 'invalid_fee' },
+    { status: 409, error: 'transaction already exists', category: 'duplicate_transaction' },
+    { status: 400, error: 'invalid transaction id encoding', category: 'invalid_transaction_id' },
+    { status: 422, error: 'transaction rejected by policy', category: 'transaction_rejected' },
+    { status: 503, error: 'seed overloaded', category: 'upstream_unavailable' },
+  ];
+
+  for (const item of cases) {
+    const records = [];
+    const timer = createOperationTimer({
+      logger: { info(value) { records.push(value); } },
+      now: (() => { let tick = 0; return () => ++tick; })(),
+    });
+    const rpc = createRpc({
+      seeds: ['https://seed-a.example', 'https://seed-b.example'],
+      fetchImpl: async () => new Response(JSON.stringify({ error: item.error }), { status: item.status }),
+      timeoutMs: 100,
+      timed: timer,
+    });
+
+    await assert.rejects(rpc.account('9'.repeat(40)));
+    assert.equal(records[0].http_status, item.status);
+    assert.equal(records[0].error_category, item.category);
+    assert.equal(JSON.stringify(records).includes(item.error), false);
+  }
+});

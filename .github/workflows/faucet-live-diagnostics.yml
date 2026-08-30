@@ -6,6 +6,9 @@ on:
       - feature/faucet-recovery-stage2
     paths:
       - .github/workflows/faucet-live-diagnostics.yml
+      - scripts/sanitize-faucet-live-logs.mjs
+      - scripts/sanitize-faucet-live-logs.test.mjs
+      - scripts/check-faucet-live-diagnostics-contract_test.sh
   workflow_dispatch:
 
 permissions:
@@ -22,6 +25,9 @@ jobs:
   safe-live-evidence:
     runs-on: ubuntu-24.04
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Configure AWS credentials from GitHub OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -60,15 +66,18 @@ jobs:
           log_group="/aws/lambda/$LAMBDA_NAME"
           for pattern in '"faucet_dependency"' '"wallet_faucet_error"'; do
             echo "=== filter $pattern ==="
+            raw_logs="$(mktemp)"
             if aws logs filter-log-events \
               --log-group-name "$log_group" \
               --start-time "$start_ms" \
               --filter-pattern "$pattern" \
               --max-items 100 \
               --query 'events[].message' \
-              --output text; then
+              --output text > "$raw_logs"; then
+              node ./scripts/sanitize-faucet-live-logs.mjs < "$raw_logs"
               echo '{"cloudwatch_filter":"OK"}'
             else
               echo '{"cloudwatch_filter":"DENIED_OR_FAILED"}'
             fi
+            rm -f "$raw_logs"
           done

@@ -341,7 +341,7 @@ export function createRpc({ seeds, fetchImpl, timeoutMs, timed }) {
       if (result.statusCode < 200 || result.statusCode >= 300) {
         const error = new FaucetError(
           result.statusCode >= 500 ? 503 : result.statusCode,
-          payload?.error || 'testnet node rejected request',
+          'testnet node rejected request',
         );
         error.upstreamStatus = result.statusCode;
         error.errorCategory = classifyUpstreamError(result.statusCode, payload?.error);
