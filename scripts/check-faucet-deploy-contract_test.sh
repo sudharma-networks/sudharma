@@ -24,6 +24,10 @@ require_literal '/v1/faucet/info'
 require_literal '/v1/faucet/health'
 require_literal "trap 'disable_faucet' ERR"
 require_literal 'trap - ERR'
+require_literal 'name: Snapshot Lambda environment'
+require_literal '/tmp/lambda-environment-base.json'
+require_literal '/tmp/lambda-environment-disabled.json'
+require_literal '/tmp/lambda-environment-enabled.json'
 
 if grep -Fq "if: github.ref == 'refs/heads/feature/public-testnet-wallet-v2'" "$workflow"; then
   fail 'deploy remains hard-wired to the historical feature/public-testnet-wallet-v2 branch'
@@ -37,4 +41,4 @@ if [ "$stage_line" -ge "$code_line" ]; then
   fail 'faucet must be forced disabled before new Lambda code is installed'
 fi
 
-printf 'PASS: faucet deployment contract is manual-only, deep-health gated, fail-closed on unexpected errors, disables before code update, and promotes the tested artifact\n'
+printf 'PASS: faucet deployment contract is manual-only, preserves Lambda environment, deep-health gated, fail-closed on unexpected errors, disables before code update, and promotes the tested artifact\n'
