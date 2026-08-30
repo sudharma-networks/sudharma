@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import { PRIMARY_NAV } from "@/lib/navigation";
 import { PROJECT_NAME } from "@/lib/project";
@@ -15,7 +17,18 @@ export function SiteHeader() {
         <details className="nav-disclosure">
           <summary aria-label="Open site navigation"><span>Menu</span><span className="menu-lines" aria-hidden="true">☰</span></summary>
           <nav aria-label="Primary navigation">
-            {PRIMARY_NAV.map(([label, href]) => <Link key={href} href={href}>{label}</Link>)}
+            {PRIMARY_NAV.map(([label, href]) => (
+              <Link
+                key={href}
+                href={href}
+                onClick={(event) => {
+                  const disclosure = event.currentTarget.closest("details");
+                  if (disclosure) disclosure.open = false;
+                }}
+              >
+                {label}
+              </Link>
+            ))}
           </nav>
         </details>
       </div>
