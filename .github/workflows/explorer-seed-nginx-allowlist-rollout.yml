@@ -1,0 +1,181 @@
+name: Explorer Seed Nginx Allowlist Rollout
+
+on:
+  push:
+    branches:
+      - feature/public-testnet-wallet-v2
+      - security/explorer-nginx-rollout-workflow
+    paths:
+      - 'deployment/testnet/explorer-nginx-rollout-trigger.txt'
+      - 'deployment/testnet/rollout-explorer-nginx-allowlist.sh'
+      - '.github/workflows/explorer-seed-nginx-allowlist-rollout.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      armed: ${{ steps.gate.outputs.armed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: gate
+        name: Verify one-time execution gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          armed=false
+          expected_message='ops(testnet): execute explorer nginx allowlist rollout'
+          expected_trigger='EXECUTE_EXPLORER_NGINX_ALLOWLIST_V1'
+          actual_message="$(git log -1 --format=%s)"
+          actual_trigger="$(tr -d '\r\n' < deployment/testnet/explorer-nginx-rollout-trigger.txt)"
+
+          if [[ "$GITHUB_EVENT_NAME" == 'push' \
+             && "$GITHUB_REF" == 'refs/heads/feature/public-testnet-wallet-v2' \
+             && "$actual_message" == "$expected_message" \
+             && "$actual_trigger" == "$expected_trigger" ]]; then
+            mapfile -t changed < <(git diff --name-only HEAD^ HEAD)
+            if [[ "${#changed[@]}" -eq 1 \
+               && "${changed[0]}" == 'deployment/testnet/explorer-nginx-rollout-trigger.txt' ]]; then
+              armed=true
+            fi
+          fi
+
+          echo "armed=$armed" >> "$GITHUB_OUTPUT"
+          echo "execution_gate=$armed"
+
+  rollout:
+    needs: gate
+    if: needs.gate.outputs.armed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: ap-south-1
+      SEED_PRIVATE_IPS: '172.31.10.171 172.31.32.195'
+      PUBLIC_RPC_BASE: 'https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify rollout script and safety boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x deployment/testnet/rollout-explorer-nginx-allowlist.sh
+          test "$(tr -d '\r\n' < deployment/testnet/explorer-nginx-rollout-trigger.txt)" = 'EXECUTE_EXPLORER_NGINX_ALLOWLIST_V1'
+          grep -Fq 'location = /v1/explorer/status {' deployment/testnet/rollout-explorer-nginx-allowlist.sh
+          grep -Fq 'location = /v1/explorer/blocks {' deployment/testnet/rollout-explorer-nginx-allowlist.sh
+          grep -Fq 'location = /v1/explorer/transactions {' deployment/testnet/rollout-explorer-nginx-allowlist.sh
+          grep -Fq 'location = /v1/explorer/search {' deployment/testnet/rollout-explorer-nginx-allowlist.sh
+          if grep -Eq 'location[[:space:]]+(\^~[[:space:]]+)?/v1/explorer/' deployment/testnet/rollout-explorer-nginx-allowlist.sh; then
+            echo 'generic explorer prefix route is forbidden' >&2
+            exit 1
+          fi
+          if grep -Eq 'systemctl[[:space:]]+(restart|stop)[[:space:]]+sudharma|ufw|iptables|security-group|gpu|cuda|opencl|khushi' deployment/testnet/rollout-explorer-nginx-allowlist.sh; then
+            echo 'forbidden rollout behavior detected' >&2
+            exit 1
+          fi
+          bash deployment/testnet/rollout-explorer-nginx-allowlist_test.sh
+
+      - name: Configure AWS credentials from GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+
+      - name: Roll out nginx explorer allowlist seed by seed
+        shell: bash
+        run: |
+          set -euo pipefail
+          script_b64="$(base64 -w0 deployment/testnet/rollout-explorer-nginx-allowlist.sh)"
+          index=0
+          for private_ip in $SEED_PRIVATE_IPS; do
+            index=$((index + 1))
+            instance_id="$(aws ssm describe-instance-information \
+              --query "InstanceInformationList[?IPAddress=='${private_ip}' && PingStatus=='Online'] | [0].InstanceId" \
+              --output text)"
+            if [[ -z "$instance_id" || "$instance_id" == 'None' ]]; then
+              echo "seed-${index}: Online SSM instance not found" >&2
+              exit 1
+            fi
+            echo "::add-mask::$instance_id"
+
+            remote_script="$(printf '%s\n' \
+              'set -eu' \
+              'tmp=$(mktemp /tmp/sudharma-explorer-nginx-rollout.XXXXXX)' \
+              "printf '%s' '${script_b64}' | base64 -d > \"\$tmp\"" \
+              'chmod 700 "$tmp"' \
+              "CONFIG_PATH=/etc/nginx/sites-enabled/sudharma-wallet-proxy PRIVATE_IP='${private_ip}' \"\$tmp\"" \
+              'rm -f "$tmp"')"
+            parameters="$(jq -cn --arg command "$remote_script" '{commands:[$command]}')"
+            command_id="$(aws ssm send-command \
+              --instance-ids "$instance_id" \
+              --document-name AWS-RunShellScript \
+              --comment "Sudharma explorer nginx allowlist rollout seed-${index}" \
+              --parameters "$parameters" \
+              --query 'Command.CommandId' \
+              --output text)"
+            echo "::add-mask::$command_id"
+
+            terminal=''
+            for _ in $(seq 1 45); do
+              terminal="$(aws ssm get-command-invocation \
+                --command-id "$command_id" \
+                --instance-id "$instance_id" \
+                --query Status \
+                --output text 2>/dev/null || true)"
+              case "$terminal" in
+                Success) break ;;
+                Failed|Cancelled|TimedOut|Cancelling) break ;;
+              esac
+              sleep 2
+            done
+
+            result="$(aws ssm get-command-invocation \
+              --command-id "$command_id" \
+              --instance-id "$instance_id" \
+              --query '{status:Status,stdout:StandardOutputContent,stderr:StandardErrorContent}' \
+              --output json)"
+            echo "seed-${index}: $result"
+            if [[ "$(printf '%s' "$result" | jq -r '.status')" != 'Success' ]]; then
+              echo "seed-${index}: nginx allowlist rollout failed; stopping before next seed" >&2
+              exit 1
+            fi
+          done
+
+      - name: Verify public bridge still serves wallet and reaches explorer node API
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 10 "$PUBLIC_RPC_BASE/v1/status" | jq -e '.network == "sudharma"' >/dev/null
+
+          headers="$(mktemp)"
+          body="$(mktemp)"
+          trap 'rm -f "$headers" "$body"' EXIT
+          code="$(curl -sS --max-time 10 -D "$headers" -o "$body" -w '%{http_code}' "$PUBLIC_RPC_BASE/v1/explorer/status")"
+          content_type="$(awk 'BEGIN{IGNORECASE=1} /^content-type:/ {sub(/\r$/, "", $0); sub(/^[^:]*:[[:space:]]*/, "", $0); print; exit}' "$headers")"
+          if [[ "$code" != '404' || "$content_type" != application/json* ]]; then
+            echo "public explorer bridge did not reach old node JSON API: HTTP=$code content-type=$content_type" >&2
+            cat "$body" >&2 || true
+            exit 1
+          fi
+          jq -e '.error == "endpoint not found"' < "$body" >/dev/null
+          echo 'public explorer path now traverses Lambda and private nginx to the node API'
+
+      - name: Record safety boundary
+        if: always()
+        shell: bash
+        run: |
+          echo 'mainnet_activation=0'
+          echo 'gpu_pow_deployment=0'
+          echo 'raw_rpc_public_exposure=0'
+          echo 'seed_binary_changes=0'
+          echo 'seed_config_changes=0'
+          echo 'nginx_reload_only=1'
+          echo 'rolling_order=seed-1-then-seed-2'
