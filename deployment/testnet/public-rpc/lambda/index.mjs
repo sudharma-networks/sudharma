@@ -1,5 +1,6 @@
 import { normalizeEvent, RequestError } from './router.mjs';
 import { proxyWithFailover, UpstreamUnavailableError } from './upstream.mjs';
+import { wakeDemandMinerInBackground } from './miner-wake.mjs';
 
 const DEFAULT_SEEDS = [
   'http://172.31.10.171:29100',
@@ -181,6 +182,9 @@ export function createHandler(options = {}) {
     const responseHeaders = isExplorerRoute(request.kind) ? EXPLORER_CORS_HEADERS : {};
     try {
       const result = await proxyWithFailover(request, { seeds, fetchImpl, timeoutMs });
+      if (request.kind === 'submitTransaction' && result.statusCode >= 200 && result.statusCode < 300) {
+        wakeDemandMinerInBackground({ seeds, fetchImpl, timeoutMs }, logger);
+      }
       safeLog(logger, 'info', {
         event: 'wallet_proxy_response',
         method: request.method,

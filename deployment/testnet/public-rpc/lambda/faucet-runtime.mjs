@@ -489,6 +489,9 @@ export function createRpc({ seeds, fetchImpl, timeoutMs, timed }) {
     metrics() {
       return probeSeedRaw('seed.metrics', 'GET', '/metrics').then((result) => result.bodyText);
     },
+    wake() {
+      return call('seed.miner_wake', 'POST', '/v1/miner/wake');
+    },
     async submit(transaction) {
       try {
         return await call('seed.submit_transaction', 'POST', '/v1/transactions', transaction);

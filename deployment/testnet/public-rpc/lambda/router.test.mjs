@@ -17,6 +17,7 @@ test('allows the public wallet and faucet route shapes', () => {
     ['GET', '/v1/mempool', 'mempool'],
     ['GET', `/v1/accounts/${ADDRESS}`, 'account'],
     ['POST', '/v1/transactions', 'submitTransaction'],
+    ['POST', '/v1/miner/wake', 'minerWake'],
     ['GET', '/v1/transactions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'transactionStatus'],
     ['GET', '/v1/faucet/info', 'faucetInfo'],
     ['GET', '/v1/faucet/health', 'faucetHealth'],

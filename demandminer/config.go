@@ -36,6 +36,7 @@ type Config struct {
 	MaxBlocksPerSweep   int    `json:"max_blocks_per_sweep"`
 	FaucetMinBalance    uint64 `json:"faucet_min_balance"`
 	FaucetFundingBlocks int    `json:"faucet_funding_blocks"`
+	WakeListen          string `json:"wake_listen"`
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -128,6 +129,11 @@ func (c Config) Validate() error {
 	if c.MaxBlocksPerSweep < 0 {
 		return errors.New("max_blocks_per_sweep must not be negative")
 	}
+	if c.WakeListen != "" {
+		if err := validateLoopbackHostPort(c.WakeListen); err != nil {
+			return fmt.Errorf("wake_listen: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -208,4 +214,11 @@ func (c Config) FaucetFundingBlocksLimit() int {
 		return 2
 	}
 	return c.FaucetFundingBlocks
+}
+
+func (c Config) WakeListenAddress() string {
+	if strings.TrimSpace(c.WakeListen) == "" {
+		return DefaultWakeListen
+	}
+	return c.WakeListen
 }

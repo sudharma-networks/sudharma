@@ -338,8 +338,9 @@ async function submitPayout({ store, rpc, signer, to, amount, prepare }) {
 
     const requiredBalance = requiredPayoutBalance(amount);
     if (!Number.isSafeInteger(balance) || balance < requiredBalance) {
+      const wakeMiner = typeof rpc.wake === 'function' ? () => rpc.wake() : null;
       try {
-        await waitForFaucetFunding({ rpc, signer, requiredBalance });
+        await waitForFaucetFunding({ rpc, signer, requiredBalance, wakeMiner });
       } catch (error) {
         if (error instanceof FaucetFundingError) {
           throw new FaucetError(error.statusCode, error.message);

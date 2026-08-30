@@ -64,7 +64,8 @@ sync_schedule_config() {
       scheduled_sweep_every,
       max_blocks_per_sweep,
       faucet_min_balance,
-      faucet_funding_blocks
+      faucet_funding_blocks,
+      wake_listen
     })' \
     /etc/sudharma/demand-miner.json "$workdir/$config_example" > /tmp/demand-miner-schedule.json
   install -m 0640 /tmp/demand-miner-schedule.json /etc/sudharma/demand-miner.json

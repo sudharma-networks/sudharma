@@ -39,6 +39,38 @@ test('waitForFaucetFunding returns once the signer balance is sufficient', async
   assert.equal(result.balance, INITIAL_GRANT_REQUIRED_BALANCE);
 });
 
+test('waitForFaucetFunding wakes the demand miner while waiting', async () => {
+  const wakeCalls = [];
+  const rpc = {
+    account: async () => ({ balance: 0, next_nonce: 0 }),
+    wake: async () => {
+      wakeCalls.push(Date.now());
+      return { awoken: true };
+    },
+  };
+
+  await assert.rejects(
+    () => waitForFaucetFunding({
+      rpc,
+      signer: { address: 'a'.repeat(40) },
+      timeoutMs: 12,
+      pollMs: 5,
+      sleep: async () => {},
+      wakeMiner: () => rpc.wake(),
+      now: (() => {
+        let tick = 0;
+        return () => {
+          tick += 5;
+          return tick;
+        };
+      })(),
+    }),
+    (error) => error instanceof FaucetFundingError,
+  );
+
+  assert.ok(wakeCalls.length >= 2);
+});
+
 test('waitForFaucetFunding times out with a funding message', async () => {
   const rpc = {
     account: async () => ({ balance: 0, next_nonce: 0 }),

@@ -27,13 +27,20 @@ export async function waitForFaucetFunding({
   pollMs = 5_000,
   sleep = defaultSleep,
   now = Date.now,
+  wakeMiner = null,
 }) {
+  if (typeof wakeMiner === 'function') {
+    await wakeMiner().catch(() => {});
+  }
   const started = now();
   while (now() - started < timeoutMs) {
     const account = await rpc.account(signer.address);
     const balance = account?.balance;
     if (Number.isSafeInteger(balance) && balance >= requiredBalance) {
       return { funded: true, balance };
+    }
+    if (typeof wakeMiner === 'function') {
+      await wakeMiner().catch(() => {});
     }
     await sleep(pollMs);
   }
