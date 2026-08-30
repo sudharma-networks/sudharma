@@ -12,6 +12,7 @@ import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-sec
 import {
   CHALLENGE_REWARD_SUDH,
   CHALLENGE_SEND_SUDH,
+  COIN,
   COOLDOWN_MS,
   FaucetError,
   INITIAL_GRANT_SUDH,
@@ -45,16 +46,53 @@ export function createOperationTimer({ logger = console, now = Date.now } = {}) 
   };
 }
 
-function createStore(tableName, timed) {
-  const client = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
+export function createStore(tableName, timed, clientOverride = null) {
+  const client = clientOverride || DynamoDBDocumentClient.from(new DynamoDBClient({}), {
     marshallOptions: { removeUndefinedValues: true },
   });
   const lockOwner = randomUUID();
   const send = (operation, command) => timed(operation, () => client.send(command));
 
   return {
+    async checkReadWrite() {
+      const owner = randomUUID();
+      const key = `HEALTH#${owner}`;
+      await send('dynamodb.health_write', new PutCommand({
+        TableName: tableName,
+        Item: { pk: key, kind: 'health', owner, expires_at: Date.now() + 60_000 },
+        ConditionExpression: 'attribute_not_exists(pk)',
+      }));
+      try {
+        const result = await send('dynamodb.health_read', new GetCommand({
+          TableName: tableName,
+          Key: { pk: key },
+          ConsistentRead: true,
+        }));
+        if (result.Item?.owner !== owner) {
+          throw new FaucetError(503, 'faucet state store health check failed');
+        }
+      } finally {
+        await send('dynamodb.health_delete', new DeleteCommand({
+          TableName: tableName,
+          Key: { pk: key },
+          ConditionExpression: '#owner = :owner',
+          ExpressionAttributeNames: { '#owner': 'owner' },
+          ExpressionAttributeValues: { ':owner': owner },
+        }));
+      }
+    },
+
     async getAddress(address) {
       const result = await send('dynamodb.get_address', new GetCommand({ TableName: tableName, Key: { pk: `ADDR#${address}` } }));
+      return result.Item || null;
+    },
+
+    async getChallenge(transactionId) {
+      const result = await send('dynamodb.get_challenge', new GetCommand({
+        TableName: tableName,
+        Key: { pk: `TX#${transactionId}` },
+        ConsistentRead: true,
+      }));
       return result.Item || null;
     },
 
@@ -77,14 +115,26 @@ function createStore(tableName, timed) {
       }
     },
 
+    async prepareInitial(address, payout, at) {
+      await send('dynamodb.prepare_initial', new UpdateCommand({
+        TableName: tableName,
+        Key: { pk: `ADDR#${address}` },
+        UpdateExpression: 'SET initial_status = :prepared, initial_txid = :txid, initial_payout = :payout, initial_prepared_at = :at',
+        ConditionExpression: 'initial_status = :reserved OR (initial_status = :prepared AND initial_txid = :txid)',
+        ExpressionAttributeValues: {
+          ':prepared': 'prepared', ':reserved': 'reserved', ':txid': payout.ID, ':payout': payout, ':at': at,
+        },
+      }));
+    },
+
     async markInitialSubmitted(address, transactionId, at) {
       await send('dynamodb.mark_initial_submitted', new UpdateCommand({
         TableName: tableName,
         Key: { pk: `ADDR#${address}` },
         UpdateExpression: 'SET initial_status = :submitted, initial_txid = :txid, initial_submitted_at = :at',
-        ConditionExpression: 'initial_status = :reserved OR (initial_status = :paid AND initial_txid = :txid)',
+        ConditionExpression: 'initial_status = :reserved OR (initial_status = :prepared AND initial_txid = :txid) OR (initial_status = :paid AND initial_txid = :txid)',
         ExpressionAttributeValues: {
-          ':submitted': 'submitted', ':reserved': 'reserved', ':paid': 'paid', ':txid': transactionId, ':at': at,
+          ':submitted': 'submitted', ':reserved': 'reserved', ':prepared': 'prepared', ':paid': 'paid', ':txid': transactionId, ':at': at,
         },
       }));
     },
@@ -93,9 +143,9 @@ function createStore(tableName, timed) {
       await send('dynamodb.complete_initial', new UpdateCommand({
         TableName: tableName,
         Key: { pk: `ADDR#${address}` },
-        UpdateExpression: 'SET initial_status = :paid, initial_txid = :txid, initial_paid_at = :at',
-        ConditionExpression: 'initial_status = :submitted AND initial_txid = :txid',
-        ExpressionAttributeValues: { ':paid': 'paid', ':submitted': 'submitted', ':txid': transactionId, ':at': at },
+        UpdateExpression: 'SET initial_status = :paid, initial_txid = :txid, initial_paid_at = :at REMOVE initial_payout',
+        ConditionExpression: '(initial_status = :submitted OR initial_status = :prepared) AND initial_txid = :txid',
+        ExpressionAttributeValues: { ':paid': 'paid', ':submitted': 'submitted', ':prepared': 'prepared', ':txid': transactionId, ':at': at },
       }));
     },
 
@@ -103,9 +153,9 @@ function createStore(tableName, timed) {
       await send('dynamodb.fail_initial', new UpdateCommand({
         TableName: tableName,
         Key: { pk: `ADDR#${address}` },
-        UpdateExpression: 'SET initial_status = :failed, initial_error = :message',
-        ConditionExpression: 'initial_status = :reserved',
-        ExpressionAttributeValues: { ':failed': 'failed', ':reserved': 'reserved', ':message': String(message).slice(0, 160) },
+        UpdateExpression: 'SET initial_status = :failed, initial_error = :message REMOVE initial_payout, initial_txid',
+        ConditionExpression: 'initial_status = :reserved OR initial_status = :prepared',
+        ExpressionAttributeValues: { ':failed': 'failed', ':reserved': 'reserved', ':prepared': 'prepared', ':message': String(message).slice(0, 160) },
       }));
     },
 
@@ -174,6 +224,19 @@ function createStore(tableName, timed) {
       }
     },
 
+    async prepareChallengePayout(address, transactionId, payout, at) {
+      await send('dynamodb.prepare_challenge_payout', new UpdateCommand({
+        TableName: tableName,
+        Key: { pk: `TX#${transactionId}` },
+        UpdateExpression: 'SET #status = :prepared, reward_payout = :payout, reward_txid = :reward, prepared_at = :at',
+        ConditionExpression: 'address = :address AND (#status = :reserved OR (#status = :prepared AND reward_txid = :reward))',
+        ExpressionAttributeNames: { '#status': 'status' },
+        ExpressionAttributeValues: {
+          ':address': address, ':reserved': 'reserved', ':prepared': 'prepared', ':payout': payout, ':reward': payout.ID, ':at': at,
+        },
+      }));
+    },
+
     async completeChallenge(address, transactionId, rewardTransactionId, at) {
       const claimKey = `TX#${transactionId}`;
       const addressKey = `ADDR#${address}`;
@@ -197,10 +260,10 @@ function createStore(tableName, timed) {
             Update: {
               TableName: tableName,
               Key: { pk: claimKey },
-              UpdateExpression: 'SET #status = :paid, reward_txid = :reward, completed_at = :at',
-              ConditionExpression: '#status = :reserved',
+              UpdateExpression: 'SET #status = :paid, reward_txid = :reward, completed_at = :at REMOVE reward_payout',
+              ConditionExpression: '#status = :reserved OR (#status = :prepared AND reward_txid = :reward)',
               ExpressionAttributeNames: { '#status': 'status' },
-              ExpressionAttributeValues: { ':paid': 'paid', ':reserved': 'reserved', ':reward': rewardTransactionId, ':at': at },
+              ExpressionAttributeValues: { ':paid': 'paid', ':reserved': 'reserved', ':prepared': 'prepared', ':reward': rewardTransactionId, ':at': at },
             },
           },
         ],
@@ -215,9 +278,9 @@ function createStore(tableName, timed) {
               Delete: {
                 TableName: tableName,
                 Key: { pk: `TX#${transactionId}` },
-                ConditionExpression: 'address = :address AND #status = :reserved',
+                ConditionExpression: 'address = :address AND (#status = :reserved OR #status = :prepared)',
                 ExpressionAttributeNames: { '#status': 'status' },
-                ExpressionAttributeValues: { ':address': address, ':reserved': 'reserved' },
+                ExpressionAttributeValues: { ':address': address, ':reserved': 'reserved', ':prepared': 'prepared' },
               },
             },
             {
@@ -286,6 +349,22 @@ function createRpc({ seeds, fetchImpl, timeoutMs, timed }) {
   };
 }
 
+export async function checkFaucetReadiness({ store, rpc, signer }) {
+  await store.checkReadWrite();
+  const account = await rpc.account(signer.address);
+  const nonce = account?.next_nonce ?? account?.nextNonce;
+  const balance = account?.balance;
+  if (!Number.isSafeInteger(nonce) || nonce < 0) {
+    throw new FaucetError(503, 'faucet account nonce is unavailable');
+  }
+  const amount = INITIAL_GRANT_SUDH * COIN;
+  const fee = Math.floor((amount * 10) / 10_000);
+  if (!Number.isSafeInteger(balance) || balance < amount + fee) {
+    throw new FaucetError(503, 'testnet faucet needs funding');
+  }
+  return { ready: true };
+}
+
 function parseBody(request) {
   try {
     return JSON.parse(Buffer.from(request.body).toString('utf8'));
@@ -345,6 +424,12 @@ export function createRuntimeFaucetHandler({ seeds, fetchImpl = globalThis.fetch
           cooldown_hours: COOLDOWN_MS / (60 * 60 * 1000),
           testnet_only: true,
         },
+      };
+    }
+    if (request.kind === 'faucetHealth') {
+      return {
+        statusCode: 200,
+        payload: await checkFaucetReadiness({ store, rpc, signer: runtime.signer }),
       };
     }
 
