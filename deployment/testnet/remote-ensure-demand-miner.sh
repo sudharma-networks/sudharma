@@ -25,6 +25,13 @@ ensure_go() {
   if command -v go >/dev/null 2>&1; then
     return 0
   fi
+  if command -v apt-get >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq
+    apt-get install -y -qq golang-go git curl ca-certificates
+    command -v go >/dev/null 2>&1
+    return 0
+  fi
   echo "go toolchain is required on the seed host to build demand miner binaries" >&2
   exit 2
 }

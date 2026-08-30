@@ -118,12 +118,15 @@ jobs:
           TESTNET_SEED1_INSTANCE_ID: ${{ vars.TESTNET_SEED1_INSTANCE_ID }}
 
       - name: Set up Go
+        if: steps.seed.outputs.seed_instance_found == 'true'
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
 
       - name: Build and publish demand miner binaries to S3
         id: publish
+        if: steps.seed.outputs.seed_instance_found == 'true'
+        continue-on-error: true
         run: |
           set -euo pipefail
           bucket="${TESTNET_DEMAND_MINER_BUCKET:-sudharma-testnet-demand-miner-981626123397}"
@@ -133,8 +136,8 @@ jobs:
           echo "node_url=$(jq -r .sudharmad_bin_url /tmp/published-binaries.json)" >> "$GITHUB_OUTPUT"
           echo "bucket=$bucket" >> "$GITHUB_OUTPUT"
 
-      - name: Ensure demand miner supervisor on Seed-1 via SSM
-        if: steps.seed.outputs.seed_instance_found == 'true'
+      - name: Ensure demand miner on Seed-1 via SSM (S3 prebuilt)
+        if: steps.seed.outputs.seed_instance_found == 'true' && steps.publish.outcome == 'success'
         run: |
           set -euo pipefail
           config_b64="$(base64 -w0 deployment/testnet/demand-miner.seed1-live.example.json)"
@@ -198,6 +201,69 @@ jobs:
             sleep 10
           done
           echo 'SSM ensure command timed out waiting for completion.' >&2
+          exit 1
+        env:
+          TESTNET_SEED1_INSTANCE_ID: ${{ vars.TESTNET_SEED1_INSTANCE_ID }}
+
+      - name: Ensure demand miner on Seed-1 via SSM (on-seed build fallback)
+        if: steps.seed.outputs.seed_instance_found == 'true' && steps.publish.outcome != 'success'
+        run: |
+          set -euo pipefail
+          echo '::warning title=S3 prebuilt publish unavailable::Falling back to on-seed build with apt-installed Go. Create s3://sudharma-testnet-demand-miner-981626123397 for faster installs.'
+          ensure_b64="$(base64 -w0 deployment/testnet/remote-ensure-demand-miner.sh)"
+          remote_script_file="$(mktemp)"
+          {
+            echo 'set -euo pipefail'
+            printf 'export SUDHARMA_REPO_REF=%q\n' "$SUDHARMA_REPO_REF"
+            printf 'echo %q | base64 -d > /tmp/remote-ensure-demand-miner.sh\n' "$ensure_b64"
+            echo 'chmod +x /tmp/remote-ensure-demand-miner.sh'
+            echo 'bash /tmp/remote-ensure-demand-miner.sh'
+            echo 'rm -f /tmp/remote-ensure-demand-miner.sh'
+          } > "$remote_script_file"
+          wrapper_b64="$(base64 -w0 "$remote_script_file")"
+          rm -f "$remote_script_file"
+          params="$(jq -nc --arg b64 "$wrapper_b64" '{commands:["echo " + ($b64 | @sh) + " | base64 -d | bash"]}')"
+          command_id="$(aws ssm send-command \
+            --instance-ids "${{ steps.seed.outputs.instance_id }}" \
+            --document-name AWS-RunShellScript \
+            --comment "Ensure Sudharma demand miner via on-seed build (auto-deploy fallback)" \
+            --parameters "$params" \
+            --query 'Command.CommandId' \
+            --output text)"
+          echo "command_id=$command_id" >> "$GITHUB_ENV"
+          for attempt in $(seq 1 90); do
+            status="$(aws ssm get-command-invocation \
+              --command-id "$command_id" \
+              --instance-id "${{ steps.seed.outputs.instance_id }}" \
+              --query 'Status' \
+              --output text 2>/dev/null || echo Pending)"
+            echo "ssm_status=$status attempt=$attempt"
+            case "$status" in
+              Success)
+                invocation="$(aws ssm get-command-invocation \
+                  --command-id "$command_id" \
+                  --instance-id "${{ steps.seed.outputs.instance_id }}" \
+                  --query '{Status:Status,Stdout:StandardOutputContent,Stderr:StandardErrorContent}' \
+                  --output json)"
+                printf '%s\n' "$invocation"
+                if printf '%s' "$invocation" | jq -e '.Stdout | test("demand_miner_ensure")' >/dev/null; then
+                  exit 0
+                fi
+                echo 'SSM reported Success but ensure marker missing in stdout.' >&2
+                exit 1
+                ;;
+              Failed|Cancelled|TimedOut)
+                aws ssm get-command-invocation \
+                  --command-id "$command_id" \
+                  --instance-id "${{ steps.seed.outputs.instance_id }}" \
+                  --query '{Status:Status,Stdout:StandardOutputContent,Stderr:StandardErrorContent}' \
+                  --output json
+                exit 1
+                ;;
+            esac
+            sleep 10
+          done
+          echo 'SSM fallback ensure command timed out waiting for completion.' >&2
           exit 1
         env:
           TESTNET_SEED1_INSTANCE_ID: ${{ vars.TESTNET_SEED1_INSTANCE_ID }}
