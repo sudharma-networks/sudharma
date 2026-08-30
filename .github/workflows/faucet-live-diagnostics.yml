@@ -1,0 +1,99 @@
+name: Faucet Live Diagnostics
+
+on:
+  push:
+    branches:
+      - feature/faucet-recovery-stage2
+    paths:
+      - .github/workflows/faucet-live-diagnostics.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: ap-south-1
+  LAMBDA_NAME: Sudharma-Testnet-Wallet-Proxy
+  FAUCET_TABLE_NAME: Sudharma-Testnet-Faucet
+  FAILED_ADDRESS: 16d7dc9ec0495109007860a584c7cf9055da9abf
+
+jobs:
+  safe-live-evidence:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Configure AWS credentials from GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Confirm read-only diagnostic identity
+        run: |
+          set -euo pipefail
+          aws sts get-caller-identity --query '{Account:Account,Arn:Arn}' --output json
+          aws lambda get-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --query '{State:State,LastUpdateStatus:LastUpdateStatus,FaucetEnabled:Environment.Variables.FAUCET_ENABLED}' \
+            --output json
+
+      - name: Read failed-address state safely
+        run: |
+          set -u
+          key="{\"pk\":{\"S\":\"ADDR#$FAILED_ADDRESS\"}}"
+          if aws dynamodb get-item \
+            --table-name "$FAUCET_TABLE_NAME" \
+            --key "$key" \
+            --consistent-read \
+            --projection-expression 'initial_status, initial_txid, initial_error, initial_reserved_at, initial_prepared_at, initial_submitted_at, initial_paid_at' \
+            --output json > /tmp/address-state.json 2>/tmp/ddb-error.txt; then
+            python3 - <<'PY'
+import json
+with open('/tmp/address-state.json', encoding='utf-8') as f:
+    raw=json.load(f)
+item=raw.get('Item') or {}
+def val(name):
+    v=item.get(name) or {}
+    return v.get('S', v.get('N', v.get('BOOL')))
+print(json.dumps({
+    'dynamodb_get_item':'OK',
+    'state_present':bool(item),
+    'initial_status':val('initial_status'),
+    'initial_txid':val('initial_txid'),
+    'initial_error':val('initial_error'),
+    'initial_reserved_at':val('initial_reserved_at'),
+    'initial_prepared_at':val('initial_prepared_at'),
+    'initial_submitted_at':val('initial_submitted_at'),
+    'initial_paid_at':val('initial_paid_at'),
+}, separators=(',',':')))
+PY
+          else
+            printf '{"dynamodb_get_item":"DENIED_OR_FAILED"}\n'
+            sed -E 's/[A-Za-z0-9+\/=]{40,}/[REDACTED]/g' /tmp/ddb-error.txt | head -n 5
+          fi
+
+      - name: Read recent safe faucet dependency logs
+        run: |
+          set -u
+          start_ms="$(date -u -d '8 hours ago' +%s%3N)"
+          log_group="/aws/lambda/$LAMBDA_NAME"
+          for pattern in '"faucet_dependency"' '"wallet_faucet_error"'; do
+            echo "=== filter $pattern ==="
+            if aws logs filter-log-events \
+              --log-group-name "$log_group" \
+              --start-time "$start_ms" \
+              --filter-pattern "$pattern" \
+              --max-items 100 \
+              --query 'events[].message' \
+              --output text > /tmp/logs.txt 2>/tmp/log-error.txt; then
+              python3 - <<'PY'
+from pathlib import Path
+for line in Path('/tmp/logs.txt').read_text(encoding='utf-8', errors='replace').splitlines():
+    if any(token in line for token in ('faucet_dependency','wallet_faucet_error')):
+        print(line[:1200])
+PY
+            else
+              printf '{"cloudwatch_filter":"DENIED_OR_FAILED"}\n'
+              sed -E 's/[A-Za-z0-9+\/=]{40,}/[REDACTED]/g' /tmp/log-error.txt | head -n 5
+            fi
+          done
