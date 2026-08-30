@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { analyzeFaucetPublicState } from './analyze-faucet-public-state.mjs';
 import { evaluateFaucetRecoveryReadiness } from './evaluate-faucet-recovery-readiness.mjs';
+import { evaluateFaucetFundingReadiness } from './evaluate-faucet-funding-readiness.mjs';
 
 const RPC_BASE_URL = process.env.RPC_BASE_URL || 'https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com';
 const FAUCET_SIGNER = process.env.FAUCET_SIGNER || '9ccdc094489874bed888ffe4bdf9b8298f4c5131';
@@ -36,6 +37,13 @@ async function main() {
   });
 
   const readiness = evaluateFaucetRecoveryReadiness(analysis);
+  const funding = evaluateFaucetFundingReadiness({
+    faucetInfo: faucetInfo.body,
+    faucetDiagnostics: faucetDiagnostics.ok ? faucetDiagnostics.body : null,
+    signerAccount: signerAccount.body,
+  });
+  readiness.faucet_needs_funding = funding.should_refill === true;
+  readiness.faucet_funding_shortfall = funding.shortfall ?? null;
 
   const snapshot = {
     checked_at: new Date().toISOString(),
