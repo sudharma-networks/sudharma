@@ -1,0 +1,42 @@
+name: Apply Wallet 0.1.4 Final Features
+
+on:
+  push:
+    branches:
+      - cursor/wallet-txn-details-83d4
+    paths:
+      - '.github/workflows/apply-wallet-014-final.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout wallet branch
+        uses: actions/checkout@v4
+        with:
+          ref: cursor/wallet-txn-details-83d4
+          fetch-depth: 0
+
+      - name: Apply approved wallet feature integration
+        run: |
+          set -euo pipefail
+          python scripts/apply-wallet-014-integration.py
+          python scripts/apply-wallet-014-final-features.py
+
+      - name: Remove one-shot patch machinery
+        run: |
+          rm scripts/apply-wallet-014-integration.py
+          rm scripts/apply-wallet-014-final-features.py
+          rm .github/workflows/apply-wallet-014-final.yml
+
+      - name: Commit integrated wallet source
+        run: |
+          set -euo pipefail
+          git config user.name 'sudharma-network'
+          git config user.email 'vkw143download@gmail.com'
+          git add mobile/android .github/workflows/apply-wallet-014-final.yml scripts/apply-wallet-014-integration.py scripts/apply-wallet-014-final-features.py
+          git commit -m 'feat(android): complete wallet 0.1.4 activity and faucet UX'
+          git push origin HEAD:cursor/wallet-txn-details-83d4
