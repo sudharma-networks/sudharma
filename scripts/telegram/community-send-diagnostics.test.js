@@ -32,7 +32,7 @@ test('Telegram adapter classifies a missing reply target without exposing raw AP
   );
 });
 
-test('Telegram adapter uses a generic safe code for an unrecognized Telegram API failure', async () => {
+test('Telegram adapter classifies a 429 as rate-limited without exposing raw API description', async () => {
   const secret = 'UNKNOWN_RAW_DESCRIPTION_MUST_NOT_LEAK';
   const adapter = createTelegramAdapter({
     token: 'safe-test-token',
@@ -52,7 +52,7 @@ test('Telegram adapter uses a generic safe code for an unrecognized Telegram API
   await assert.rejects(
     () => adapter.sendMessage({ chat_id: -1001, text: 'safe' }),
     (error) => {
-      assert.equal(error.diagnosticCode, 'telegram-api-429-other');
+      assert.equal(error.diagnosticCode, 'telegram-api-429-rate-limited');
       assert.doesNotMatch(String(error), new RegExp(secret));
       return true;
     },
