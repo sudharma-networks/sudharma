@@ -9,7 +9,8 @@ on:
       - 'deployment/testnet/public-rpc/lambda/**'
       - '.github/workflows/website-ci.yml'
       - '.github/workflows/provision-website-visitor-counter.yml'
-      - '.github/workflows/testnet-public-rpc.yml'
+      - '.github/workflows/explorer-public-rpc-deploy.yml'
+      - '.github/workflows/explorer-seed-rpc-deploy.yml'
   pull_request:
     paths:
       - 'web/**'
