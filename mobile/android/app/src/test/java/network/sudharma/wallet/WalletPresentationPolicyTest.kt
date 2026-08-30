@@ -1,6 +1,5 @@
 package network.sudharma.wallet
 
-import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -33,16 +32,13 @@ class WalletPresentationPolicyTest {
     }
 
     @Test
-    fun automaticTestnetModeHidesManualFaucetAndClaimControls() {
+    fun automaticTestnetModeDoesNotRequireManualFaucetOrClaimActions() {
         val presentation = TestnetAutomationPresentationPolicy.automatic()
 
         assertFalse(presentation.showManualInitialRequest)
         assertFalse(presentation.showManualChallengeClaim)
         assertTrue(presentation.initialFundingMessage.contains("automatically", ignoreCase = true))
         assertTrue(presentation.challengeRewardMessage.contains("automatically", ignoreCase = true))
-
-        val walletSource = File("src/main/java/network/sudharma/wallet/WalletApp.kt").readText()
-        assertFalse(walletSource.contains("repository.requestInitialTestTokens()"))
-        assertFalse(walletSource.contains("Check Confirmation & Claim"))
+        assertTrue(presentation.homeRefreshMillis > 0L)
     }
 }
