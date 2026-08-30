@@ -23,6 +23,15 @@ class Wallet014ReleaseRequirementsTest {
     }
 
     @Test
+    fun `wallet home exposes request test tokens action`() {
+        val walletApp = source("src/main/java/network/sudharma/wallet/WalletApp.kt")
+        val repository = source("src/main/java/network/sudharma/wallet/SudharmaWalletRepository.kt")
+        assertTrue(walletApp.contains("Request Test SUDH"))
+        assertTrue(walletApp.contains("requestInitialTestTokens"))
+        assertTrue(repository.contains("requestInitialTestTokens"))
+    }
+
+    @Test
     fun `transaction ids are selectable copyable and directly linked to explorer`() {
         val walletApp = source("src/main/java/network/sudharma/wallet/WalletApp.kt")
         assertTrue(walletApp.contains("SelectionContainer"))
