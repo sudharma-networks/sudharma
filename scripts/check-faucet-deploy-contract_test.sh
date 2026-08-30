@@ -19,7 +19,8 @@ require_literal 'workflow_dispatch:'
 require_literal 'deploy:'
 require_literal "if: github.event_name == 'workflow_dispatch' && inputs.deploy == true"
 require_literal 'uses: actions/download-artifact@v4'
-require_literal 'FAUCET_ENABLED=false'
+require_literal "FAUCET_ENABLED: 'false'"
+require_literal "FAUCET_ENABLED: 'true'"
 require_literal '/v1/faucet/info'
 require_literal '/v1/faucet/health'
 require_literal "trap 'disable_faucet' ERR"
@@ -28,6 +29,8 @@ require_literal 'name: Snapshot Lambda environment'
 require_literal '/tmp/lambda-environment-base.json'
 require_literal '/tmp/lambda-environment-disabled.json'
 require_literal '/tmp/lambda-environment-enabled.json'
+require_literal '--environment file:///tmp/lambda-environment-disabled.json'
+require_literal '--environment file:///tmp/lambda-environment-enabled.json'
 
 if grep -Fq "if: github.ref == 'refs/heads/feature/public-testnet-wallet-v2'" "$workflow"; then
   fail 'deploy remains hard-wired to the historical feature/public-testnet-wallet-v2 branch'
