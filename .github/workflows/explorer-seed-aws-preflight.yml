@@ -28,7 +28,7 @@ jobs:
           role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
           aws-region: ap-south-1
 
-      - name: Discover seed SSM readiness without changes
+      - name: Inspect seed EC2 instance profiles without changes
         shell: bash
         run: |
           set -euo pipefail
@@ -36,27 +36,46 @@ jobs:
           for private_ip in $SEED_PRIVATE_IPS; do
             index=$((index + 1))
             set +e
-            record="$(aws ssm describe-instance-information \
-              --query "InstanceInformationList[?IPAddress=='${private_ip}'] | [0].[InstanceId,PingStatus,PlatformName,AgentVersion]" \
+            record="$(aws ec2 describe-instances \
+              --filters "Name=private-ip-address,Values=${private_ip}" 'Name=instance-state-name,Values=running' \
+              --query 'Reservations[0].Instances[0].[InstanceId,State.Name,IamInstanceProfile.Arn]' \
               --output text 2>&1)"
             status=$?
             set -e
-
             if [ "$status" -ne 0 ]; then
-              echo "seed-${index}: SSM discovery not authorized or unavailable" >&2
+              echo "seed-${index}: EC2 discovery not authorized or unavailable" >&2
               printf '%s\n' "$record" >&2
               exit "$status"
             fi
             if [ -z "$record" ] || [ "$record" = 'None' ]; then
+              echo "seed-${index}: running EC2 instance not found for private IP ${private_ip}" >&2
+              exit 1
+            fi
+            read -r instance_id instance_state instance_profile <<< "$record"
+            echo "::add-mask::$instance_id"
+            if [ -z "$instance_profile" ] || [ "$instance_profile" = 'None' ]; then
+              profile_state='absent'
+            else
+              profile_state='present'
+            fi
+            echo "seed-${index}: ec2=${instance_state:-unknown} iam-instance-profile=${profile_state}"
+          done
+
+      - name: Discover seed SSM readiness without changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          index=0
+          for private_ip in $SEED_PRIVATE_IPS; do
+            index=$((index + 1))
+            record="$(aws ssm describe-instance-information \
+              --query "InstanceInformationList[?IPAddress=='${private_ip}'] | [0].[InstanceId,PingStatus,PlatformName,AgentVersion]" \
+              --output text)"
+            if [ -z "$record" ] || [ "$record" = 'None' ]; then
               echo "seed-${index}: no SSM-managed instance reports private IP ${private_ip}" >&2
               exit 1
             fi
-
             read -r instance_id ping_status platform_name agent_version <<< "$record"
-            if [ -z "$instance_id" ] || [ "$instance_id" = 'None' ]; then
-              echo "seed-${index}: SSM returned no instance id" >&2
-              exit 1
-            fi
             echo "::add-mask::$instance_id"
             echo "seed-${index}: ssm=${ping_status:-unknown} platform=${platform_name:-unknown} agent=${agent_version:-unknown}"
           done
