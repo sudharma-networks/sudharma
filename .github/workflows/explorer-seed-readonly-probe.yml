@@ -14,13 +14,17 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     permissions:
       id-token: write
       contents: read
     env:
       AWS_REGION: ap-south-1
       SEED_PRIVATE_IPS: '172.31.10.171 172.31.32.195'
+      EXPECTED_BINARY_SHA256: 'c0a9100effbc4f3b9c5ac743d5d8a35da3cd4f7bc7715b2c5f0c72a22a911332'
+      PUBLIC_RPC_BASE_URL: 'https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com'
+      WEBSITE_ORIGIN: 'https://feature-website-foundation.d2mqyt0bt8sl9s.amplifyapp.com'
+
     steps:
       - name: Configure AWS credentials from GitHub OIDC
         uses: aws-actions/configure-aws-credentials@v4
@@ -28,43 +32,69 @@ jobs:
           role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
           aws-region: ap-south-1
 
-      - name: Probe seed services and build environment without changes
+      - name: Verify both seeds and private explorer bridge without changes
         shell: bash
         run: |
           set -euo pipefail
+
+          declare -a heights=()
+          declare -a tips=()
+          declare -a peers=()
           index=0
+
+          extract_marker() {
+            local stdout="$1"
+            local marker="$2"
+            printf '%s\n' "$stdout" | sed -n "s/^${marker}=//p" | tail -n 1
+          }
+
           for private_ip in $SEED_PRIVATE_IPS; do
             index=$((index + 1))
             instance_id="$(aws ssm describe-instance-information \
-              --query "InstanceInformationList[?IPAddress=='${private_ip}'] | [0].InstanceId" \
+              --query "InstanceInformationList[?IPAddress=='${private_ip}' && PingStatus=='Online'] | [0].InstanceId" \
               --output text)"
             if [ -z "$instance_id" ] || [ "$instance_id" = 'None' ]; then
-              echo "seed-${index}: SSM instance id not found" >&2
+              echo "seed-${index}: Online SSM instance not found" >&2
               exit 1
             fi
             echo "::add-mask::$instance_id"
 
+            remote_script="$(cat <<'EOF'
+          set -eu
+          printf 'SERVICE_STATE='; systemctl is-active sudharma.service
+          printf 'BINARY_SHA256='; sha256sum /usr/local/bin/sudharma-rpcd | awk '{print $1}'
+          printf 'READY_JSON='; curl -fsS http://127.0.0.1:28545/ready
+          printf 'STATUS_JSON='; curl -fsS http://127.0.0.1:28545/v1/status
+          printf 'EXPLORER_STATUS_JSON='; curl -fsS http://127.0.0.1:28545/v1/explorer/status
+          printf 'BLOCKS_JSON='; curl -fsS 'http://127.0.0.1:28545/v1/explorer/blocks?limit=5'
+          printf 'TRANSACTIONS_JSON='; curl -fsS 'http://127.0.0.1:28545/v1/explorer/transactions?limit=5'
+          printf 'BRIDGE_STATUS_JSON='; curl -fsS http://127.0.0.1:29100/v1/explorer/status
+          printf 'BRIDGE_BLOCKS_JSON='; curl -fsS 'http://127.0.0.1:29100/v1/explorer/blocks?limit=5'
+          printf 'BRIDGE_TRANSACTIONS_JSON='; curl -fsS 'http://127.0.0.1:29100/v1/explorer/transactions?limit=5'
+          EOF
+          )"
+
+            parameters="$(jq -cn --arg command "$remote_script" '{commands:[$command]}')"
             command_id="$(aws ssm send-command \
               --instance-ids "$instance_id" \
               --document-name AWS-RunShellScript \
-              --comment "Sudharma explorer read-only seed environment probe" \
-              --parameters 'commands=["set -eu","echo uid=$(id -u)","systemctl is-active sudharma.service","systemctl show sudharma.service -p ActiveState -p SubState -p ExecStart --no-pager","curl -fsS http://127.0.0.1:28545/v1/status","code=$(curl -sS -o /tmp/sudharma-explorer-status.json -w %{http_code} http://127.0.0.1:28545/v1/explorer/status)","echo explorer_http_status=$code","cat /tmp/sudharma-explorer-status.json || true","echo binary_path=$(readlink -f /usr/local/bin/sudharma-rpcd)","printf binary_sha256=; sha256sum /usr/local/bin/sudharma-rpcd | cut -d\" \" -f1","if command -v go >/dev/null 2>&1; then go version; go version -m /usr/local/bin/sudharma-rpcd || true; else echo go=missing; fi","if command -v git >/dev/null 2>&1; then git --version; else echo git=missing; fi","for d in /home/ubuntu/sudharma /opt/sudharma /srv/sudharma; do if [ -d \"$d/.git\" ]; then echo source_repo=$d; git -C \"$d\" rev-parse HEAD || true; fi; done","git ls-remote https://github.com/sudharma-networks/sudharma.git HEAD >/dev/null 2>&1 && echo github_reachable=yes || echo github_reachable=no","df -Pk /tmp /usr/local/bin | tail -n +2"]' \
+              --comment "Sudharma post-rollout explorer read-only verification" \
+              --parameters "$parameters" \
               --query 'Command.CommandId' \
               --output text)"
             echo "::add-mask::$command_id"
 
-            for attempt in $(seq 1 30); do
-              status="$(aws ssm get-command-invocation \
+            terminal_status=''
+            for _ in $(seq 1 45); do
+              terminal_status="$(aws ssm get-command-invocation \
                 --command-id "$command_id" \
                 --instance-id "$instance_id" \
-                --query 'Status' \
+                --query Status \
                 --output text 2>/dev/null || true)"
-              case "$status" in
-                Success)
-                  break
-                  ;;
+              case "$terminal_status" in
+                Success) break ;;
                 Failed|Cancelled|TimedOut|Cancelling)
-                  echo "seed-${index}: read-only probe ended with ${status}" >&2
+                  echo "seed-${index}: read-only verification ended with $terminal_status" >&2
                   aws ssm get-command-invocation \
                     --command-id "$command_id" \
                     --instance-id "$instance_id" \
@@ -81,12 +111,117 @@ jobs:
               --instance-id "$instance_id" \
               --query '{status:Status,stdout:StandardOutputContent,stderr:StandardErrorContent}' \
               --output json)"
-            echo "seed-${index}: ${result}"
-            if [ "$(printf '%s' "$result" | jq -r '.status')" != 'Success' ]; then
-              echo "seed-${index}: read-only probe did not complete successfully" >&2
+            test "$(printf '%s' "$result" | jq -r '.status')" = 'Success'
+            stdout="$(printf '%s' "$result" | jq -r '.stdout')"
+
+            service_state="$(extract_marker "$stdout" SERVICE_STATE)"
+            binary_sha256="$(extract_marker "$stdout" BINARY_SHA256)"
+            ready="$(extract_marker "$stdout" READY_JSON)"
+            status="$(extract_marker "$stdout" STATUS_JSON)"
+            explorer_status="$(extract_marker "$stdout" EXPLORER_STATUS_JSON)"
+            blocks="$(extract_marker "$stdout" BLOCKS_JSON)"
+            transactions="$(extract_marker "$stdout" TRANSACTIONS_JSON)"
+            bridge_status="$(extract_marker "$stdout" BRIDGE_STATUS_JSON)"
+            bridge_blocks="$(extract_marker "$stdout" BRIDGE_BLOCKS_JSON)"
+            bridge_transactions="$(extract_marker "$stdout" BRIDGE_TRANSACTIONS_JSON)"
+
+            test "$service_state" = 'active'
+            if [ "$binary_sha256" != "$EXPECTED_BINARY_SHA256" ]; then
+              echo "seed-${index}: binary checksum drift: $binary_sha256" >&2
               exit 1
             fi
+
+            printf '%s' "$ready" | jq -e '.status == "ready" and (.height | type == "number") and (.tip_hash | type == "string")' >/dev/null
+            printf '%s' "$status" | jq -e 'type == "object"' >/dev/null
+            printf '%s' "$explorer_status" | jq -e '(.height | type == "number") and (.tip_hash | type == "string") and (.peers | type == "number")' >/dev/null
+            printf '%s' "$blocks" | jq -e '(.blocks | type == "array")' >/dev/null
+            printf '%s' "$transactions" | jq -e '(.transactions | type == "array")' >/dev/null
+            printf '%s' "$bridge_status" | jq -e '(.height | type == "number") and (.tip_hash | type == "string")' >/dev/null
+            printf '%s' "$bridge_blocks" | jq -e '(.blocks | type == "array")' >/dev/null
+            printf '%s' "$bridge_transactions" | jq -e '(.transactions | type == "array")' >/dev/null
+
+            direct_height="$(printf '%s' "$explorer_status" | jq -r '.height')"
+            direct_tip="$(printf '%s' "$explorer_status" | jq -r '.tip_hash')"
+            direct_peers="$(printf '%s' "$explorer_status" | jq -r '.peers')"
+            bridge_height="$(printf '%s' "$bridge_status" | jq -r '.height')"
+            bridge_tip="$(printf '%s' "$bridge_status" | jq -r '.tip_hash')"
+            ready_height="$(printf '%s' "$ready" | jq -r '.height')"
+            ready_tip="$(printf '%s' "$ready" | jq -r '.tip_hash')"
+
+            test "$direct_height" = "$bridge_height"
+            test "$direct_tip" = "$bridge_tip"
+            test "$direct_height" = "$ready_height"
+            test "$direct_tip" = "$ready_tip"
+
+            heights+=("$direct_height")
+            tips+=("$direct_tip")
+            peers+=("$direct_peers")
+            echo "seed-${index}: service=$service_state height=$direct_height tip=$direct_tip peers=$direct_peers blocks=$(printf '%s' "$blocks" | jq '.blocks | length') transactions=$(printf '%s' "$transactions" | jq '.transactions | length') sha256=$binary_sha256"
           done
+
+          test "${#heights[@]}" -eq 2
+          test "${heights[0]}" = "${heights[1]}"
+          test "${tips[0]}" = "${tips[1]}"
+          test "${peers[0]}" -ge 1
+          test "${peers[1]}" -ge 1
+
+          echo "canonical_height=${heights[0]}"
+          echo "canonical_tip=${tips[0]}"
+          echo "seed_peer_counts=${peers[0]},${peers[1]}"
+          echo "binary_sha256=$EXPECTED_BINARY_SHA256"
+
+      - name: Verify public API Gateway explorer routes and CORS
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${PUBLIC_RPC_BASE_URL%/}"
+
+          status="$(curl --retry 3 --retry-delay 2 -fsS "$base/v1/status")"
+          printf '%s' "$status" | jq -e 'type == "object"' >/dev/null
+
+          explorer_status="$(curl --retry 3 --retry-delay 2 -fsS "$base/v1/explorer/status")"
+          printf '%s' "$explorer_status" | jq -e '(.height | type == "number") and (.tip_hash | type == "string") and (.peers | type == "number")' >/dev/null
+
+          blocks="$(curl --retry 3 --retry-delay 2 -fsS "$base/v1/explorer/blocks?limit=5")"
+          printf '%s' "$blocks" | jq -e '(.blocks | type == "array")' >/dev/null
+
+          transactions="$(curl --retry 3 --retry-delay 2 -fsS "$base/v1/explorer/transactions?limit=5")"
+          printf '%s' "$transactions" | jq -e '(.transactions | type == "array")' >/dev/null
+
+          search_query="$(printf '%s' "$blocks" | jq -r '.blocks[0].hash // empty')"
+          if [ -z "$search_query" ]; then
+            search_query="$(printf '%s' "$transactions" | jq -r '.transactions[0].transaction.id // empty')"
+          fi
+          if [ -z "$search_query" ]; then
+            echo 'public explorer returned neither a block nor transaction for search verification' >&2
+            exit 1
+          fi
+
+          search="$(curl --retry 3 --retry-delay 2 -fsSG "$base/v1/explorer/search" --data-urlencode "q=$search_query")"
+          printf '%s' "$search" | jq -e '(.type == "block" or .type == "transaction" or .type == "address") and (.path | type == "string")' >/dev/null
+
+          headers="$(mktemp)"
+          body="$(mktemp)"
+          trap 'rm -f "$headers" "$body"' EXIT
+          curl --retry 3 --retry-delay 2 -fsS \
+            -D "$headers" \
+            -o "$body" \
+            -H "Origin: $WEBSITE_ORIGIN" \
+            "$base/v1/explorer/status"
+          jq -e 'type == "object"' "$body" >/dev/null
+          if ! grep -qi '^access-control-allow-origin:' "$headers"; then
+            echo 'public explorer CORS header missing' >&2
+            cat "$headers"
+            exit 1
+          fi
+
+          echo "public_height=$(printf '%s' "$explorer_status" | jq -r '.height')"
+          echo "public_tip=$(printf '%s' "$explorer_status" | jq -r '.tip_hash')"
+          echo "public_peers=$(printf '%s' "$explorer_status" | jq -r '.peers')"
+          echo "public_blocks_returned=$(printf '%s' "$blocks" | jq '.blocks | length')"
+          echo "public_transactions_returned=$(printf '%s' "$transactions" | jq '.transactions | length')"
+          echo "public_search_query=$search_query"
+          grep -i '^access-control-allow-origin:' "$headers" | head -n 1
 
       - name: Record safety boundary
         if: always()
@@ -96,5 +231,7 @@ jobs:
           echo 'seed-service-restarts=0'
           echo 'seed-binaries-changed=0'
           echo 'seed-config-changed=0'
+          echo 'nginx-config-changed=0'
           echo 'rpc-firewall-changes=0'
           echo 'gpu-pow-deployment=0'
+          echo 'mainnet-activation=0'
