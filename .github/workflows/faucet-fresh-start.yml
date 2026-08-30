@@ -149,25 +149,30 @@ jobs:
           done
           exit 1
 
-  step2b-wait-mempool:
+  step2b-wait-after-mining:
     needs: [mempool-gate, step2-clear-mempool]
-    if: always() && needs.mempool-gate.result == 'success' && (needs.mempool-gate.outputs.skip_mining == 'true' || needs.step2-clear-mempool.result == 'success')
+    if: needs.mempool-gate.outputs.skip_mining != 'true' && needs.step2-clear-mempool.result == 'success'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Wait for public mempool to clear
-        if: needs.mempool-gate.outputs.skip_mining != 'true'
         run: node ./scripts/wait-for-mempool-clear.mjs
         env:
           RPC_BASE_URL: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com
           MEMPOOL_WAIT_ATTEMPTS: '24'
           MEMPOOL_WAIT_SLEEP_MS: '10000'
+
+  step2b-skip-mining:
+    needs: mempool-gate
+    if: needs.mempool-gate.outputs.skip_mining == 'true'
+    runs-on: ubuntu-24.04
+    steps:
       - name: Confirm mempool already clear
-        if: needs.mempool-gate.outputs.skip_mining == 'true'
-        run: echo "Skipped mempool wait — public mempool was already 0."
+        run: echo "Skipped seed mining and mempool wait — public mempool was already 0."
 
   step3-reset-dynamodb:
-    needs: step2b-wait-mempool
+    needs: [step2b-wait-after-mining, step2b-skip-mining]
+    if: always() && (needs.step2b-wait-after-mining.result == 'success' || needs.step2b-skip-mining.result == 'success')
     runs-on: ubuntu-24.04
     permissions:
       id-token: write
