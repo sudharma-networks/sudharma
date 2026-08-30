@@ -79,6 +79,12 @@ jobs:
         if: steps.seed.outputs.seed_instance_found == 'true'
         continue-on-error: true
         run: |
+          set -euo pipefail
+          bash deployment/testnet/ssm-send-remote-script.sh \
+            "${{ steps.seed.outputs.instance_id }}" \
+            "Explorer seed RPC upgrade (${{ matrix.seed_name }})" \
+            deployment/testnet/remote-build-sudharma-rpcd-on-seed.sh \
+            'sudharma_rpcd_install'
 
   verify-public-mempool:
     needs: deploy-seeds
