@@ -39,4 +39,4 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           COMMUNITY_MODE: ${{ inputs.mode }}
-        run: node scripts/telegram/community-worker.js
+        run: node scripts/telegram/community-observed-worker.js

@@ -40,7 +40,7 @@ test('community workflow reuses the protected Telegram environment secret and Gi
   assert.match(workflow, /GITHUB_TOKEN:\s*\$\{\{\s*github\.token\s*\}\}/);
   assert.match(workflow, /GITHUB_REPOSITORY:\s*\$\{\{\s*github\.repository\s*\}\}/);
   assert.match(workflow, /COMMUNITY_MODE:/);
-  assert.match(workflow, /node scripts\/telegram\/community-worker\.js/);
+  assert.match(workflow, /node scripts\/telegram\/community-observed-worker\.js/);
   assert.doesNotMatch(workflow, /echo[^\n]*TELEGRAM_BOT_TOKEN|print[^\n]*TELEGRAM_BOT_TOKEN/i);
 });
 
