@@ -10,6 +10,8 @@ on:
       - scripts/sanitize-faucet-live-logs.test.mjs
       - scripts/compute-faucet-diag-start.mjs
       - scripts/correlate-faucet-live-logs.mjs
+      - scripts/analyze-faucet-public-state.mjs
+      - scripts/analyze-faucet-public-state.test.mjs
       - scripts/check-faucet-live-diagnostics-contract_test.sh
   workflow_dispatch:
 
@@ -30,6 +32,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Analyze public faucet state
+        run: node ./scripts/analyze-faucet-public-state.mjs
 
       - name: Configure AWS credentials from GitHub OIDC
         uses: aws-actions/configure-aws-credentials@v4

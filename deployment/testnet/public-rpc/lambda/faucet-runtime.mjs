@@ -167,6 +167,28 @@ export function createStore(tableName, timed, clientOverride = null) {
       }));
     },
 
+    async recordInitialUncertainty(address, diagnostic, at) {
+      const httpStatus = Number.isInteger(diagnostic?.http_status) ? diagnostic.http_status : null;
+      const errorCategory = typeof diagnostic?.error_category === 'string'
+        ? diagnostic.error_category.slice(0, 64)
+        : null;
+      await send('dynamodb.record_initial_uncertainty', new UpdateCommand({
+        TableName: tableName,
+        Key: { pk: `ADDR#${address}` },
+        UpdateExpression: 'SET initial_last_uncertain_at = :at'
+          + (httpStatus == null ? '' : ', initial_last_http_status = :http_status')
+          + (errorCategory == null ? '' : ', initial_last_error_category = :error_category'),
+        ConditionExpression: 'initial_status = :prepared OR initial_status = :reserved',
+        ExpressionAttributeValues: {
+          ':prepared': 'prepared',
+          ':reserved': 'reserved',
+          ':at': at,
+          ...(httpStatus == null ? {} : { ':http_status': httpStatus }),
+          ...(errorCategory == null ? {} : { ':error_category': errorCategory }),
+        },
+      }));
+    },
+
     async acquirePayoutLock() {
       const now = Date.now();
       try {

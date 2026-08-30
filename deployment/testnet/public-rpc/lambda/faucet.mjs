@@ -175,6 +175,10 @@ async function reconcileInitialGrant({ store, rpc, address, state, now }) {
     return null;
   }
 
+  if (status === 'prepared' && state?.initial_payout?.ID !== transactionId) {
+    throw new FaucetError(503, 'faucet payout recovery data is unavailable');
+  }
+
   if ((status === 'prepared' || status === 'submitted') && state?.initial_payout?.ID === transactionId) {
     const recovered = await ensurePreparedPayout({ store, rpc, payout: state.initial_payout });
     if (typeof store.markInitialSubmitted === 'function') {
@@ -256,7 +260,12 @@ export function createFaucetService({ store, rpc, signer, now = Date.now }) {
         await store.markInitialSubmitted(address, transactionId, now());
         return initialGrantResult(address, transactionId, 'submitted');
       } catch (error) {
-        if (!error?.uncertain && typeof store.failInitial === 'function') {
+        if (error?.uncertain && typeof store.recordInitialUncertainty === 'function') {
+          await store.recordInitialUncertainty(address, {
+            http_status: error.upstreamStatus,
+            error_category: error.errorCategory,
+          }, now());
+        } else if (!error?.uncertain && typeof store.failInitial === 'function') {
           await store.failInitial(address, String(error?.message || error));
         }
         throw error;

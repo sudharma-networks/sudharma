@@ -16,7 +16,8 @@ require_literal() {
 }
 
 require_literal 'uses: actions/checkout@v4'
-require_literal 'node ./scripts/sanitize-faucet-live-logs.mjs'
+require_literal 'Analyze public faucet state'
+require_literal 'node ./scripts/analyze-faucet-public-state.mjs'
 require_literal 'node ./scripts/compute-faucet-diag-start.mjs'
 require_literal 'node ./scripts/correlate-faucet-live-logs.mjs'
 require_literal 'FAILED_REQUEST_ID:'

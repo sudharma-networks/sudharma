@@ -139,3 +139,44 @@ test('prepared challenge reward is completed from observed pending payout under 
     ['completeChallenge', ADDRESS, CHALLENGE_TX_ID, preparedReward.ID],
   ]);
 });
+
+test('uncertain initial payout records safe diagnostics without failing the prepared state', async () => {
+  const signer = createSigner('0'.repeat(63) + '1');
+  const prepared = signer.signTransaction(ADDRESS, 100 * COIN, 7);
+  const calls = [];
+  const store = {
+    async reserveInitial() { return true; },
+    async prepareInitial(address, tx) { calls.push(['prepareInitial', address, tx.ID]); },
+    async recordInitialUncertainty(address, diagnostic, at) {
+      calls.push(['recordInitialUncertainty', address, diagnostic, at]);
+    },
+    async failInitial() { throw new Error('must not fail prepared state on uncertain broadcast'); },
+    async acquirePayoutLock() { return true; },
+    async releasePayoutLock() {},
+  };
+  const uncertain = new FaucetError(503, 'faucet payout outcome is uncertain');
+  uncertain.uncertain = true;
+  uncertain.upstreamStatus = 422;
+  uncertain.errorCategory = 'invalid_nonce';
+  const rpc = {
+    async account() { return { balance: 10_000 * COIN, next_nonce: 7 }; },
+    async submit() { throw uncertain; },
+  };
+
+  const service = createFaucetService({ store, rpc, signer, now: () => NOW });
+  await assert.rejects(service.requestInitial(ADDRESS), /outcome is uncertain/);
+  assert.ok(calls.some((entry) => entry[0] === 'recordInitialUncertainty'));
+});
+
+test('prepared initial payout without stored payout payload fails closed instead of returning 409', async () => {
+  const signer = createSigner('0'.repeat(63) + '1');
+  const store = {
+    async reserveInitial() { return false; },
+    async getAddress() {
+      return { initial_status: 'prepared', initial_txid: CHALLENGE_TX_ID };
+    },
+  };
+  const rpc = {};
+  const service = createFaucetService({ store, rpc, signer, now: () => NOW });
+  await assert.rejects(service.requestInitial(ADDRESS), /recovery data is unavailable/);
+});
