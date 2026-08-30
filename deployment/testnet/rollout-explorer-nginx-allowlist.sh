@@ -15,8 +15,11 @@ if [[ ! -f "$CONFIG_PATH" ]]; then
   exit 1
 fi
 
-backup="$(mktemp "${CONFIG_PATH}.explorer-backup.XXXXXX")"
-work="$(mktemp "${CONFIG_PATH}.explorer-work.XXXXXX")"
+# Never create temporary files beside an enabled nginx config. The production
+# nginx.conf includes /etc/nginx/sites-enabled/*, so sibling backup/work files
+# would be parsed as additional server blocks during `nginx -t` and reload.
+backup="$(mktemp /tmp/sudharma-explorer-nginx-backup.XXXXXX)"
+work="$(mktemp /tmp/sudharma-explorer-nginx-work.XXXXXX)"
 cleanup() {
   rm -f "$backup" "$work"
 }
