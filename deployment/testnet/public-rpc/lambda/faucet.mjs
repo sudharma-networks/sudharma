@@ -135,26 +135,33 @@ function challengeRewardResult(address, transactionId, claim, completedAt) {
   };
 }
 
-async function ensurePreparedPayout({ rpc, payout }) {
+async function ensurePreparedPayout({ store, rpc, payout }) {
   if (!payout || typeof payout !== 'object' || !LOWER_HEX_64.test(payout.ID || '')) {
     throw new FaucetError(503, 'faucet payout recovery data is unavailable');
   }
 
-  try {
-    const remote = await rpc.transaction(payout.ID);
-    if (remote?.status === 'confirmed') {
-      return { transactionId: payout.ID, confirmed: true };
-    }
-    if (remote?.status === 'pending') {
-      return { transactionId: payout.ID, confirmed: false };
-    }
-  } catch (error) {
-    if (error?.statusCode !== 404) throw error;
-  }
+  const locked = await store.acquirePayoutLock();
+  if (!locked) throw new FaucetError(503, 'faucet is busy; retry shortly');
 
-  const result = await rpc.submit(payout);
-  if (!result?.accepted) throw new FaucetError(503, 'faucet payout was not accepted');
-  return { transactionId: payoutTxId(result, payout.ID), confirmed: false };
+  try {
+    try {
+      const remote = await rpc.transaction(payout.ID);
+      if (remote?.status === 'confirmed') {
+        return { transactionId: payout.ID, confirmed: true };
+      }
+      if (remote?.status === 'pending') {
+        return { transactionId: payout.ID, confirmed: false };
+      }
+    } catch (error) {
+      if (error?.statusCode !== 404) throw error;
+    }
+
+    const result = await rpc.submit(payout);
+    if (!result?.accepted) throw new FaucetError(503, 'faucet payout was not accepted');
+    return { transactionId: payoutTxId(result, payout.ID), confirmed: false };
+  } finally {
+    await store.releasePayoutLock();
+  }
 }
 
 async function reconcileInitialGrant({ store, rpc, address, state, now }) {
@@ -169,7 +176,7 @@ async function reconcileInitialGrant({ store, rpc, address, state, now }) {
   }
 
   if ((status === 'prepared' || status === 'submitted') && state?.initial_payout?.ID === transactionId) {
-    const recovered = await ensurePreparedPayout({ rpc, payout: state.initial_payout });
+    const recovered = await ensurePreparedPayout({ store, rpc, payout: state.initial_payout });
     if (typeof store.markInitialSubmitted === 'function') {
       await store.markInitialSubmitted(address, transactionId, now());
     }
@@ -271,7 +278,7 @@ export function createFaucetService({ store, rpc, signer, now = Date.now }) {
           return challengeRewardResult(address, transactionId, existingClaim);
         }
         if (existingClaim.status === 'prepared') {
-          const recovered = await ensurePreparedPayout({ rpc, payout: existingClaim.reward_payout });
+          const recovered = await ensurePreparedPayout({ store, rpc, payout: existingClaim.reward_payout });
           await store.completeChallenge(address, transactionId, recovered.transactionId, now());
           return challengeRewardResult(
             address,
