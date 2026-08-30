@@ -190,10 +190,11 @@ jobs:
         working-directory: deployment/testnet/public-rpc/lambda
         run: npm install --ignore-scripts --no-audit --no-fund @aws-sdk/client-dynamodb @aws-sdk/lib-dynamodb
       - name: Wipe faucet DynamoDB records
+        working-directory: deployment/testnet/public-rpc/lambda
         run: |
           set -euo pipefail
-          NODE_PATH=deployment/testnet/public-rpc/lambda/node_modules \
-            node ./scripts/reset-faucet-state.mjs | tee /tmp/faucet-reset.json
+          cp ../../../../scripts/reset-faucet-state.mjs ./reset-faucet-state.mjs
+          node ./reset-faucet-state.mjs | tee /tmp/faucet-reset.json
 
   step4-build-deploy:
     needs: step3-reset-dynamodb
