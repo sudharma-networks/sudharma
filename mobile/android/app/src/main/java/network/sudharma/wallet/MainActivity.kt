@@ -64,6 +64,7 @@ class MainActivity : FragmentActivity() {
             requestInitial = { repository.requestInitialTestTokens(); Unit },
             pendingChallengeId = { repository.preferences.pendingChallengeTransactionId },
             transactionConfirmed = repository::transactionConfirmed,
+            transactionFailed = repository::transactionFailed,
             claimChallenge = { transactionId -> repository.claimChallengeReward(transactionId); Unit },
             clearPendingChallenge = { repository.preferences.pendingChallengeTransactionId = null },
         )
