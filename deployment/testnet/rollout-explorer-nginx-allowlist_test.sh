@@ -169,10 +169,10 @@ done
 for explorer in \
   'location = /v1/explorer/status {' \
   'location = /v1/explorer/blocks {' \
-  'location ~ ^/v1/explorer/blocks/(?:[0-9]+|[0-9a-f]{64})$ {' \
+  'location ~ "^/v1/explorer/blocks/(?:[0-9]+|[0-9a-f]{64})$" {' \
   'location = /v1/explorer/transactions {' \
-  'location ~ ^/v1/explorer/transactions/[0-9a-f]{64}$ {' \
-  'location ~ ^/v1/explorer/addresses/[0-9a-f]{40}$ {' \
+  'location ~ "^/v1/explorer/transactions/[0-9a-f]{64}$" {' \
+  'location ~ "^/v1/explorer/addresses/[0-9a-f]{40}$" {' \
   'location = /v1/explorer/search {'; do
   assert_contains_once "$explorer" "$CONFIG"
 done
