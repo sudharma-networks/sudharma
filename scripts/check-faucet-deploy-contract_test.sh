@@ -2,6 +2,8 @@
 set -euo pipefail
 
 workflow='.github/workflows/testnet-public-rpc.yml'
+router='deployment/testnet/public-rpc/lambda/router.mjs'
+upstream='deployment/testnet/public-rpc/lambda/upstream.mjs'
 
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
@@ -9,10 +11,13 @@ fail() {
 }
 
 [ -f "$workflow" ] || fail "$workflow is missing"
+[ -f "$router" ] || fail "$router is missing"
+[ -f "$upstream" ] || fail "$upstream is missing"
 
 require_literal() {
   local needle="$1"
-  grep -Fq -- "$needle" "$workflow" || fail "missing required deployment contract: $needle"
+  local file="${2:-$workflow}"
+  grep -Fq -- "$needle" "$file" || fail "missing required deployment contract in $file: $needle"
 }
 
 require_literal 'workflow_dispatch:'
@@ -32,6 +37,13 @@ require_literal '/tmp/lambda-environment-enabled.json'
 require_literal '--environment file:///tmp/lambda-environment-disabled.json'
 require_literal '--environment file:///tmp/lambda-environment-enabled.json'
 
+# The public RPC Lambda is shared with website/explorer reads. A faucet recovery
+# deployment must not regress routes already served by that Lambda.
+require_literal 'visitor-runtime.mjs' "$workflow"
+require_literal '/v1/website/visitors' "$router"
+require_literal '/v1/explorer/status' "$router"
+require_literal 'request.queryString' "$upstream"
+
 if grep -Fq "if: github.ref == 'refs/heads/feature/public-testnet-wallet-v2'" "$workflow"; then
   fail 'deploy remains hard-wired to the historical feature/public-testnet-wallet-v2 branch'
 fi
@@ -44,4 +56,4 @@ if [ "$stage_line" -ge "$code_line" ]; then
   fail 'faucet must be forced disabled before new Lambda code is installed'
 fi
 
-printf 'PASS: faucet deployment contract is manual-only, preserves Lambda environment, deep-health gated, fail-closed on unexpected errors, disables before code update, and promotes the tested artifact\n'
+printf 'PASS: faucet deployment contract is manual-only, preserves shared Lambda routes/environment, deep-health gated, fail-closed on unexpected errors, disables before code update, and promotes the tested artifact\n'
