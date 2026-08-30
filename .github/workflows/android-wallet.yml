@@ -1,9 +1,20 @@
 name: Android Wallet
 
 on:
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: 'Publish testnet APK to GitHub Releases'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
   push:
     branches:
       - feature/android-wallet-v0.1
+      - cursor/wallet-txn-history-83d4
     paths:
       - 'mobile/android/**'
       - '.github/workflows/android-wallet.yml'
@@ -57,3 +68,44 @@ jobs:
           path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+  publish-testnet-apk:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.publish_release == 'true') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/feature/android-wallet-v0.1')
+    needs: android
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: sudharma-wallet-debug
+          path: release
+      - name: Prepare release assets
+        id: assets
+        working-directory: mobile/android
+        run: |
+          set -euo pipefail
+          version_name="$(grep versionName app/build.gradle.kts | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')"
+          version_tag="${version_name/-testnet/}"
+          apk_name="Sudharma-Wallet-${version_tag}.apk"
+          cp "$GITHUB_WORKSPACE/release/app-debug.apk" "$GITHUB_WORKSPACE/$apk_name"
+          sha256sum "$GITHUB_WORKSPACE/$apk_name" | awk '{print $1}' > "$GITHUB_WORKSPACE/$apk_name.sha256"
+          echo "apk_name=$apk_name" >> "$GITHUB_OUTPUT"
+          echo "tag=wallet-testnet-${version_tag}" >> "$GITHUB_OUTPUT"
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag='${{ steps.assets.outputs.tag }}'
+          apk='${{ steps.assets.outputs.apk_name }}'
+          gh release view "$tag" >/dev/null 2>&1 && gh release delete "$tag" -y --cleanup-tag || true
+          gh release create "$tag" \
+            --title "Sudharma Wallet ${tag#wallet-testnet-} (testnet)" \
+            --notes "Testnet wallet with visible transaction history, received-payment discovery, and one-tap transaction ID copy on Activity and Send screens." \
+            --prerelease \
+            "$apk" \
+            "$apk.sha256"
