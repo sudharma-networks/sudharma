@@ -99,38 +99,20 @@ jobs:
           set -euo pipefail
           instance_id="${TESTNET_SEED1_INSTANCE_ID:-}"
           if [ -z "$instance_id" ]; then
-            instance_id="$(aws ec2 describe-instances \
-              --filters "Name=tag:Name,Values=*seed*1*" "Name=instance-state-name,Values=running" \
-              --query 'Reservations[0].Instances[0].InstanceId' \
-              --output text 2>/dev/null || true)"
-          fi
-          if [ -z "$instance_id" ] || [ "$instance_id" = "None" ]; then
-            instance_id="$(aws ec2 describe-instances \
-              --filters "Name=tag:Name,Values=*testnet*seed*" "Name=instance-state-name,Values=running" \
-              --query 'Reservations[0].Instances[0].InstanceId' \
-              --output text 2>/dev/null || true)"
-          fi
-          if [ -z "$instance_id" ] || [ "$instance_id" = "None" ]; then
-            instance_id="$(aws ec2 describe-instances \
-              --filters "Name=private-ip-address,Values=${SEED1_PRIVATE_IP}" "Name=instance-state-name,Values=running" \
-              --query 'Reservations[0].Instances[0].InstanceId' \
-              --output text 2>/dev/null || true)"
-          fi
-          if [ -z "$instance_id" ] || [ "$instance_id" = "None" ]; then
             instance_id="$(aws ssm describe-instance-information \
               --query "InstanceInformationList[?IPAddress==\`${SEED1_PRIVATE_IP}\`].InstanceId | [0]" \
               --output text 2>/dev/null || true)"
           fi
           if [ -z "$instance_id" ] || [ "$instance_id" = "None" ]; then
             echo "seed_instance_found=false" >> "$GITHUB_OUTPUT"
-            echo 'No Seed-1 instance id configured or discoverable. Set repository variable TESTNET_SEED1_INSTANCE_ID.' >&2
+            echo 'No Seed-1 instance id configured or discoverable via SSM. Set repository variable TESTNET_SEED1_INSTANCE_ID.' >&2
             exit 0
           fi
           echo "seed_instance_found=true" >> "$GITHUB_OUTPUT"
           echo "instance_id=$instance_id" >> "$GITHUB_OUTPUT"
-          aws ec2 describe-instances --instance-ids "$instance_id" \
-            --query 'Reservations[0].Instances[0].{InstanceId:InstanceId,State:State.Name,Name:Tags[?Key==`Name`]|[0].Value,PrivateIp:PrivateIpAddress}' \
-            --output json
+          printf '{"seed_instance_id":"%s","seed_private_ip":"%s"}\n' "$instance_id" "$SEED1_PRIVATE_IP"
+        env:
+          TESTNET_SEED1_INSTANCE_ID: ${{ vars.TESTNET_SEED1_INSTANCE_ID }}
 
       - name: Ensure demand miner supervisor on Seed-1 via SSM
         if: steps.seed.outputs.seed_instance_found == 'true'
@@ -212,7 +194,7 @@ jobs:
       - name: Report missing Seed-1 target
         if: steps.seed.outputs.seed_instance_found != 'true'
         run: |
-          echo '::warning title=Demand miner auto-deploy needs Seed-1 instance id::Set repository variable TESTNET_SEED1_INSTANCE_ID, tag the seed EC2 instance, or ensure SSM manages the host at 172.31.10.171.'
+          echo '::warning title=Demand miner auto-deploy needs Seed-1 instance id::Set repository variable TESTNET_SEED1_INSTANCE_ID to the SSM-managed Seed-1 EC2 instance id (host 172.31.10.171).'
           if [ "${{ github.event_name }}" = 'schedule' ] || [ "${{ github.event_name }}" = 'workflow_dispatch' ]; then
             exit 2
           fi
