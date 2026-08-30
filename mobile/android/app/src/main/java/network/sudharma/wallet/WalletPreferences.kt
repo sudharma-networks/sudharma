@@ -31,6 +31,18 @@ class WalletPreferences(context: Context) {
         get() = prefs.getBoolean("backup_acknowledged", false)
         set(value) { prefs.edit().putBoolean("backup_acknowledged", value).apply() }
 
+    var pendingChallengeTransactionId: String?
+        get() = prefs.getString(PENDING_CHALLENGE_TX_ID_KEY, null)
+            ?.takeIf { it.matches(Regex("^[0-9a-f]{64}$")) }
+        set(value) {
+            if (value == null) {
+                prefs.edit().remove(PENDING_CHALLENGE_TX_ID_KEY).apply()
+            } else {
+                require(value.matches(Regex("^[0-9a-f]{64}$"))) { "invalid challenge transaction ID" }
+                prefs.edit().putString(PENDING_CHALLENGE_TX_ID_KEY, value).apply()
+            }
+        }
+
     fun addTransactionId(id: String) {
         if (!id.matches(Regex("^[0-9a-f]{64}$"))) return
         val current = transactionIds().toMutableList()
@@ -47,6 +59,7 @@ class WalletPreferences(context: Context) {
 
     companion object {
         private const val RPC_URL_KEY = "testnet_rpc_url"
+        private const val PENDING_CHALLENGE_TX_ID_KEY = "pending_testnet_challenge_tx_id"
 
         fun validateRpcUrl(value: String) {
             val url = value.toHttpUrlOrNull() ?: throw IllegalArgumentException("Invalid RPC URL")
