@@ -2,6 +2,7 @@ package network.sudharma.wallet
 
 import android.content.Context
 import network.sudharma.wallet.chain.AssetBalance
+import network.sudharma.wallet.chain.TransactionState
 import network.sudharma.wallet.chain.TransactionStatus
 import network.sudharma.wallet.chain.sudharma.SudharmaChainAdapter
 import network.sudharma.wallet.chain.sudharma.SudharmaRpcClient
@@ -28,6 +29,8 @@ class SudharmaWalletRepository(context: Context) {
 
     fun setPin(pin: String) = security.savePin(pin)
     fun verifyPin(pin: String): Boolean = security.verifyPin(pin)
+
+    fun walletReadyForAutomation(): Boolean = walletStore.hasWallet() && security.hasPin()
 
     fun account(): LocalAccount {
         val phrase = walletStore.loadRecoveryPhrase()
@@ -56,6 +59,7 @@ class SudharmaWalletRepository(context: Context) {
         require(adapter.validateAddress(to)) { "Invalid Sudharma address" }
         require(to != account.address) { "Cannot send to the same wallet" }
         val amount = parseCoinAmount(amountText)
+        val challengeInfo = runCatching { faucetInfo() }.getOrNull()
         val remoteAccount = adapter.balance(account.address)
         val fee = adapter.estimateFee(amount).feeAtomic
         require(remoteAccount.amount.atomic >= Math.addExact(amount, fee)) { "Insufficient balance including fee" }
@@ -63,10 +67,25 @@ class SudharmaWalletRepository(context: Context) {
         val signed = adapter.sign(unsigned, account.privateScalar)
         val status = adapter.submit(signed)
         preferences.addTransactionId(status.id)
+
+        val challengeAmount = challengeInfo?.challengeSendSudh?.toLong()?.let {
+            runCatching { Math.multiplyExact(it, COIN_ATOMIC) }.getOrNull()
+        }
+        if (
+            challengeInfo?.enabled == true &&
+            to == challengeInfo.challengeAddress &&
+            challengeAmount != null &&
+            amount == challengeAmount
+        ) {
+            preferences.pendingChallengeTransactionId = status.id
+        }
         return status
     }
 
     suspend fun transactionStatus(transactionId: String): TransactionStatus = adapter().status(transactionId)
+
+    suspend fun transactionConfirmed(transactionId: String): Boolean =
+        transactionStatus(transactionId).state == TransactionState.CONFIRMED
 
     suspend fun transactionStatuses(): List<TransactionStatus> {
         val adapter = adapter()
@@ -95,6 +114,8 @@ class SudharmaWalletRepository(context: Context) {
     }
 
     companion object {
+        private const val COIN_ATOMIC = 100_000_000L
+
         fun parseCoinAmount(text: String): Long {
             val value = text.trim()
             require(value.matches(Regex("^(0|[1-9][0-9]*)(\\.[0-9]{1,8})?$"))) { "Invalid SUDH amount" }
