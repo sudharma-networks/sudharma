@@ -116,6 +116,10 @@ export function matchRoute(methodInput, pathInput) {
     if (method !== 'GET') reject('method not allowed', 405);
     return { kind: 'explorerTransactions', method, path };
   }
+  if (path === '/v1/explorer/mempool') {
+    if (method !== 'GET') reject('method not allowed', 405);
+    return { kind: 'explorerMempool', method, path };
+  }
   if (path === '/v1/explorer/search') {
     if (method !== 'GET') reject('method not allowed', 405);
     return { kind: 'explorerSearch', method, path };
@@ -173,6 +177,7 @@ function explorerQueryRules(kind) {
       ]);
     case 'explorerTransactions':
     case 'explorerAddress':
+    case 'explorerMempool':
       return new Map([
         ['limit', (value) => /^[0-9]{1,3}$/.test(value) && Number(value) >= 1 && Number(value) <= 100],
         ['before_height', validUint64],

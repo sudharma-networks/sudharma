@@ -1,0 +1,73 @@
+name: Explorer Public RPC Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/faucet-recovery-stage2
+      - cursor/blockchain-explorer-mempool-deploy-83d4
+    paths:
+      - deployment/testnet/public-rpc/lambda/**
+      - .github/workflows/explorer-public-rpc-deploy.yml
+      - .github/workflows/explorer-seed-rpc-deploy.yml
+
+permissions:
+  contents: read
+
+env:
+  RPC_BASE_URL: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com
+  AWS_REGION: ap-south-1
+  LAMBDA_NAME: Sudharma-Testnet-Wallet-Proxy
+
+jobs:
+  build-deploy-verify:
+    runs-on: ubuntu-24.04
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Test and package Lambda
+        working-directory: deployment/testnet/public-rpc/lambda
+        run: |
+          npm install --ignore-scripts --no-audit --no-fund
+          npm test
+          mkdir -p "$GITHUB_WORKSPACE/build/public-rpc"
+          zip -q -9 -r "$GITHUB_WORKSPACE/build/public-rpc/sudharma-testnet-wallet-proxy.zip" \
+            index.mjs router.mjs upstream.mjs faucet.mjs faucet-funding.mjs faucet-runtime.mjs miner-wake.mjs visitor-runtime.mjs package.json node_modules
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+      - name: Deploy Lambda while preserving environment
+        run: |
+          set -euo pipefail
+          aws lambda get-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --query 'Environment.Variables' \
+            --output json > /tmp/lambda-environment-base.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const base = JSON.parse(fs.readFileSync('/tmp/lambda-environment-base.json', 'utf8')) ?? {};
+          fs.writeFileSync('/tmp/lambda-environment-preserve.json', JSON.stringify({ Variables: base }));
+          NODE
+          aws lambda update-function-code \
+            --function-name "$LAMBDA_NAME" \
+            --zip-file fileb://build/public-rpc/sudharma-testnet-wallet-proxy.zip \
+            --no-cli-pager >/dev/null
+          aws lambda wait function-updated --function-name "$LAMBDA_NAME"
+          aws lambda update-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --environment file:///tmp/lambda-environment-preserve.json \
+            --no-cli-pager >/dev/null
+          aws lambda wait function-updated --function-name "$LAMBDA_NAME"
+      - name: Verify explorer routes on public RPC
+        run: |
+          set -euo pipefail
+          curl -fsS "$RPC_BASE_URL/v1/explorer/status" | tee /tmp/explorer-status.json
+          curl -fsS "$RPC_BASE_URL/v1/explorer/mempool?limit=8" | tee /tmp/explorer-mempool.json
+          curl -fsS "$RPC_BASE_URL/v1/explorer/blocks?limit=2" | tee /tmp/explorer-blocks.json
+          echo '{"explorer_public_rpc_deploy":"ok"}'
