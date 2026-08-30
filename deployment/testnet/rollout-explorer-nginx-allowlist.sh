@@ -58,7 +58,7 @@ location = /v1/explorer/blocks {
     proxy_pass http://127.0.0.1:28545/v1/explorer/blocks;
 }
 
-location ~ ^/v1/explorer/blocks/(?:[0-9]+|[0-9a-f]{64})$ {
+location ~ "^/v1/explorer/blocks/(?:[0-9]+|[0-9a-f]{64})$" {
     limit_except GET { deny all; }
     proxy_http_version 1.1;
     proxy_set_header Host localhost;
@@ -76,7 +76,7 @@ location = /v1/explorer/transactions {
     proxy_pass http://127.0.0.1:28545/v1/explorer/transactions;
 }
 
-location ~ ^/v1/explorer/transactions/[0-9a-f]{64}$ {
+location ~ "^/v1/explorer/transactions/[0-9a-f]{64}$" {
     limit_except GET { deny all; }
     proxy_http_version 1.1;
     proxy_set_header Host localhost;
@@ -85,7 +85,7 @@ location ~ ^/v1/explorer/transactions/[0-9a-f]{64}$ {
     proxy_pass http://127.0.0.1:28545;
 }
 
-location ~ ^/v1/explorer/addresses/[0-9a-f]{40}$ {
+location ~ "^/v1/explorer/addresses/[0-9a-f]{40}$" {
     limit_except GET { deny all; }
     proxy_http_version 1.1;
     proxy_set_header Host localhost;
