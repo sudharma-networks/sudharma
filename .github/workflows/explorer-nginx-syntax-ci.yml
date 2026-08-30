@@ -1,0 +1,28 @@
+name: Explorer Nginx Syntax CI
+
+on:
+  push:
+    paths:
+      - 'deployment/testnet/rollout-explorer-nginx-allowlist.sh'
+      - 'deployment/testnet/rollout-explorer-nginx-syntax_test.sh'
+      - '.github/workflows/explorer-nginx-syntax-ci.yml'
+  pull_request:
+    paths:
+      - 'deployment/testnet/rollout-explorer-nginx-allowlist.sh'
+      - 'deployment/testnet/rollout-explorer-nginx-syntax_test.sh'
+      - '.github/workflows/explorer-nginx-syntax-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install nginx parser
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nginx
+      - name: Validate generated explorer allowlist with real nginx
+        run: bash deployment/testnet/rollout-explorer-nginx-syntax_test.sh
