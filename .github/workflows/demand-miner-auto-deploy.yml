@@ -405,17 +405,6 @@ jobs:
           printf '%s\n' "$body"
           echo "{\"recovery_http_status\":$status,\"failed_address\":\"$FAILED_ADDRESS\"}"
 
-      - name: Disable faucet again
-        if: always() && steps.readiness.outputs.should_attempt == 'true' && steps.recover.outcome == 'success'
-        run: |
-          set -euo pipefail
-          aws lambda update-function-configuration \
-            --function-name "$LAMBDA_NAME" \
-            --environment file:///tmp/lambda-environment-disabled.json \
-            --no-cli-pager >/dev/null
-          aws lambda wait function-updated --function-name "$LAMBDA_NAME"
-          curl -fsS "$RPC_BASE_URL/v1/faucet/info"
-
       - name: Verify payout chain state
         if: steps.readiness.outputs.should_attempt == 'true'
         run: |

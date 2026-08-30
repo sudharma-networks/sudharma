@@ -6,7 +6,6 @@ on:
       - feature/faucet-recovery-stage2
     paths:
       - .github/workflows/faucet-diagnostics-auto-deploy.yml
-      - deployment/testnet/public-rpc/lambda/**
   workflow_dispatch:
 
 permissions:

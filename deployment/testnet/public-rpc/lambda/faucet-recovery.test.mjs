@@ -30,6 +30,7 @@ test('prepared initial payout is safely resubmitted with the same transaction id
     async completeInitial() { throw new Error('should not complete before confirmation'); },
   };
   const rpc = {
+    async account() { return { balance: 10_000 * COIN, next_nonce: 7 }; },
     async transaction(txid) {
       assert.equal(txid, prepared.ID);
       throw new FaucetError(404, 'transaction not found');
@@ -66,6 +67,7 @@ test('prepared payout recovery fails closed when the payout lock is busy', async
     async releasePayoutLock() { throw new Error('must not unlock a lock that was not acquired'); },
   };
   const rpc = {
+    async account() { return { balance: 10_000 * COIN, next_nonce: 7 }; },
     async transaction() { throw new Error('must not touch RPC without the payout lock'); },
     async submit() { throw new Error('must not submit without the payout lock'); },
   };
@@ -229,6 +231,7 @@ test('prepared payout recovery observes invalid_nonce when payout is already pen
   uncertain.upstreamStatus = 422;
   uncertain.errorCategory = 'invalid_nonce';
   const rpc = {
+    async account() { return { balance: 10_000 * COIN, next_nonce: 7 }; },
     async transaction(txid) {
       assert.equal(txid, prepared.ID);
       throw new FaucetError(404, 'transaction not found');
@@ -271,6 +274,7 @@ test('prepared payout recovery records uncertainty when reconcile submit stays u
   uncertain.upstreamStatus = 422;
   uncertain.errorCategory = 'invalid_nonce';
   const rpc = {
+    async account() { return { balance: 10_000 * COIN, next_nonce: 7 }; },
     async transaction() { throw new FaucetError(404, 'transaction not found'); },
     async submit() { throw uncertain; },
     async mempool() { return { count: 0, transactions: [] }; },

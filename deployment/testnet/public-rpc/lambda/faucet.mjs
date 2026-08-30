@@ -239,6 +239,44 @@ async function reconcileInitialGrant({ store, rpc, signer, address, state, now }
     return null;
   }
 
+  const preparedPayout = state?.initial_payout;
+  if (status === 'prepared' && preparedPayout && Number.isSafeInteger(preparedPayout.Nonce)) {
+    const account = await rpc.account(signer.address);
+    const nextNonce = account?.next_nonce ?? account?.nextNonce;
+    if (Number.isSafeInteger(nextNonce) && preparedPayout.Nonce < nextNonce) {
+      try {
+        const remote = await rpc.transaction(transactionId);
+        if (remote?.status === 'confirmed') {
+          await store.completeInitial(address, transactionId, now());
+          return initialGrantResult(address, transactionId, 'confirmed');
+        }
+      } catch (error) {
+        if (error?.statusCode !== 404) throw error;
+      }
+
+      if (typeof store.failInitial !== 'function' || typeof store.reserveInitial !== 'function') {
+        throw new FaucetError(503, 'faucet payout recovery data is unavailable');
+      }
+      await store.failInitial(address, 'prepared payout nonce superseded on chain');
+      const rereserved = await store.reserveInitial(address, now());
+      if (!rereserved) {
+        throw new FaucetError(503, 'faucet payout recovery could not reserve address after stale prepared state');
+      }
+      const newTransactionId = await submitPayout({
+        store,
+        rpc,
+        signer,
+        to: address,
+        amount: INITIAL_GRANT_SUDH * COIN,
+        prepare: typeof store.prepareInitial === 'function'
+          ? (tx) => store.prepareInitial(address, tx, now())
+          : undefined,
+      });
+      await store.markInitialSubmitted(address, newTransactionId, now());
+      return initialGrantResult(address, newTransactionId, 'submitted');
+    }
+  }
+
   if (status === 'prepared' && state?.initial_payout?.ID !== transactionId) {
     const payout = await resolvePreparedInitialPayout({
       store, rpc, signer, address, state, transactionId, now,
