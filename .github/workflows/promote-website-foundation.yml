@@ -51,9 +51,13 @@ jobs:
 
       - name: Install and test source website
         working-directory: source/web
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           npm install
           npm test
+          npm run sync:github
+          npm run mirror:wallet
           npm run build
 
       - name: Sync web tree onto website-foundation worktree
@@ -78,13 +82,13 @@ jobs:
         working-directory: website
         run: |
           set -euo pipefail
-          if git diff --quiet -- web && git diff --cached --quiet -- web; then
+          git add -A -f -- web
+          if git diff --cached --quiet; then
             echo "No web/ changes to promote."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A -- web
           SOURCE_SHA=$(git -C ../source rev-parse --short HEAD)
           git commit -m "chore(web): promote website from ${{ inputs.source_ref }} (${SOURCE_SHA})"
           git push origin HEAD:feature/website-foundation

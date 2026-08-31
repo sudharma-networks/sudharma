@@ -1,10 +1,17 @@
 import type { DownloadArtifact } from "@/lib/downloads";
+import { isSameSiteDownload } from "@/lib/downloads";
 import { StatusChip } from "@/components/status-chip";
 import { ReportProblemLink } from "@/components/report-problem-link";
 
 const statusLabel = { available: "Available", "in-development": "In Development", planned: "Planned" } as const;
 
+function downloadFileName(url: string) {
+  const leaf = url.split("/").filter(Boolean).at(-1);
+  return leaf || "download";
+}
+
 export function DownloadCard({ artifact }: { artifact: DownloadArtifact }) {
+  const sameSite = isSameSiteDownload(artifact.downloadUrl);
   return (
     <article className="download-card">
       <div className="card-top"><span className="mono">{artifact.channel.toUpperCase()}</span><StatusChip status={statusLabel[artifact.status]} /></div>
@@ -20,28 +27,31 @@ export function DownloadCard({ artifact }: { artifact: DownloadArtifact }) {
       {artifact.sha256 ? <p className="checksum">SHA256 {artifact.sha256}</p> : null}
       <div className="card-actions">
         {artifact.status === "available" && artifact.downloadUrl ? (
-          <>
-            <a
-              className="button small"
-              href={artifact.downloadUrl}
-              download
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Download
-            </a>
-            {artifact.releaseNotesUrl ? (
-              <a className="text-link" href={artifact.releaseNotesUrl} target="_blank" rel="noopener noreferrer">
-                GitHub release ↗
-              </a>
-            ) : null}
-          </>
+          <a
+            className="button small"
+            href={artifact.downloadUrl}
+            download={sameSite ? downloadFileName(artifact.downloadUrl) : undefined}
+            {...(sameSite ? {} : { target: "_blank", rel: "noopener noreferrer" })}
+          >
+            Download
+          </a>
         ) : (
           <span className="muted">No public binary published yet.</span>
         )}
-        {artifact.checksumUrl ? <a className="text-link" href={artifact.checksumUrl}>Checksum ↗</a> : null}
-        {artifact.releaseNotesUrl ? <a className="text-link" href={artifact.releaseNotesUrl}>Release notes ↗</a> : null}
-        {artifact.sourceUrl ? <a className="text-link" href={artifact.sourceUrl}>Source ↗</a> : null}
+        {artifact.checksumUrl ? (
+          <a
+            className="text-link"
+            href={artifact.checksumUrl}
+            {...(isSameSiteDownload(artifact.checksumUrl) ? {} : { target: "_blank", rel: "noopener noreferrer" })}
+          >
+            Checksum
+          </a>
+        ) : null}
+        {artifact.releaseNotesUrl ? (
+          <a className="text-link" href={artifact.releaseNotesUrl} target="_blank" rel="noopener noreferrer">
+            Release notes
+          </a>
+        ) : null}
       </div>
       <ReportProblemLink component="Downloads" context={`${artifact.id}:${artifact.version}`} />
     </article>

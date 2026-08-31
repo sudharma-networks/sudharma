@@ -46,6 +46,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: npm run sync:github
+      - name: Mirror Android wallet APK onto the website
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: npm run mirror:wallet
       - run: npm run typecheck
       - run: npm test
       - run: npm run build

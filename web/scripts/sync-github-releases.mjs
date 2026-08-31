@@ -145,7 +145,7 @@ export async function sync() {
   const releases = await githubJson(`/repos/${REPO}/releases?per_page=100`);
   const commits = await githubJson(`/repos/${REPO}/commits?sha=main&per_page=1`);
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-  await atomicJson(path.join(root, "public/data/github-releases.json"), { schemaVersion: 1, repository: REPO, artifacts: normalizeReleases(releases) });
+  await atomicJson(path.join(root, "public/data/github-releases.json"), { schemaVersion: 1, repository: REPO, artifacts: withSameSiteWalletUrls(normalizeReleases(releases)) });
   await atomicJson(path.join(root, "public/data/project-status.json"), projectStatus(releases, commits));
 }
 
