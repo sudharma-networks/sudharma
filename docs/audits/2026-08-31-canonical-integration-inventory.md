@@ -19,7 +19,7 @@ they are introduced. Integration changes must preserve this check.
 
 | Area | Snapshot revision | Relationship to recorded `main` | Status |
 | --- | --- | --- | --- |
-| Faucet recovery, demand miner, and explorer deployment | `feature/faucet-recovery-stage2` at `2e2abd6786309fc1f4817e76b257eb632bd10fdc` | 159 commits ahead; recorded `main` is an ancestor | Pending file-level reconciliation; PR #66 safety changes are included |
+| Faucet recovery, demand miner, and explorer deployment | `feature/faucet-recovery-stage2` at `2e2abd6786309fc1f4817e76b257eb632bd10fdc` | 159 commits ahead; recorded `main` is an ancestor | File-level reconciliation in progress; fail-closed dependency timeout and manual-only safety controls are integrated |
 | Android wallet, faucet client, and earlier demand miner reconciliation | `codex/canonical-wallet-integration` at `6096172ef74775cf9aa68c32d0efba143400f61d` | 253 commits ahead and 82 behind | Integrated as the reviewed component spine; main's Telegram CI and manual-only mutation protections were retained |
 | Explorer v1 | `feature/blockchain-explorer-v1` at `62f350e27bce545186df50fa72afed2c05c70282` | 72 commits ahead and 82 behind | Review against the newer explorer changes already present in the recovery and website lines |
 | Website | `feature/website-foundation` at `ebc8f432c58aa7dbed381c68a0ae2b3ff5269747` | 90 commits ahead and 82 behind | Integrate after the explorer API contract is selected |

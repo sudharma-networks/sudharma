@@ -22,16 +22,24 @@ jobs:
       - name: Run tracked secret safety test
         run: bash ./scripts/check-tracked-secrets_test.sh
 
-      - name: Set up Node
+      - name: Set up Node 24
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
 
       - name: Run Telegram bridge tests
         run: node --test scripts/telegram/*.test.js
 
       - name: Enforce manual-only live mutation workflows
         run: node --test scripts/live-workflow-trigger-safety.test.mjs
+
+      - name: Install public RPC Lambda dependencies
+        working-directory: deployment/testnet/public-rpc/lambda
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Run public RPC Lambda tests
+        working-directory: deployment/testnet/public-rpc/lambda
+        run: npm test
 
       - name: Scan tracked files for secrets
         run: bash ./scripts/check-tracked-secrets.sh
