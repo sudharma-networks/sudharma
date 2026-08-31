@@ -2,8 +2,7 @@ name: Apply Wallet Activity History Split
 
 on:
   push:
-    branches:
-      - cursor/wallet-txn-details-83d4
+    branches: [cursor/wallet-txn-details-83d4]
 
 permissions:
   contents: write
@@ -15,95 +14,58 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: cursor/wallet-txn-details-83d4
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Patch repository and Compose UI
+      - name: Patch wallet split
+        shell: bash
         run: |
-          python - <<'PY'
+          python3 - <<'PY'
           from pathlib import Path
 
-          repo = Path('mobile/android/app/src/main/java/network/sudharma/wallet/SudharmaWalletRepository.kt')
-          r = repo.read_text()
-          anchor = '    suspend fun balance(): AssetBalance = adapter().balance(account().address)\n\n'
-          replacement = anchor + '    suspend fun serverStatus(): SudharmaRpcClient.Status = rpcClient().status()\n\n'
+          rp = Path('mobile/android/app/src/main/java/network/sudharma/wallet/SudharmaWalletRepository.kt')
+          r = rp.read_text()
+          a = '    suspend fun balance(): AssetBalance = adapter().balance(account().address)\n\n'
           if 'suspend fun serverStatus()' not in r:
-              if anchor not in r:
-                  raise SystemExit('repository balance anchor not found')
-              r = r.replace(anchor, replacement, 1)
-          repo.write_text(r)
+              assert a in r
+              r = r.replace(a, a + '    suspend fun serverStatus(): SudharmaRpcClient.Status = rpcClient().status()\n\n', 1)
+          rp.write_text(r)
 
-          app = Path('mobile/android/app/src/main/java/network/sudharma/wallet/WalletApp.kt')
-          t = app.read_text()
+          p = Path('mobile/android/app/src/main/java/network/sudharma/wallet/WalletApp.kt')
+          s = p.read_text()
 
-          import_anchor = 'import network.sudharma.wallet.chain.sudharma.SudharmaPaymentUri\n'
-          rpc_import = 'import network.sudharma.wallet.chain.sudharma.SudharmaRpcClient\n'
-          if rpc_import not in t:
-              if import_anchor not in t:
-                  raise SystemExit('RPC import anchor not found')
-              t = t.replace(import_anchor, import_anchor + rpc_import, 1)
+          a = 'import network.sudharma.wallet.chain.sudharma.SudharmaPaymentUri\n'
+          if 'import network.sudharma.wallet.chain.sudharma.SudharmaRpcClient\n' not in s:
+              assert a in s
+              s = s.replace(a, a + 'import network.sudharma.wallet.chain.sudharma.SudharmaRpcClient\n', 1)
 
-          home_route = '''            onSend = { screen = WalletScreen.SEND },
-            onActivity = { screen = WalletScreen.ACTIVITY },
-            onSettings = { screen = WalletScreen.SETTINGS },'''
-          home_route_new = '''            onSend = { screen = WalletScreen.SEND },
-            onActivity = { screen = WalletScreen.ACTIVITY },
-            onHistory = { screen = WalletScreen.HISTORY },
-            onSettings = { screen = WalletScreen.SETTINGS },'''
-          if 'onHistory = { screen = WalletScreen.HISTORY }' not in t:
-              if home_route not in t:
-                  raise SystemExit('home route anchor not found')
-              t = t.replace(home_route, home_route_new, 1)
+          a = '            onActivity = { screen = WalletScreen.ACTIVITY },\n            onSettings = { screen = WalletScreen.SETTINGS },'
+          if 'onHistory = { screen = WalletScreen.HISTORY }' not in s:
+              assert a in s
+              s = s.replace(a, '            onActivity = { screen = WalletScreen.ACTIVITY },\n            onHistory = { screen = WalletScreen.HISTORY },\n            onSettings = { screen = WalletScreen.SETTINGS },', 1)
 
-          route_anchor = '        WalletScreen.ACTIVITY -> ActivityScreen(repository, onBack = { screen = WalletScreen.HOME })\n'
-          route_new = '''        WalletScreen.ACTIVITY -> ServerActivityScreen(repository, onBack = { screen = WalletScreen.HOME })
-        WalletScreen.HISTORY -> TransactionHistoryScreen(repository, onBack = { screen = WalletScreen.HOME })
-'''
-          if 'WalletScreen.HISTORY -> TransactionHistoryScreen' not in t:
-              if route_anchor not in t:
-                  raise SystemExit('activity route anchor not found')
-              t = t.replace(route_anchor, route_new, 1)
+          a = '        WalletScreen.ACTIVITY -> ActivityScreen(repository, onBack = { screen = WalletScreen.HOME })\n'
+          if 'WalletScreen.HISTORY -> TransactionHistoryScreen' not in s:
+              assert a in s
+              s = s.replace(a, '        WalletScreen.ACTIVITY -> ServerActivityScreen(repository, onBack = { screen = WalletScreen.HOME })\n        WalletScreen.HISTORY -> TransactionHistoryScreen(repository, onBack = { screen = WalletScreen.HOME })\n', 1)
 
-          sig_anchor = '''    onSend: () -> Unit,
-    onActivity: () -> Unit,
-    onSettings: () -> Unit,
-) {'''
-          sig_new = '''    onSend: () -> Unit,
-    onActivity: () -> Unit,
-    onHistory: () -> Unit,
-    onSettings: () -> Unit,
-) {'''
-          if '    onHistory: () -> Unit,' not in t:
-              if sig_anchor not in t:
-                  raise SystemExit('HomeScreen signature anchor not found')
-              t = t.replace(sig_anchor, sig_new, 1)
+          a = '    onActivity: () -> Unit,\n    onSettings: () -> Unit,\n) {'
+          if '    onHistory: () -> Unit,' not in s:
+              assert a in s
+              s = s.replace(a, '    onActivity: () -> Unit,\n    onHistory: () -> Unit,\n    onSettings: () -> Unit,\n) {', 1)
 
-          t = t.replace('Text("Recent activity", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)',
-                        'Text("Recent history", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)', 1)
-          t = t.replace('TextButton(onClick = onActivity) { Text("View all activity") }',
-                        'TextButton(onClick = onHistory) { Text("View all history") }', 1)
+          s = s.replace('Text("Recent activity", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)', 'Text("Recent history", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)', 1)
+          s = s.replace('TextButton(onClick = onActivity) { Text("View all activity") }', 'TextButton(onClick = onHistory) { Text("View all history") }', 1)
 
-          bottom_anchor = '''        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(onClick = onActivity) { Text("Activity") }
-            TextButton(onClick = onSettings) { Text("Settings") }
-        }'''
-          bottom_new = '''        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(onClick = onActivity) { Text("Activity") }
-            TextButton(onClick = onHistory) { Text("History") }
-            TextButton(onClick = onSettings) { Text("Settings") }
-        }'''
-          if 'TextButton(onClick = onHistory) { Text("History") }' not in t:
-              if bottom_anchor not in t:
-                  raise SystemExit('bottom navigation anchor not found')
-              t = t.replace(bottom_anchor, bottom_new, 1)
+          a = '            TextButton(onClick = onActivity) { Text("Activity") }\n            TextButton(onClick = onSettings) { Text("Settings") }'
+          if 'TextButton(onClick = onHistory) { Text("History") }' not in s:
+              assert a in s
+              s = s.replace(a, '            TextButton(onClick = onActivity) { Text("Activity") }\n            TextButton(onClick = onHistory) { Text("History") }\n            TextButton(onClick = onSettings) { Text("Settings") }', 1)
 
-          history_anchor = '@Composable\nprivate fun ActivityScreen(repository: SudharmaWalletRepository, onBack: () -> Unit) {'
-          history_new = '@Composable\nprivate fun TransactionHistoryScreen(repository: SudharmaWalletRepository, onBack: () -> Unit) {'
-          if 'private fun TransactionHistoryScreen' not in t:
-              if history_anchor not in t:
-                  raise SystemExit('history rename anchor not found')
-              t = t.replace(history_anchor, history_new, 1)
+          a = '@Composable\nprivate fun ActivityScreen(repository: SudharmaWalletRepository, onBack: () -> Unit) {'
+          if 'private fun TransactionHistoryScreen' not in s:
+              assert a in s
+              s = s.replace(a, '@Composable\nprivate fun TransactionHistoryScreen(repository: SudharmaWalletRepository, onBack: () -> Unit) {', 1)
 
-          server_screen = '''@Composable
+          server = '''@Composable
 private fun ServerActivityScreen(repository: SudharmaWalletRepository, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var server by remember { mutableStateOf<SudharmaRpcClient.Status?>(null) }
@@ -164,20 +126,20 @@ private fun ServerActivityScreen(repository: SudharmaWalletRepository, onBack: (
 }
 
 '''
-          insert_anchor = '@Composable\nprivate fun TransactionHistoryScreen(repository: SudharmaWalletRepository, onBack: () -> Unit) {'
-          if 'private fun ServerActivityScreen' not in t:
-              if insert_anchor not in t:
-                  raise SystemExit('server screen insertion anchor not found')
-              t = t.replace(insert_anchor, server_screen + insert_anchor, 1)
+          a = '@Composable\nprivate fun TransactionHistoryScreen(repository: SudharmaWalletRepository, onBack: () -> Unit) {'
+          if 'private fun ServerActivityScreen' not in s:
+              assert a in s
+              s = s.replace(a, server + a, 1)
 
-          app.write_text(t)
+          p.write_text(s)
           PY
 
       - name: Commit patch
+        shell: bash
         run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add mobile/android/app/src/main/java/network/sudharma/wallet/SudharmaWalletRepository.kt mobile/android/app/src/main/java/network/sudharma/wallet/WalletApp.kt
-          git commit -m "feat(android): split server activity from transaction history"
+          git diff --cached --quiet && exit 0
+          git commit -m 'feat(android): split server activity from transaction history'
           git push origin cursor/wallet-txn-details-83d4
