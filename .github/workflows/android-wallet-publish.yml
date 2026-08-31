@@ -1,0 +1,116 @@
+name: Android Wallet Publish
+
+# Manual-only GitHub Release publisher for the public testnet Android wallet.
+# Builds the exact APK from the dispatched ref, then creates a prerelease.
+# Confirmed with confirm=PUBLISH to avoid accidental release creation.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag (for example wallet-testnet-0.1.5)
+        required: true
+        default: wallet-testnet-0.1.5
+        type: string
+      confirm:
+        description: Type PUBLISH to create the GitHub prerelease
+        required: true
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-wallet-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event.inputs.confirm == 'PUBLISH'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Validate tag shape
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag='${{ github.event.inputs.tag }}'
+          [[ "$tag" =~ ^wallet-testnet-[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+            || { echo "tag must match wallet-testnet-X.Y.Z, got: $tag" >&2; exit 1; }
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Unit tests
+        working-directory: mobile/android
+        run: gradle --no-daemon :app:testDebugUnitTest
+
+      - name: Android lint
+        working-directory: mobile/android
+        run: gradle --no-daemon :app:lintDebug
+
+      - name: Build testnet APK
+        working-directory: mobile/android
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Stage named APK and checksum
+        id: stage
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag='${{ github.event.inputs.tag }}'
+          version="${tag#wallet-testnet-}"
+          apk_name="Sudharma-Wallet-${version}.apk"
+          mkdir -p dist
+          cp mobile/android/app/build/outputs/apk/debug/app-debug.apk "dist/${apk_name}"
+          sha256sum "dist/${apk_name}" | tee "dist/${apk_name}.sha256"
+          digest="$(cut -d' ' -f1 "dist/${apk_name}.sha256")"
+          {
+            echo "apk_name=${apk_name}"
+            echo "version=${version}"
+            echo "digest=${digest}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag='${{ github.event.inputs.tag }}'
+          version='${{ steps.stage.outputs.version }}'
+          apk_name='${{ steps.stage.outputs.apk_name }}'
+          digest='${{ steps.stage.outputs.digest }}'
+          notes="$(cat <<EOF
+          Approved public-testnet Android wallet built from commit ${GITHUB_SHA}.
+
+          Points at the live public RPC/faucet bridge:
+          \`https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com\`
+
+          Includes local signing, testnet faucet/challenge client, and the
+          canonical wallet integration from PR #69. Testnet software only —
+          Test SUDH has no monetary value.
+
+          APK SHA-256: ${digest}
+          EOF
+          )"
+          gh release create "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Sudharma Wallet ${version} (testnet)" \
+            --notes "$notes" \
+            --prerelease \
+            "dist/${apk_name}" \
+            "dist/${apk_name}.sha256"

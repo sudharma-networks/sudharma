@@ -33,7 +33,7 @@ Execute in order. Stop if any step fails rollback or smoke verification.
 | 4 | `provision-website-visitor-counter` | Provision visitor counter table/Lambda if not already present |
 | 5 | `Promote Website Foundation` (or `scripts/promote-website-tree.sh`) | Manual promote of `web/` onto `feature/website-foundation` (Amplify). Dry-run first. |
 | 6 | `Faucet Enable Public` | Only after Lambda deploy smoke and seed health pass |
-| 7 | Android release | Publish wallet APK only after RPC/faucet/explorer stability is confirmed |
+| 7 | `Android Wallet Publish` | Publish wallet APK only after RPC/faucet/explorer stability is confirmed (`confirm=PUBLISH`) |
 
 Steps 5 and 7 may be **deferred** after core testnet services (seeds, public RPC, visitor
 counter, faucet) are live. Record deferrals in the private evidence file with
