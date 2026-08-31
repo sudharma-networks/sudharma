@@ -69,6 +69,27 @@ test('public-testnet mutation workflows are manual-only when present', () => {
   }
 });
 
+// Unauthenticated GitHub API calls share a 60-requests-per-hour IP budget on
+// hosted runners, which fails CI with a 403 rather than a real defect.
+test('workflow steps calling the GitHub API pass a token', () => {
+  const workflowDir = '.github/workflows';
+  if (!fs.existsSync(workflowDir)) return;
+
+  for (const entry of fs.readdirSync(workflowDir)) {
+    if (!/\.ya?ml$/.test(entry)) continue;
+    const source = fs.readFileSync(`${workflowDir}/${entry}`, 'utf8');
+    const steps = source.split(/\n\s*- (?=name:|uses:|run:)/);
+    for (const step of steps) {
+      if (!/\brun:[\s\S]*?(sync:github|gh api|gh release|gh run )/.test(step)) continue;
+      assert.match(
+        step,
+        /(GH_TOKEN|GITHUB_TOKEN):/,
+        `${workflowDir}/${entry} calls the GitHub API without passing a token`,
+      );
+    }
+  }
+});
+
 test('Android CI cannot publish releases', () => {
   const workflow = '.github/workflows/android-wallet.yml';
   if (!fs.existsSync(workflow)) {
