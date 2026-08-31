@@ -3,7 +3,7 @@
 set -euo pipefail
 
 rpcd_url="${SUDHARMA_RPCD_BIN_URL:?SUDHARMA_RPCD_BIN_URL is required}"
-service_name="${SUDHARMA_RPCD_SERVICE:-sudharma-testnet}"
+service_name="${SUDHARMA_RPCD_SERVICE:-sudharma}"
 config_path="${SUDHARMA_NODE_CONFIG:-/etc/sudharma/node.json}"
 install_path="${SUDHARMA_RPCD_INSTALL_PATH:-/usr/local/bin/sudharma-rpcd}"
 
