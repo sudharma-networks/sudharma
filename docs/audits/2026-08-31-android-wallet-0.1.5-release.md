@@ -1,44 +1,37 @@
 # Android wallet 0.1.5 go-live release
 
 **Recorded:** 2026-08-31  
-**Branch:** `cursor/android-wallet-0.1.5-8441`  
-**Base:** `main` at `14d15af` (PR #69)
+**Release tag:** `wallet-testnet-0.1.5`  
+**Release URL:** https://github.com/sudharma-networks/sudharma/releases/tag/wallet-testnet-0.1.5  
+**Source commit:** `dfe5e740237202ec6d261ef862b15bdc7e9a05db`  
+**APK:** `Sudharma-Wallet-0.1.5.apk`  
+**SHA-256:** `486c0c233a4eb53b3292d643082e936c0599804063ffd15290f0edd2b50f9956`
+
+## Outcome
+
+Stage 5 step 7 (Android APK release) is **complete**.
+
+| Step | Result |
+| --- | --- |
+| Version bump + publish workflow | Merged in PR #73 |
+| Android CI build on `main` | Run `33416152288` success |
+| GitHub prerelease | Published `wallet-testnet-0.1.5` |
+| Website release sync | Run `33416400499` success (release-triggered) |
+| Amplify downloads | Live `wallet-testnet-0.1.5` |
+| Checksum sidecar path fix | Merged in PR #74 |
 
 ## Why a new APK
 
-The live downloads page currently serves `wallet-testnet-0.1.4`, which was published
-from a parallel branch (`cursor/wallet-txn-details-83d4`) that is **not** an ancestor
-of the canonical integration line on `main`. Stage 5 step 7 deferred APK publish until
-RPC/faucet/explorer were stable. Those surfaces are live, so this release publishes the
-wallet from the merged go-live commit.
+Public downloads previously served `wallet-testnet-0.1.4` from a parallel branch that is
+not an ancestor of the canonical integration line. This release publishes the wallet from
+the merged go-live / canonical-integration `main`.
 
-## Changes on this branch
+## Operator follow-up
 
-- Bump `versionCode` to `5` and `versionName` to `0.1.5-testnet`
-- Name CI artifacts from `versionName` instead of a hard-coded `0.1.0`
-- Add manual `Android Wallet Publish` workflow (`confirm=PUBLISH` required)
-- Keep automatic Android CI release-free (existing safety guard)
+Install the APK on a device and confirm:
 
-## Operator publish (after this PR is merged to main)
+1. Wallet connects to `https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com`
+2. Faucet info/request works against the live bridge
+3. Explorer links open the public website explorer
 
-```powershell
-gh workflow run android-wallet-publish.yml -R sudharma-networks/sudharma --ref main -f tag=wallet-testnet-0.1.5 -f confirm=PUBLISH
-```
-
-Then refresh website downloads:
-
-```powershell
-gh workflow run sync-website-releases.yml -R sudharma-networks/sudharma
-```
-
-## Verify
-
-- Release page: `https://github.com/sudharma-networks/sudharma/releases/tag/wallet-testnet-0.1.5`
-- Downloads page shows wallet version `wallet-testnet-0.1.5`
-- Install APK, confirm public RPC/faucet reachability against
-  `https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com`
-
-## Notes
-
-- This is a **debug** APK (`assembleDebug`), matching prior public testnet wallet releases.
-- Test SUDH has no monetary value.
+Test SUDH has no monetary value.

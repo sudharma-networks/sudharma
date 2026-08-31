@@ -42,18 +42,21 @@ const evidence = {
       notes: 'Demand miner deploy skipped — chain did not need mining during go-live.',
     },
     website: {
-      deferred: true,
-      notes: 'Website static publish deferred post core testnet go-live.',
+      build_id: 'feature-website-foundation',
+      deployment_url: 'https://feature-website-foundation.d2mqyt0bt8sl9s.amplifyapp.com/',
+      notes: 'Promoted Stage 6/7 website surface including faucet UI; downloads synced to wallet-testnet-0.1.5.',
     },
     android_wallet: {
-      deferred: true,
-      notes: 'Android APK release deferred post core testnet go-live.',
+      tag: 'wallet-testnet-0.1.5',
+      commit: 'dfe5e740237202ec6d261ef862b15bdc7e9a05db',
+      checksum_sha256: '486c0c233a4eb53b3292d643082e936c0599804063ffd15290f0edd2b50f9956',
+      notes: 'Published from main go-live line after RPC/faucet/explorer stability.',
     },
   },
   public_rpc_smoke: smoke,
   operator_signoff: {
     reviewed_by: reviewedBy,
-    notes: 'Core testnet go-live complete. Steps 5 and 7 deferred.',
+    notes: 'Core testnet go-live complete. Website published. Android wallet-testnet-0.1.5 released.',
   },
 };
 
