@@ -43,6 +43,8 @@ jobs:
         run: node --test deployment/website/visitor-counter/*.test.mjs
       - run: npm install
       - name: Sync verified GitHub release metadata
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: npm run sync:github
       - run: npm run typecheck
       - run: npm test

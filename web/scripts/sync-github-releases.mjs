@@ -92,14 +92,30 @@ export function withSameSiteWalletUrls(artifacts) {
     : artifact);
 }
 
-async function githubJson(endpoint) {
+const RETRYABLE_STATUS = new Set([403, 429, 500, 502, 503, 504]);
+
+export function isRetryableGitHubStatus(status) {
+  return RETRYABLE_STATUS.has(status);
+}
+
+async function githubJson(endpoint, options = {}) {
+  const { attempts = 4, delayMs = 2000, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), fetchImpl = fetch } = options;
   const base = process.env.GITHUB_API_URL || "https://api.github.com";
   const headers = { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "sudharma-website-sync" };
   if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
-  const response = await fetch(`${base}${endpoint}`, { headers });
-  if (!response.ok) throw new Error(`GitHub API ${response.status}: ${endpoint}`);
-  return response.json();
+
+  let lastStatus = 0;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const response = await fetchImpl(`${base}${endpoint}`, { headers });
+    if (response.ok) return response.json();
+    lastStatus = response.status;
+    if (!isRetryableGitHubStatus(response.status) || attempt === attempts) break;
+    await sleep(delayMs * 2 ** (attempt - 1));
+  }
+  throw new Error(`GitHub API ${lastStatus}: ${endpoint}`);
 }
+
+export const __githubJsonForTests = githubJson;
 
 async function atomicJson(target, value) {
   await mkdir(path.dirname(target), { recursive: true });
