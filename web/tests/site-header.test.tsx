@@ -2,6 +2,13 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { SiteHeader } from "@/components/site-header";
 
 describe("SiteHeader mobile navigation", () => {
+  it("exposes tokenomics as a first-class navigation destination", () => {
+    render(<SiteHeader />);
+
+    expect(screen.getAllByRole("link", { name: "Tokenomics" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: "Tokenomics" })[0]).toHaveAttribute("href", "/sudh");
+  });
+
   it("closes the open mobile menu when a navigation link is selected", () => {
     render(<SiteHeader />);
 

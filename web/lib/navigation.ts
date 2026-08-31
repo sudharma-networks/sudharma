@@ -2,7 +2,7 @@ export const PRIMARY_NAV = [
   ["Home", "/"],
   ["About Us", "/about"],
   ["Network", "/network"],
-  ["SUDH", "/sudh"],
+  ["Tokenomics", "/sudh"],
   ["Wallet", "/wallet"],
   ["Mining", "/mining"],
   ["Downloads", "/downloads"],
