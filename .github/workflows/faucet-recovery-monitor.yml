@@ -1,0 +1,55 @@
+name: Faucet Recovery Monitor
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RPC_BASE_URL: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com
+
+jobs:
+  monitor:
+    runs-on: ubuntu-24.04
+    outputs:
+      recovery_blocked: ${{ steps.monitor.outputs.recovery_blocked }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Monitor mempool readiness
+        id: monitor
+        run: |
+          set -euo pipefail
+          set +e
+          node ./scripts/faucet-recovery-monitor.mjs | tee /tmp/faucet-monitor.json
+          monitor_status=$?
+          set -e
+          echo "monitor_status=$monitor_status" >> "$GITHUB_OUTPUT"
+          if [ "$monitor_status" -eq 2 ]; then
+            echo 'recovery_blocked=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'recovery_blocked=false' >> "$GITHUB_OUTPUT"
+          fi
+          if [ "$monitor_status" -ne 0 ] && [ "$monitor_status" -ne 2 ]; then
+            exit "$monitor_status"
+          fi
+
+      - name: Report recovery still blocked
+        if: steps.monitor.outputs.recovery_blocked == 'true'
+        run: |
+          set -euo pipefail
+          cat /tmp/faucet-monitor.json
+          node --input-type=module -e "
+            const fs = await import('node:fs');
+            const payload = JSON.parse(fs.readFileSync('/tmp/faucet-monitor.json', 'utf8'));
+            const actions = payload.snapshot?.operator_actions ?? [];
+            console.log('::warning title=Faucet recovery blocked::' + (payload.readiness?.reason || 'blocked'));
+            if (actions.length === 0) process.exit(0);
+            console.log('Operator actions required:');
+            for (const action of actions) console.log('- ' + action);
+          "
+          if [ "${{ github.event_name }}" = 'schedule' ] || [ "${{ github.event_name }}" = 'workflow_dispatch' ]; then
+            exit 2
+          fi

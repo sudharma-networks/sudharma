@@ -1,0 +1,179 @@
+name: Faucet Enable Public
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RPC_BASE_URL: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com
+  AWS_REGION: ap-south-1
+  LAMBDA_NAME: Sudharma-Testnet-Wallet-Proxy
+  FAUCET_TABLE_NAME: Sudharma-Testnet-Faucet
+  FAUCET_SECRET_ID: sudharma/testnet/faucet-wallet
+  FAUCET_RECOVERY_ADDRESS: 16d7dc9ec0495109007860a584c7cf9055da9abf
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install Lambda dependencies
+        working-directory: deployment/testnet/public-rpc/lambda
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Test Lambda proxy and faucet
+        working-directory: deployment/testnet/public-rpc/lambda
+        run: npm test
+      - name: Package Lambda artifact
+        run: |
+          set -euo pipefail
+          mkdir -p build/public-rpc
+          cd deployment/testnet/public-rpc/lambda
+          zip -q -9 -r "$GITHUB_WORKSPACE/build/public-rpc/sudharma-testnet-wallet-proxy.zip" \
+            index.mjs router.mjs upstream.mjs faucet.mjs faucet-funding.mjs faucet-runtime.mjs miner-wake.mjs visitor-runtime.mjs package.json node_modules
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sudharma-testnet-wallet-proxy-public
+          path: build/public-rpc/sudharma-testnet-wallet-proxy.zip
+          if-no-files-found: error
+
+  enable-public:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: sudharma-testnet-wallet-proxy-public
+          path: build/public-rpc
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+
+      - name: Prepare enabled Lambda environment
+        run: |
+          set -euo pipefail
+          aws lambda get-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --query 'Environment.Variables' \
+            --output json > /tmp/lambda-environment-base.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const base = JSON.parse(fs.readFileSync('/tmp/lambda-environment-base.json', 'utf8')) ?? {};
+          const common = {
+            SEED_1_URL: 'http://172.31.10.171:29100',
+            SEED_2_URL: 'http://172.31.32.195:29100',
+            UPSTREAM_TIMEOUT_MS: '3500',
+            FAUCET_TABLE_NAME: process.env.FAUCET_TABLE_NAME,
+            FAUCET_SECRET_ID: process.env.FAUCET_SECRET_ID,
+            FAUCET_RECOVERY_ADDRESS: process.env.FAUCET_RECOVERY_ADDRESS,
+            FAUCET_ENABLED: 'true',
+            FAUCET_FRESH_GRANT: 'true',
+          };
+          fs.writeFileSync('/tmp/lambda-environment-enabled.json', JSON.stringify({ Variables: { ...base, ...common } }));
+          NODE
+
+      - name: Deploy Lambda code and enable public faucet
+        run: |
+          set -euo pipefail
+          aws lambda update-function-code \
+            --function-name "$LAMBDA_NAME" \
+            --zip-file fileb://build/public-rpc/sudharma-testnet-wallet-proxy.zip \
+            --no-cli-pager >/dev/null
+          aws lambda wait function-updated --function-name "$LAMBDA_NAME"
+          aws lambda update-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --environment file:///tmp/lambda-environment-enabled.json \
+            --no-cli-pager >/dev/null
+          aws lambda wait function-updated --function-name "$LAMBDA_NAME"
+
+      - name: Verify public faucet is live
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 20); do
+            info_body="$(curl -fsS "$RPC_BASE_URL/v1/faucet/info")"
+            if BODY="$info_body" node --input-type=module -e "const body=JSON.parse(process.env.BODY); process.exit(body.enabled === true ? 0 : 1)"; then
+              printf '%s\n' "$info_body"
+              break
+            fi
+            sleep 3
+          done
+          curl -fsS "$RPC_BASE_URL/v1/faucet/health"
+          TEST_ADDRESS="$(node -e "process.stdout.write(require('node:crypto').randomBytes(20).toString('hex'))")"
+          response="$(curl -sS -w '\n%{http_code}' \
+            -X POST \
+            -H 'Content-Type: application/json' \
+            -d "{\"address\":\"$TEST_ADDRESS\"}" \
+            "$RPC_BASE_URL/v1/faucet/request")"
+          status="$(printf '%s\n' "$response" | tail -n1)"
+          body="$(printf '%s\n' "$response" | sed '$d')"
+          printf '%s\n' "$body"
+          if [ "$status" != '202' ]; then
+            echo "Expected HTTP 202 from live faucet request, got $status" >&2
+            exit 1
+          fi
+          echo "{\"public_faucet_live\":true,\"smoke_test_address\":\"$TEST_ADDRESS\",\"http_status\":$status}"
+
+      - name: Verify public explorer API is live
+        run: |
+          set -euo pipefail
+          node ./scripts/explorer-live-check.mjs | tee /tmp/explorer-live-check.json
+
+      - name: Run live faucet end-to-end flow with treasury fee checks
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          node ./scripts/faucet-live-e2e.mjs | tee /tmp/faucet-live-e2e.json
+          node --input-type=module -e "
+            import fs from 'node:fs';
+            const result = JSON.parse(fs.readFileSync('/tmp/faucet-live-e2e.json', 'utf8'));
+            if (result.ok !== true) process.exit(1);
+            for (const step of ['initial_grant', 'challenge_payment', 'challenge_reward']) {
+              if (!Number.isInteger(result[step]?.development_fee) || result[step].development_fee <= 0) {
+                throw new Error(\`missing development fee for \${step}\`);
+              }
+              if (result[step].treasury_increase < result[step].development_fee) {
+                throw new Error(\`treasury did not receive development fee for \${step}\`);
+              }
+            }
+            console.log(JSON.stringify({
+              live_e2e: true,
+              wallet_address: result.wallet_address,
+              development_treasury_address: result.development_treasury_address,
+              initial_grant_tx: result.initial_grant.transaction_id,
+              challenge_payment_tx: result.challenge_payment.transaction_id,
+              challenge_reward_tx: result.challenge_reward.transaction_id,
+            }));
+          "
+
+      - name: Recover prepared payout for known failed address
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          response="$(curl -sS -w '\n%{http_code}' \
+            -X POST \
+            -H 'Content-Type: application/json' \
+            -d "{\"address\":\"$FAUCET_RECOVERY_ADDRESS\"}" \
+            "$RPC_BASE_URL/v1/faucet/request")"
+          status="$(printf '%s\n' "$response" | tail -n1)"
+          body="$(printf '%s\n' "$response" | sed '$d')"
+          printf '%s\n' "$body"
+          echo "{\"recovery_address_http_status\":$status}"
+
+      - name: Confirm faucet remains enabled
+        run: |
+          set -euo pipefail
+          curl -fsS "$RPC_BASE_URL/v1/faucet/info" | tee /tmp/faucet-info-enabled.json
+          BODY="$(cat /tmp/faucet-info-enabled.json)" node --input-type=module -e "
+            const body = JSON.parse(process.env.BODY);
+            if (body.enabled !== true) process.exit(1);
+            console.log(JSON.stringify({public_faucet_enabled: body.enabled}));
+          "

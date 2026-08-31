@@ -100,22 +100,36 @@ test('safe logs never contain signed transaction body', async () => {
   assert.equal(records.some((line) => line.includes(secretMarker)), false);
 });
 
-test('successful transaction submit wakes demand miner in the background', async () => {
-  const calls = [];
+test('faucet errors log sanitized upstream category without the seed body', async () => {
+  const records = [];
   const handler = createHandler({
     seeds,
-    fetchImpl: async (url, init) => {
-      calls.push({ url, method: init.method });
-      if (url.endsWith('/v1/miner/wake')) {
-        return new Response('{"awoken":true}', { status: 202, headers: { 'content-type': 'application/json' } });
-      }
-      return new Response('{"accepted":true,"transaction_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}', { status: 202, headers: { 'content-type': 'application/json' } });
+    fetchImpl: async () => { throw new Error('must not proxy faucet route'); },
+    faucetHandler: async () => {
+      const error = new Error('testnet faucet is temporarily unavailable');
+      error.statusCode = 503;
+      error.upstreamStatus = 422;
+      error.errorCategory = 'invalid_signature';
+      error.uncertain = true;
+      throw error;
     },
-    logger: { info() {}, warn() {}, error() {} },
+    logger: {
+      info(value) { records.push(value); },
+      warn(value) { records.push(value); },
+      error(value) { records.push(value); },
+    },
   });
-  const body = '{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","signature":"fixture"}';
-  const result = await handler(event('POST', '/v1/transactions', body));
-  assert.equal(result.statusCode, 202);
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.ok(calls.some((call) => call.url.endsWith('/v1/miner/wake') && call.method === 'POST'));
+  const result = await handler(event('POST', '/v1/faucet/request', JSON.stringify({ address: 'a'.repeat(40) })));
+  assert.equal(result.statusCode, 503);
+  const errorLog = records.find((value) => value?.event === 'wallet_faucet_error');
+  assert.deepEqual(errorLog, {
+    event: 'wallet_faucet_error',
+    route: 'faucetInitial',
+    status_code: 503,
+    http_status: 422,
+    error_category: 'invalid_signature',
+    latency_ms: errorLog.latency_ms,
+    request_id: null,
+  });
+  assert.equal(JSON.stringify(records).includes('transaction rejected'), false);
 });

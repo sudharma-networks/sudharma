@@ -19,7 +19,7 @@ they are introduced. Integration changes must preserve this check.
 
 | Area | Snapshot revision | Relationship to recorded `main` | Status |
 | --- | --- | --- | --- |
-| Faucet recovery, demand miner, and explorer deployment | `feature/faucet-recovery-stage2` at `2e2abd6786309fc1f4817e76b257eb632bd10fdc` | 159 commits ahead; recorded `main` is an ancestor | File-level reconciliation in progress; fail-closed dependency timeout and manual-only safety controls are integrated |
+| Faucet recovery, demand miner, and explorer deployment | `feature/faucet-recovery-stage2` at `2e2abd6786309fc1f4817e76b257eb632bd10fdc` | 159 commits ahead; recorded `main` is an ancestor | **Stage 1 complete on guard branch** — recovery workflows, contract scripts, shared deploy routes, Lambda recovery suite, and demand-miner funding/wake reconciled |
 | Android wallet, faucet client, and earlier demand miner reconciliation | `codex/canonical-wallet-integration` at `6096172ef74775cf9aa68c32d0efba143400f61d` | 253 commits ahead and 82 behind | Integrated as the reviewed component spine; main's Telegram CI and manual-only mutation protections were retained |
 | Explorer v1 | `feature/blockchain-explorer-v1` at `62f350e27bce545186df50fa72afed2c05c70282` | 72 commits ahead and 82 behind | Review against the newer explorer changes already present in the recovery and website lines |
 | Website | `feature/website-foundation` at `ebc8f432c58aa7dbed381c68a0ae2b3ff5269747` | 90 commits ahead and 82 behind | Integrate after the explorer API contract is selected |
@@ -37,37 +37,19 @@ the recovery line's unique changes are integrated.
 3. Run Android, Go, race, Lambda, installer, workflow-contract, and
    secret-safety tests.
 4. Reconcile the recovery line's newer faucet, demand-miner, RPC, website, and
-   operational changes file by file, preserving manual-only workflows. Deep
-   health route and readiness checks are integrated; stale-prepared recovery,
-   faucet funding waits, demand-miner wake hooks, recovery contract CI, and
-   demand-miner Go funding/wake modules are integrated; shared explorer/visitor
-   routes and operator recovery workflow YAMLs remain pending.
+   operational changes file by file, preserving manual-only workflows. **Stage 1
+   is complete on the guard branch:** deep health, stale-prepared recovery,
+   funding waits, demand-miner wake hooks, recovery operator workflows and
+   contract scripts, shared deploy smoke routes (`/v1/website/visitors`,
+   `/v1/explorer/status`), and demand-miner Go funding/wake modules are
+   integrated. Full explorer API breadth and website foundation remain Stage 2.
 5. Select the explorer API contract before integrating the website.
 
-## Stage 2 route delta (recovery line vs guard branch)
+## Stage 2 scope (next)
 
-The recovery Lambda router at `2e2abd6` adds shared routes not yet on the guard
-branch. Stage 2 should reconcile these file-by-file with
-`shared-routes-regression.test.mjs` as the contract anchor:
-
-| Route | Kind | Dispatch |
-| --- | --- | --- |
-| `GET /v1/mempool` | `mempool` | upstream proxy |
-| `POST /v1/miner/wake` | `minerWake` | upstream proxy (integrated on guard branch) |
-| `GET /v1/faucet/diagnostics` | `faucetDiagnostics` | local faucet handler |
-| `GET/POST /v1/website/visitors` | `websiteVisitorsRead` / `websiteVisitorsRecord` | local visitor handler |
-| `GET /v1/explorer/status` | `explorerStatus` | upstream proxy |
-| `GET /v1/explorer/blocks` | `explorerBlocks` | upstream proxy |
-| `GET /v1/explorer/transactions` | `explorerTransactions` | upstream proxy |
-| `GET /v1/explorer/mempool` | `explorerMempool` | upstream proxy |
-| `GET /v1/explorer/search` | `explorerSearch` | upstream proxy (query preserved) |
-| `GET /v1/explorer/blocks/{id}` | `explorerBlock` | upstream proxy |
-| `GET /v1/explorer/transactions/{id}` | `explorerTransaction` | upstream proxy |
-| `GET /v1/explorer/addresses/{addr}` | `explorerAddress` | upstream proxy |
-
-Recovery `index.mjs` also adds local dispatch for visitor routes and explorer
-query validation in `normalizeEvent`. The explorer v1 branch (`62f350e`) and
-website foundation branch (`ebc8f43`) depend on this contract being frozen first.
+Freeze and integrate the remaining explorer routes (`blocks`, `search`,
+`transactions`, `mempool`, address lookups), wire the explorer v1 branch
+(`62f350e`), and integrate the website foundation branch (`ebc8f43`).
 
 6. Verify the complete testnet candidate at one exact commit.
 7. Keep GPU staging and Mainnet Tokenomics v1 on independent review lines.

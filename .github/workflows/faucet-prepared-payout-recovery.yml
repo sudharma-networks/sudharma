@@ -1,0 +1,169 @@
+name: Faucet Prepared Payout Recovery
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RPC_BASE_URL: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com
+  AWS_REGION: ap-south-1
+  LAMBDA_NAME: Sudharma-Testnet-Wallet-Proxy
+  FAUCET_TABLE_NAME: Sudharma-Testnet-Faucet
+  FAUCET_SECRET_ID: sudharma/testnet/faucet-wallet
+  FAILED_ADDRESS: 16d7dc9ec0495109007860a584c7cf9055da9abf
+  FAILED_TXID: b66bde192c92d192b47ca6e972911e4bfb310a0f343b6ef15b77c468d8a989cc
+
+jobs:
+  recover-prepared-payout:
+    runs-on: ubuntu-24.04
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Analyze public faucet state
+        run: node ./scripts/analyze-faucet-public-state.mjs | tee /tmp/public-analysis.json
+
+      - name: Skip when prepared payout is already on chain
+        id: gate
+        run: |
+          set -euo pipefail
+          chain_status="$(node --input-type=module -e "
+            const fs = await import('node:fs');
+            const analysis = JSON.parse(fs.readFileSync('/tmp/public-analysis.json', 'utf8'));
+            process.stdout.write(String(analysis.failed_payout?.chain_status || 'unknown'));
+          ")"
+          echo "chain_status=$chain_status" >> "$GITHUB_OUTPUT"
+          if [ "$chain_status" = 'confirmed' ] || [ "$chain_status" = 'pending' ]; then
+            echo '{"recovery_skipped":"already_on_chain","chain_status":"'"$chain_status"'"}'
+            echo 'skip_recovery=true' >> "$GITHUB_OUTPUT"
+          else
+            echo '{"recovery_skipped":false,"chain_status":"'"$chain_status"'"}'
+            echo 'skip_recovery=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure AWS credentials from GitHub OIDC
+        if: steps.gate.outputs.skip_recovery != 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+
+      - name: Verify diagnostics-only state before brief enable window
+        if: steps.gate.outputs.skip_recovery != 'true'
+        run: |
+          set -euo pipefail
+          info_body="$(curl -fsS "$RPC_BASE_URL/v1/faucet/info")"
+          node --input-type=module -e "
+            const body = JSON.parse(process.env.BODY);
+            if (body.enabled !== false) {
+              console.error('Refusing recovery while faucet payouts are publicly enabled.');
+              process.exit(1);
+            }
+            console.log(JSON.stringify({faucet_enabled: body.enabled}));
+          " BODY="$info_body"
+          aws lambda get-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --query '{FaucetEnabled:Environment.Variables.FAUCET_ENABLED,State:State,LastUpdateStatus:LastUpdateStatus}' \
+            --output json
+
+      - name: Briefly enable faucet for one prepared payout resubmit
+        if: steps.gate.outputs.skip_recovery != 'true'
+        id: enable
+        run: |
+          set -euo pipefail
+          aws lambda get-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --query 'Environment.Variables' \
+            --output json > /tmp/lambda-environment-base.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const base = JSON.parse(fs.readFileSync('/tmp/lambda-environment-base.json', 'utf8')) ?? {};
+          const common = {
+            SEED_1_URL: 'http://172.31.10.171:29100',
+            SEED_2_URL: 'http://172.31.32.195:29100',
+            UPSTREAM_TIMEOUT_MS: '3500',
+            FAUCET_TABLE_NAME: process.env.FAUCET_TABLE_NAME,
+            FAUCET_SECRET_ID: process.env.FAUCET_SECRET_ID,
+          };
+          fs.writeFileSync('/tmp/lambda-environment-disabled.json', JSON.stringify({ Variables: { ...base, ...common, FAUCET_ENABLED: 'false' } }));
+          fs.writeFileSync('/tmp/lambda-environment-enabled.json', JSON.stringify({ Variables: { ...base, ...common, FAUCET_ENABLED: 'true' } }));
+          fs.writeFileSync('/tmp/lambda-environment-base-wrapper.json', JSON.stringify({ Variables: base }));
+          NODE
+          aws lambda update-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --environment file:///tmp/lambda-environment-enabled.json \
+            --no-cli-pager >/dev/null
+          aws lambda wait function-updated --function-name "$LAMBDA_NAME"
+          for attempt in $(seq 1 15); do
+            info_body="$(curl -fsS "$RPC_BASE_URL/v1/faucet/info")"
+            if BODY="$info_body" node --input-type=module -e "const body=JSON.parse(process.env.BODY); process.exit(body.enabled === true ? 0 : 1)"; then
+              echo "$info_body"
+              echo '{"brief_enable":"ready"}'
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'Faucet enable did not become visible on the public RPC endpoint.' >&2
+          exit 1
+
+      - name: Resubmit prepared payout for failed address only
+        if: steps.gate.outputs.skip_recovery != 'true'
+        id: resubmit
+        run: |
+          set -euo pipefail
+          started_ms="$(date -u +%s%3N)"
+          echo "recovery_started_ms=$started_ms" >> "$GITHUB_ENV"
+          response="$(curl -sS -w '\n%{http_code}' \
+            -X POST \
+            -H 'Content-Type: application/json' \
+            -d "{\"address\":\"$FAILED_ADDRESS\"}" \
+            "$RPC_BASE_URL/v1/faucet/request")"
+          status="$(printf '%s\n' "$response" | tail -n1)"
+          body="$(printf '%s\n' "$response" | sed '$d')"
+          printf '%s\n' "$body"
+          echo "recovery_http_status=$status" >> "$GITHUB_OUTPUT"
+          echo "{\"recovery_http_status\":$status,\"failed_address\":\"$FAILED_ADDRESS\",\"failed_txid\":\"$FAILED_TXID\"}"
+
+      - name: Verify chain and DynamoDB state after recovery attempt
+        if: steps.gate.outputs.skip_recovery != 'true'
+        run: |
+          set -euo pipefail
+          curl -fsS "$RPC_BASE_URL/v1/transactions/$FAILED_TXID" | tee /tmp/recovery-tx-status.json || echo '{"status":"not_found"}' > /tmp/recovery-tx-status.json
+          cat /tmp/recovery-tx-status.json
+          key="{\"pk\":{\"S\":\"ADDR#$FAILED_ADDRESS\"}}"
+          aws dynamodb get-item \
+            --table-name "$FAUCET_TABLE_NAME" \
+            --key "$key" \
+            --consistent-read \
+            --projection-expression 'initial_status, initial_txid, initial_error, initial_last_error_category, initial_last_http_status, initial_submitted_at, initial_paid_at' \
+            --query 'Item.{initial_status:initial_status.S,initial_txid:initial_txid.S,initial_error:initial_error.S,initial_last_error_category:initial_last_error_category.S,initial_last_http_status:initial_last_http_status.N,initial_submitted_at:initial_submitted_at.N,initial_paid_at:initial_paid_at.N}' \
+            --output json | tee /tmp/recovery-dynamodb.json
+          node ./scripts/analyze-faucet-public-state.mjs | tee /tmp/public-analysis-after.json
+
+      - name: Read safe recovery dependency logs
+        if: steps.gate.outputs.skip_recovery != 'true'
+        run: |
+          set -u
+          start_ms="${recovery_started_ms:?missing recovery start time}"
+          log_group="/aws/lambda/$LAMBDA_NAME"
+          raw_logs="$(mktemp)"
+          if aws logs filter-log-events \
+            --log-group-name "$log_group" \
+            --start-time "$start_ms" \
+            --filter-pattern '"faucet_dependency"' \
+            --max-items 50 \
+            --query 'events[].message' \
+            --output text > "$raw_logs"; then
+            node ./scripts/sanitize-faucet-live-logs.mjs < "$raw_logs"
+            echo '{"recovery_log_capture":"OK"}'
+          else
+            echo '{"recovery_log_capture":"DENIED_OR_FAILED"}'
+          fi
+          rm -f "$raw_logs"

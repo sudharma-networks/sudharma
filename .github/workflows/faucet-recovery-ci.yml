@@ -25,8 +25,26 @@ jobs:
           node-version: '24'
       - name: Verify canonical faucet recovery contract
         run: bash ./scripts/check-canonical-faucet-recovery-contract_test.sh
+      - name: Verify faucet deployment contract
+        run: bash ./scripts/check-faucet-deploy-contract_test.sh
+      - name: Verify diagnostics-only deployment contract
+        run: bash ./scripts/check-faucet-diagnostics-only-contract_test.sh
+      - name: Verify auto diagnostics deploy contract
+        run: bash ./scripts/check-faucet-diagnostics-auto-deploy-contract_test.sh
+      - name: Verify prepared payout recovery contract
+        run: bash ./scripts/check-faucet-prepared-payout-recovery-contract_test.sh
+      - name: Verify recovery retry contract
+        run: bash ./scripts/check-faucet-recovery-retry-contract_test.sh
+      - name: Verify demand miner auto-deploy contract
+        run: bash ./scripts/check-demand-miner-auto-deploy-contract_test.sh
+      - name: Verify public faucet enable contract
+        run: bash ./scripts/check-faucet-enable-public-contract_test.sh
+      - name: Verify live diagnostics log sanitizer contract
+        run: bash ./scripts/check-faucet-live-diagnostics-contract_test.sh
       - name: Enforce manual-only live mutation workflows
         run: node --test scripts/live-workflow-trigger-safety.test.mjs
+      - name: Test live diagnostics and recovery readiness scripts
+        run: node --test ./scripts/sanitize-faucet-live-logs.test.mjs ./scripts/compute-faucet-diag-start.test.mjs ./scripts/correlate-faucet-live-logs.test.mjs ./scripts/analyze-faucet-public-state.test.mjs ./scripts/evaluate-faucet-recovery-readiness.test.mjs ./scripts/faucet-fee-utils.test.mjs ./scripts/evaluate-faucet-funding-readiness.test.mjs
 
   demand-miner:
     runs-on: ubuntu-latest

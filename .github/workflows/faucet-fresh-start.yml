@@ -1,0 +1,266 @@
+name: Faucet Fresh Start
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_reset:
+        description: 'Type RESET to wipe faucet DynamoDB and enable fresh grants'
+        required: true
+        default: ''
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  RPC_BASE_URL: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com
+  AWS_REGION: ap-south-1
+  LAMBDA_NAME: Sudharma-Testnet-Wallet-Proxy
+  FAUCET_TABLE_NAME: Sudharma-Testnet-Faucet
+  FAUCET_SECRET_ID: sudharma/testnet/faucet-wallet
+  FAUCET_RECOVERY_ADDRESS: 16d7dc9ec0495109007860a584c7cf9055da9abf
+  SEED1_PRIVATE_IP: 172.31.10.171
+  SEED2_PRIVATE_IP: 172.31.32.195
+
+jobs:
+  confirm:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require explicit RESET confirmation
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [ "${{ github.event.inputs.confirm_reset }}" != 'RESET' ]; then
+            echo 'Refusing fresh start: workflow input confirm_reset must be exactly RESET.' >&2
+            exit 1
+          fi
+          echo '{"fresh_start_confirmed":true}'
+      - name: Auto-confirm from repository trigger file
+        if: github.event_name == 'push'
+        run: echo '{"fresh_start_confirmed":true,"source":"FRESH_START_TRIGGER"}'
+
+  step1-assess:
+    needs: confirm
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Snapshot chain and faucet state before reset
+        run: |
+          set -euo pipefail
+          curl -fsS "$RPC_BASE_URL/v1/status" | tee /tmp/pre-reset-status.json
+          curl -fsS "$RPC_BASE_URL/v1/faucet/diagnostics" | tee /tmp/pre-reset-diagnostics.json
+          node ./scripts/faucet-recovery-monitor.mjs | tee /tmp/pre-reset-readiness.json || true
+
+  mempool-gate:
+    needs: step1-assess
+    runs-on: ubuntu-24.04
+    outputs:
+      mempool_count: ${{ steps.check.outputs.mempool_count }}
+      skip_mining: ${{ steps.check.outputs.skip_mining }}
+    steps:
+      - name: Check whether seed mining is required
+        id: check
+        run: |
+          set -euo pipefail
+          mempool="$(curl -fsS "$RPC_BASE_URL/v1/status" | python3 -c "import sys,json; print(json.load(sys.stdin)['mempool'])")"
+          echo "mempool_count=$mempool" >> "$GITHUB_OUTPUT"
+          if [ "$mempool" = "0" ]; then
+            echo "skip_mining=true" >> "$GITHUB_OUTPUT"
+            echo "Public mempool is already clear — skipping seed mining."
+          else
+            echo "skip_mining=false" >> "$GITHUB_OUTPUT"
+            echo "Public mempool count is $mempool — seed mining may be required."
+          fi
+
+  step2-clear-mempool:
+    needs: mempool-gate
+    if: needs.mempool-gate.outputs.skip_mining != 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - seed_name: seed1
+            seed_private_ip: 172.31.10.171
+            seed_instance_id: ${{ vars.TESTNET_SEED1_INSTANCE_ID }}
+            seed_fallback_instance_id: i-06e7ddb174e4941de
+          - seed_name: seed2
+            seed_private_ip: 172.31.32.195
+            seed_instance_id: ${{ vars.TESTNET_SEED2_INSTANCE_ID }}
+            seed_fallback_instance_id: ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+
+      - name: Resolve seed instance id
+        id: seed
+        run: |
+          set -euo pipefail
+          instance_id="$(bash deployment/testnet/resolve-seed-instance-id.sh \
+            "${{ matrix.seed_private_ip }}" \
+            "${{ matrix.seed_instance_id }}" \
+            "${{ matrix.seed_fallback_instance_id }}" 2>/dev/null || true)"
+          if [ -z "$instance_id" ]; then
+            echo "seed_instance_found=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Skipping ${{ matrix.seed_name }} mempool mining — instance id unavailable"
+            exit 0
+          fi
+          echo "seed_instance_found=true" >> "$GITHUB_OUTPUT"
+          echo "instance_id=$instance_id" >> "$GITHUB_OUTPUT"
+
+      - name: Mine mempool-clear blocks on seed
+        if: steps.seed.outputs.seed_instance_found == 'true'
+        run: |
+          set -euo pipefail
+          script_b64="$(base64 -w0 deployment/testnet/remote-mine-faucet-refill.sh)"
+          command_id="$(aws ssm send-command \
+            --instance-ids "${{ steps.seed.outputs.instance_id }}" \
+            --document-name AWS-RunShellScript \
+            --timeout-seconds 900 \
+            --parameters "commands=[\"echo $script_b64 | base64 -d | env BLOCKS=2 bash\"]" \
+            --query 'Command.CommandId' \
+            --output text)"
+          for attempt in $(seq 1 60); do
+            status="$(aws ssm get-command-invocation \
+              --command-id "$command_id" \
+              --instance-id "${{ steps.seed.outputs.instance_id }}" \
+              --query 'Status' \
+              --output text)"
+            if [ "$status" = 'Success' ] || [ "$status" = 'Failed' ]; then
+              aws ssm get-command-invocation \
+                --command-id "$command_id" \
+                --instance-id "${{ steps.seed.outputs.instance_id }}" \
+                --query '{Status:Status,Stdout:StandardOutputContent,Stderr:StandardErrorContent}' \
+                --output json
+              [ "$status" = 'Success' ]
+              exit 0
+            fi
+            sleep 10
+          done
+          exit 1
+
+  step2b-wait-after-mining:
+    needs: [mempool-gate, step2-clear-mempool]
+    if: needs.mempool-gate.outputs.skip_mining != 'true' && needs.step2-clear-mempool.result == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wait for public mempool to clear
+        run: node ./scripts/wait-for-mempool-clear.mjs
+        env:
+          RPC_BASE_URL: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com
+          MEMPOOL_WAIT_ATTEMPTS: '24'
+          MEMPOOL_WAIT_SLEEP_MS: '10000'
+
+  step2b-skip-mining:
+    needs: mempool-gate
+    if: needs.mempool-gate.outputs.skip_mining == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Confirm mempool already clear
+        run: echo "Skipped seed mining and mempool wait — public mempool was already 0."
+
+  step3-prepare-fresh-grant:
+    needs: [step2b-wait-after-mining, step2b-skip-mining]
+    if: always() && (needs.step2b-wait-after-mining.result == 'success' || needs.step2b-skip-mining.result == 'success')
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Note fresh-grant reset strategy
+        run: |
+          set -euo pipefail
+          cat <<'JSON'
+          {
+            "bulk_dynamodb_reset": "skipped",
+            "reason": "GitHub Actions testnet role lacks dynamodb:Scan on Sudharma-Testnet-Faucet",
+            "fresh_grant_strategy": "step4 deploys FAUCET_FRESH_GRANT=true; Lambda voidAddress clears stale ADDR rows per request"
+          }
+          JSON
+
+  step4-build-deploy:
+    needs: [step2b-wait-after-mining, step2b-skip-mining]
+    if: always() && (needs.step2b-wait-after-mining.result == 'success' || needs.step2b-skip-mining.result == 'success')
+    runs-on: ubuntu-24.04
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Test and package Lambda
+        working-directory: deployment/testnet/public-rpc/lambda
+        run: |
+          npm install --ignore-scripts --no-audit --no-fund
+          npm test
+          mkdir -p "$GITHUB_WORKSPACE/build/public-rpc"
+          zip -q -9 -r "$GITHUB_WORKSPACE/build/public-rpc/sudharma-testnet-wallet-proxy.zip" \
+            index.mjs router.mjs upstream.mjs faucet.mjs faucet-funding.mjs faucet-runtime.mjs miner-wake.mjs visitor-runtime.mjs package.json node_modules
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+      - name: Deploy Lambda with fresh-grant mode enabled
+        run: |
+          set -euo pipefail
+          aws lambda get-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --query 'Environment.Variables' \
+            --output json > /tmp/lambda-environment-base.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const base = JSON.parse(fs.readFileSync('/tmp/lambda-environment-base.json', 'utf8')) ?? {};
+          const common = {
+            SEED_1_URL: 'http://172.31.10.171:29100',
+            SEED_2_URL: 'http://172.31.32.195:29100',
+            UPSTREAM_TIMEOUT_MS: '3500',
+            FAUCET_TABLE_NAME: process.env.FAUCET_TABLE_NAME,
+            FAUCET_SECRET_ID: process.env.FAUCET_SECRET_ID,
+            FAUCET_RECOVERY_ADDRESS: process.env.FAUCET_RECOVERY_ADDRESS,
+            FAUCET_ENABLED: 'true',
+            FAUCET_FRESH_GRANT: 'true',
+          };
+          fs.writeFileSync('/tmp/lambda-environment-fresh.json', JSON.stringify({ Variables: { ...base, ...common } }));
+          NODE
+          aws lambda update-function-code \
+            --function-name "$LAMBDA_NAME" \
+            --zip-file fileb://build/public-rpc/sudharma-testnet-wallet-proxy.zip \
+            --no-cli-pager >/dev/null
+          aws lambda wait function-updated --function-name "$LAMBDA_NAME"
+          aws lambda update-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --environment file:///tmp/lambda-environment-fresh.json \
+            --no-cli-pager >/dev/null
+          aws lambda wait function-updated --function-name "$LAMBDA_NAME"
+
+  step5-verify:
+    needs: step4-build-deploy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify fresh grant to new and previously-used addresses
+        run: |
+          set -euo pipefail
+          curl -fsS "$RPC_BASE_URL/v1/faucet/diagnostics" | tee /tmp/post-reset-diagnostics.json
+          new_address="$(node -e "process.stdout.write(require('crypto').randomBytes(20).toString('hex'))")"
+          for address in "$new_address" "$FAUCET_RECOVERY_ADDRESS"; do
+            response="$(curl -sS -w '\n%{http_code}' \
+              -X POST \
+              -H 'Content-Type: application/json' \
+              -d "{\"address\":\"$address\"}" \
+              "$RPC_BASE_URL/v1/faucet/request")"
+            status="$(printf '%s\n' "$response" | tail -n1)"
+            body="$(printf '%s\n' "$response" | sed '$d')"
+            printf '%s\n' "$body"
+            if [ "$status" != '202' ]; then
+              echo "Expected HTTP 202 for $address, got $status" >&2
+              exit 1
+            fi
+          done
+          curl -fsS "$RPC_BASE_URL/v1/status" | tee /tmp/post-reset-status.json
+          echo '{"fresh_start_verify":"ok"}'
