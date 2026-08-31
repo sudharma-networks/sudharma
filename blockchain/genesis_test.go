@@ -59,3 +59,22 @@ func TestNewChainStillUsesPublicTestnetGenesis(t *testing.T) {
 		t.Fatal("default chain is not the public-testnet genesis")
 	}
 }
+
+func TestNewChainForRejectsUnauthorizedMainnet(t *testing.T) {
+	if params.MainnetLaunchAuthorized {
+		t.Fatal("mainnet launch became authorized")
+	}
+	if _, err := NewChainFor(params.NetworkMainnet); err == nil {
+		t.Fatal("expected unauthorized mainnet chain creation to fail")
+	}
+}
+
+func TestValidateChainGenesisMatchesNetwork(t *testing.T) {
+	chain := NewChain()
+	if err := ValidateChainGenesis(chain, params.NetworkPublicTestnet); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateChainGenesis(chain, params.NetworkMainnet); err == nil {
+		t.Fatal("expected mainnet validation to fail for testnet genesis")
+	}
+}

@@ -12,6 +12,7 @@ Closes the remaining **engineering** gaps called out after Mainnet Tokenomics v1
 - Isolated mainnet P2P identity `sudharma-mainnet-1` (handshake still `sudharma-testnet-1`)
 - Isolated mainnet genesis **candidate** (`Sudharma Network Mainnet Genesis Block v1`); default `NewChain()` still uses public-testnet genesis
 - `params.MainnetLaunchAuthorized = false` and `sudharmad -network mainnet` exits
+- Network-aware node startup: `NewChainFor`, `ValidateChainGenesis`, `ProcessBlockFor` replay, and P2P `SetLocalNetworkID` (mainnet still blocked until launch)
 - Explicit readiness gates that fail closed until audit, timestamp freeze, seeds, and a human launch decision
 
 ## What this stage does not do

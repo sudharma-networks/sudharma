@@ -39,6 +39,21 @@ grep -Fq 'REPLACE_WITH_REAL_DOMAIN' deployment/mainnet/public-profile.example.js
 grep -Fq 'buildPOWCompatWork' rpc/mining_compat.go \
   || fail 'PoW compatibility aliases must be encoded in rpc/mining_compat.go'
 
+grep -Fq 'NewChainFor' blockchain/chain.go \
+  || fail 'network-aware chain constructor must exist in blockchain/chain.go'
+
+grep -Fq 'SetLocalNetworkID' p2p/network.go \
+  || fail 'network-aware P2P handshake selection must exist in p2p/network.go'
+
+grep -Fq 'ProcessBlockFor' cmd/sudharmad/main.go \
+  || fail 'sudharmad must replay blocks with ProcessBlockFor'
+
+go test ./blockchain -run 'TestNewChainFor|TestValidateChainGenesis' -count=1 >/dev/null \
+  || fail 'network-aware chain tests must pass'
+
+go test ./p2p -run 'TestSetLocalNetworkID' -count=1 >/dev/null \
+  || fail 'network-aware P2P tests must pass'
+
 go test ./gpuminer -run 'TestLoadMainnetFileConfigMatchesOperatorShape|TestLoadFileConfigMatchesDemandMinerShape' -count=1 >/dev/null \
   || fail 'mainnet and testnet gpu-miner deployment configs must parse'
 
