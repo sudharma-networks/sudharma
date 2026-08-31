@@ -2,16 +2,6 @@ name: Faucet Recovery Retry
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '*/15 * * * *'
-  push:
-    branches:
-      - feature/faucet-recovery-stage2
-      - cursor/faucet-recovery-readiness-gate-83d4
-    paths:
-      - .github/workflows/faucet-recovery-retry.yml
-      - scripts/evaluate-faucet-recovery-readiness.mjs
-      - scripts/analyze-faucet-public-state.mjs
 
 permissions:
   contents: read

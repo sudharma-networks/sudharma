@@ -2,17 +2,6 @@ name: Faucet Enable Public
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - feature/faucet-recovery-stage2
-    paths:
-      - .github/workflows/faucet-enable-public.yml
-      - deployment/testnet/public-rpc/lambda/**
-      - scripts/faucet-fee-utils.mjs
-      - scripts/faucet-fee-utils.test.mjs
-      - scripts/faucet-live-e2e.mjs
-      - scripts/explorer-live-check.mjs
-      - scripts/check-faucet-enable-public-contract_test.sh
 
 permissions:
   contents: read
@@ -85,10 +74,10 @@ jobs:
             UPSTREAM_TIMEOUT_MS: '3500',
             FAUCET_TABLE_NAME: process.env.FAUCET_TABLE_NAME,
             FAUCET_SECRET_ID: process.env.FAUCET_SECRET_ID,
-          FAUCET_RECOVERY_ADDRESS: process.env.FAUCET_RECOVERY_ADDRESS,
-          FAUCET_ENABLED: 'true',
-          FAUCET_FRESH_GRANT: 'true',
-        };
+            FAUCET_RECOVERY_ADDRESS: process.env.FAUCET_RECOVERY_ADDRESS,
+            FAUCET_ENABLED: 'true',
+            FAUCET_FRESH_GRANT: 'true',
+          };
           fs.writeFileSync('/tmp/lambda-environment-enabled.json', JSON.stringify({ Variables: { ...base, ...common } }));
           NODE
 

@@ -2,26 +2,6 @@ name: Demand Miner Auto Deploy
 
 on:
   workflow_dispatch:
-  workflow_call:
-  schedule:
-    - cron: '*/30 * * * *'
-  push:
-    branches:
-      - feature/faucet-recovery-stage2
-      - cursor/demand-miner-auto-deploy-83d4
-      - cursor/faucet-demand-mining-83d4
-      - cursor/dual-seed-demand-miner-83d4
-    paths:
-      - .github/workflows/demand-miner-auto-deploy.yml
-      - deployment/testnet/remote-ensure-demand-miner.sh
-      - deployment/testnet/remote-install-demand-miner-from-urls.sh
-      - deployment/testnet/resolve-seed-instance-id.sh
-      - deployment/testnet/ssm-send-remote-script.sh
-      - scripts/publish-demand-miner-binaries.sh
-      - deployment/testnet/demand-miner.seed1-live.example.json
-      - deployment/testnet/demand-miner.seed2-live.example.json
-      - demandminer/**
-      - cmd/sudharma-demand-miner/**
 
 permissions:
   contents: read

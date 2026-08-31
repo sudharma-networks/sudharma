@@ -2,6 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { attachUpstreamNonceMismatch, checkFaucetDiagnostics, classifyUpstreamError, createOperationTimer, createRpc, createRuntimeFaucetHandler, parsePrometheusGauge } from './faucet-runtime.mjs';
 
+test('dependency timer fails closed when an operation hangs', async () => {
+  const timer = createOperationTimer({
+    logger: { info() {} },
+    timeoutMs: 20,
+  });
+  const started = Date.now();
+  await assert.rejects(
+    timer('dynamodb.health_write', () => new Promise(() => {})),
+    (error) => error?.statusCode === 503 && /dependency timed out/i.test(error.message),
+  );
+  assert.ok(Date.now() - started < 500, 'dependency deadline must return before the outer request timeout');
+});
+
 test('dependency timing logs only operation outcome and latency', async () => {
   const records = [];
   const ticks = [100, 137, 200, 241];

@@ -2,17 +2,6 @@ name: Faucet Refill
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '*/15 * * * *'
-  push:
-    branches:
-      - feature/faucet-recovery-stage2
-      - cursor/dual-seed-demand-miner-83d4
-    paths:
-      - .github/workflows/faucet-refill.yml
-      - deployment/testnet/remote-mine-faucet-refill.sh
-      - deployment/testnet/resolve-seed-instance-id.sh
-      - scripts/evaluate-faucet-funding-readiness.mjs
 
 permissions:
   contents: read

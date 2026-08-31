@@ -21,7 +21,6 @@ require_literal() {
 [ -f scripts/publish-demand-miner-binaries.sh ] || fail 'publish-demand-miner-binaries script is missing'
 
 require_literal "$workflow" 'name: Demand Miner Auto Deploy'
-require_literal "$workflow" 'workflow_call:'
 require_literal "$workflow" 'assess-chain-work:'
 require_literal "$workflow" 'publish-binaries:'
 require_literal "$workflow" 'ensure-on-seeds:'
@@ -34,7 +33,12 @@ require_literal "$workflow" 'ssm-send-remote-script.sh'
 require_literal "$workflow" 'resolve-seed-instance-id.sh'
 require_literal "$workflow" 'on-seed build fallback'
 require_literal "$workflow" 'trigger-faucet-recovery:'
-require_literal "$monitor" 'auto-deploy-demand-miner:'
-require_literal "$monitor" './.github/workflows/demand-miner-auto-deploy.yml'
+
+if grep -Fq -- 'workflow_call:' "$workflow"; then
+  fail 'demand miner deployment must not be callable by automatic workflows'
+fi
+if grep -Fq -- './.github/workflows/demand-miner-auto-deploy.yml' "$monitor"; then
+  fail 'read-only recovery monitor must not invoke demand miner deployment'
+fi
 
 printf 'PASS: demand miner auto-deploy workflow is wired for dual-seed ensure\n'

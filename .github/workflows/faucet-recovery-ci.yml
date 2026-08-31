@@ -7,6 +7,7 @@ on:
       - cursor/faucet-recovery-readiness-gate-83d4
       - cursor/demand-miner-recovery-83d4
       - cursor/demand-miner-auto-deploy-83d4
+      - fix/faucet-health-timeout
   workflow_dispatch:
 
 permissions:

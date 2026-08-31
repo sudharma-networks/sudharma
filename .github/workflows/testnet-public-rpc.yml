@@ -1,14 +1,6 @@
 name: Testnet Public RPC
 
 on:
-  push:
-    branches:
-      - feature/faucet-recovery-stage2
-      - cursor/faucet-demand-mining-83d4
-    paths:
-      - 'deployment/testnet/public-rpc/lambda/**'
-      - '.github/workflows/testnet-public-rpc.yml'
-      - 'scripts/check-faucet-deploy-contract_test.sh'
   workflow_dispatch:
     inputs:
       preflight:
