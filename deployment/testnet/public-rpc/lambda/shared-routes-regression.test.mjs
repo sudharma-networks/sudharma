@@ -24,6 +24,8 @@ test('shared Lambda preserves faucet health, visitor and explorer routes', () =>
   assert.equal(matchRoute('POST', '/v1/website/visitors').kind, 'websiteVisitorsRecord');
   assert.equal(matchRoute('GET', '/v1/explorer/status').kind, 'explorerStatus');
   assert.equal(matchRoute('GET', '/v1/explorer/search').kind, 'explorerSearch');
+  assert.equal(matchRoute('GET', '/v1/mining/work').kind, 'miningWorkGet');
+  assert.equal(matchRoute('POST', '/v1/mining/submit').kind, 'miningSubmit');
 });
 
 test('validated explorer query is preserved and forwarded upstream', async () => {

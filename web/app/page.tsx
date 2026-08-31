@@ -29,7 +29,7 @@ export default function Home() {
         <div className="section-heading"><p className="eyebrow">THREE WAYS IN</p><h2>One network. Different paths.</h2><p>Start with what you want to do. Every path leads back to transparent, open-source infrastructure.</p></div>
         <div className="ecosystem-grid">
           <EcosystemCard number="01" title="Use Sudharma" description="Create a wallet, transact on testnet, and learn how SUDH works." href="/wallet" links="Wallet · Transactions · Testnet · Faucet" />
-          <EcosystemCard number="02" title="Mine Sudharma" description="Follow GPU mining development across NVIDIA, AMD/OpenCL, solo and pool paths." href="/mining" links="GPU Mining · NVIDIA · AMD · Guides" />
+          <EcosystemCard number="02" title="Mine Sudharma" description="GPU mining only — NVIDIA CUDA and AMD/OpenCL. CPU and ASIC mining are not supported on testnet or mainnet." href="/mining" links="GPU only · NVIDIA · AMD · One-click Windows" />
           <EcosystemCard number="03" title="Build on Sudharma" description="Run a node, inspect RPC interfaces, contribute code, and prepare integrations." href="/developers" links="Open Source · APIs · Protocol · Contributions" />
         </div>
       </section>
@@ -62,7 +62,7 @@ export default function Home() {
         <div className="section-heading"><p className="eyebrow">BUILD STATUS</p><h2>What exists now, and what comes next.</h2></div>
         <div className="status-grid">
           <article><StatusChip status="Testnet" /><h3>Public test infrastructure</h3><p>Nodes, wallet connectivity and challenge infrastructure are being exercised before mainnet.</p></article>
-          <article><StatusChip status="Experimental" /><h3>GPU mining</h3><p>NVIDIA CUDA and AMD/OpenCL paths are under staged validation and compatibility work.</p></article>
+          <article><StatusChip status="Experimental" /><h3>GPU mining only</h3><p>NVIDIA CUDA and AMD/OpenCL. There is no CPU miner and no ASIC miner on public testnet or mainnet.</p></article>
           <article><StatusChip status="Testnet" /><h3>Explorer + faucet web</h3><p>Read-only explorer and public faucet request flow are live against the testnet wallet proxy.</p></article>
           <article><StatusChip status="Planned" /><h3>SDKs + application layer</h3><p>Developer SDKs, token standards and higher-level application capabilities follow protocol hardening.</p></article>
         </div>

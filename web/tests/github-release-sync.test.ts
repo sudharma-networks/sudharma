@@ -66,12 +66,15 @@ it("keeps only the newest verified release for each product slot", () => {
   expect(wallets[0].version).toBe("wallet-testnet-v0.1.0");
 });
 
-it("classifies CUDA and OpenCL miner packages as experimental", () => {
+it("classifies CUDA, OpenCL and one-click Windows GPU miner packages as experimental", () => {
   const minerRelease = { ...release, tag_name: "test-mining-v0.1.0", name: "Sudharma Public Test Mining — Khushi Algorithm v0.1" };
   const cuda = classifyAsset(minerRelease, { name: "khushi-miner-nvidia-windows.zip", size: 1, digest: "sha256:abc", browser_download_url: "https://github.com/sudharma-networks/sudharma/releases/download/test-mining-v0.1.0/khushi-miner-nvidia-windows.zip" });
   const opencl = classifyAsset(minerRelease, { name: "khushi-miner-opencl-windows.zip", size: 1, digest: "sha256:def", browser_download_url: "https://github.com/sudharma-networks/sudharma/releases/download/test-mining-v0.1.0/khushi-miner-opencl-windows.zip" });
+  const oneClick = classifyAsset(minerRelease, { name: "sudharma-gpu-miner-windows.zip", size: 1, digest: "sha256:fff", browser_download_url: "https://github.com/sudharma-networks/sudharma/releases/download/test-mining-v0.1.0/sudharma-gpu-miner-windows.zip" });
   expect(cuda?.slot).toBe("nvidia-miner");
   expect(opencl?.slot).toBe("amd-miner");
+  expect(oneClick?.slot).toBe("windows-gpu-miner");
+  expect(oneClick?.architecture).toMatch(/GPU/i);
   expect(cuda?.channel).toBe("experimental");
   expect(opencl?.channel).toBe("experimental");
   expect(cuda).not.toBeNull();

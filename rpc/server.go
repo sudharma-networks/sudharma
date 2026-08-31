@@ -128,6 +128,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/explorer/transactions/", s.handleExplorerTransaction)
 	mux.HandleFunc("/v1/explorer/addresses/", s.handleExplorerAddress)
 	mux.HandleFunc("/v1/explorer/search", s.handleExplorerSearch)
+	mux.HandleFunc("/v1/mining/work", s.handleMiningWork)
+	mux.HandleFunc("/v1/mining/submit", s.handleMiningSubmit)
 	mux.HandleFunc("/", s.handleNotFound)
 	return s.middleware(mux)
 }

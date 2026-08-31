@@ -1,0 +1,99 @@
+name: Windows GPU Miner Publish
+
+# Manual-only GitHub Release publisher for the one-click Windows GPU miner.
+# Confirmed with confirm=PUBLISH. Does not activate GPU-PoW on seed nodes.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag (for example windows-gpu-miner-v0.1.0)
+        required: true
+        default: windows-gpu-miner-v0.1.0
+        type: string
+      confirm:
+        description: Type PUBLISH to create the GitHub prerelease
+        required: true
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-gpu-miner-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event.inputs.confirm == 'PUBLISH'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Validate tag shape
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag='${{ github.event.inputs.tag }}'
+          [[ "$tag" =~ ^windows-gpu-miner-v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+            || { echo "tag must match windows-gpu-miner-vX.Y.Z, got: $tag" >&2; exit 1; }
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test GPU miner packages
+        run: go test ./params ./gpuminer ./cmd/sudharma-miner ./rpc -count=1
+
+      - name: Cross-compile Windows GPU miner
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/windows-gpu-miner
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -o dist/windows-gpu-miner/sudharma-miner.exe ./cmd/sudharma-miner
+          cp "packaging/windows-gpu-miner/Start Mining.bat" dist/windows-gpu-miner/
+          cp packaging/windows-gpu-miner/README.txt dist/windows-gpu-miner/
+          (
+            cd dist
+            zip -r sudharma-gpu-miner-windows.zip windows-gpu-miner
+            sha256sum sudharma-gpu-miner-windows.zip | tee sudharma-gpu-miner-windows.zip.sha256
+          )
+
+      - name: Create GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag='${{ github.event.inputs.tag }}'
+          digest="$(cut -d' ' -f1 dist/sudharma-gpu-miner-windows.zip.sha256)"
+          notes="$(cat <<EOF
+          One-click Windows GPU miner built from commit ${GITHUB_SHA}.
+
+          Sudharma is GPU-only (Khushi / sudharma-gpupow-v1). CPU mining and ASIC
+          mining are not supported on public-testnet or mainnet.
+
+          Paste a 40-character wallet address and start. Never enter a seed phrase.
+
+          Default network: public-testnet
+          RPC: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com
+
+          Place khushi-miner-nvidia.exe or khushi-miner-opencl.exe in the same folder.
+          Mainnet mining stays unauthorized until launch.
+
+          ZIP SHA-256: ${digest}
+          EOF
+          )"
+          gh release create "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Sudharma Windows GPU Miner ${tag#windows-gpu-miner-}" \
+            --notes "$notes" \
+            --prerelease \
+            dist/sudharma-gpu-miner-windows.zip \
+            dist/sudharma-gpu-miner-windows.zip.sha256

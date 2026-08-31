@@ -36,6 +36,10 @@ export function classifyAsset(release, asset) {
     slot = "android-wallet"; kind = "wallet"; channel = "testnet";
     name = "Sudharma Android Wallet"; platform = "Android"; architecture = "arm64 / compatible";
     safetyNote = "Public testnet software. Do not use it for assets of real-world value.";
+  } else if (lower.includes("gpu-miner") && lower.includes("windows")) {
+    slot = "windows-gpu-miner"; kind = "miner"; channel = "experimental";
+    name = "Sudharma One-Click Windows GPU Miner"; platform = "Windows"; architecture = "NVIDIA CUDA / AMD OpenCL GPU";
+    safetyNote = "GPU-only miner. CPU and ASIC mining are not supported on public testnet or mainnet.";
   } else if ((lower.includes("nvidia") || lower.includes("cuda")) && lower.includes("miner")) {
     slot = "nvidia-miner"; kind = "miner"; channel = "experimental";
     name = "Khushi Miner — NVIDIA / CUDA"; platform = lower.includes("windows") ? "Windows" : "Cross-platform"; architecture = "NVIDIA CUDA GPU";
