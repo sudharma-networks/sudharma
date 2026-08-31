@@ -13,6 +13,7 @@ enum class WalletScreen {
     RECEIVE,
     SEND,
     ACTIVITY,
+    HISTORY,
     SETTINGS,
     BACKUP,
 }
