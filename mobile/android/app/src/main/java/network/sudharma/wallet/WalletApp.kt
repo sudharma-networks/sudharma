@@ -68,6 +68,7 @@ import kotlinx.coroutines.launch
 import network.sudharma.wallet.chain.TransactionState
 import network.sudharma.wallet.chain.TransactionStatus
 import network.sudharma.wallet.chain.sudharma.SudharmaPaymentUri
+import network.sudharma.wallet.chain.sudharma.SudharmaRpcClient
 import network.sudharma.wallet.chain.sudharma.SudharmaTransaction
 import network.sudharma.wallet.recovery.RecoveryPhrase
 import network.sudharma.wallet.security.BiometricGate
@@ -167,11 +168,13 @@ fun WalletApp(repository: SudharmaWalletRepository, activity: FragmentActivity) 
             onReceive = { screen = WalletScreen.RECEIVE },
             onSend = { screen = WalletScreen.SEND },
             onActivity = { screen = WalletScreen.ACTIVITY },
+            onHistory = { screen = WalletScreen.HISTORY },
             onSettings = { screen = WalletScreen.SETTINGS },
         )
         WalletScreen.RECEIVE -> ReceiveScreen(repository, onBack = { screen = WalletScreen.HOME })
         WalletScreen.SEND -> SendScreen(repository, activity, onBack = { screen = WalletScreen.HOME })
-        WalletScreen.ACTIVITY -> ActivityScreen(repository, onBack = { screen = WalletScreen.HOME })
+        WalletScreen.ACTIVITY -> ServerActivityScreen(repository, onBack = { screen = WalletScreen.HOME })
+        WalletScreen.HISTORY -> TransactionHistoryScreen(repository, onBack = { screen = WalletScreen.HOME })
         WalletScreen.SETTINGS -> SettingsScreen(
             repository = repository,
             activity = activity,
@@ -378,6 +381,7 @@ private fun HomeScreen(
     onReceive: () -> Unit,
     onSend: () -> Unit,
     onActivity: () -> Unit,
+    onHistory: () -> Unit,
     onSettings: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -463,18 +467,19 @@ private fun HomeScreen(
             }
         }
         HorizontalDivider()
-        Text("Recent activity", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("Recent history", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         if (recentActivity.isEmpty()) {
             Text("No transactions yet. Send or receive SUDH to see history here.", style = MaterialTheme.typography.bodySmall)
         } else {
             recentActivity.forEach { item ->
                 TransactionHistoryCard(item)
             }
-            TextButton(onClick = onActivity) { Text("View all activity") }
+            TextButton(onClick = onHistory) { Text("View all history") }
         }
         HorizontalDivider()
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             TextButton(onClick = onActivity) { Text("Activity") }
+            TextButton(onClick = onHistory) { Text("History") }
             TextButton(onClick = onSettings) { Text("Settings") }
         }
     }
@@ -681,7 +686,67 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
 }
 
 @Composable
-private fun ActivityScreen(repository: SudharmaWalletRepository, onBack: () -> Unit) {
+private fun ServerActivityScreen(repository: SudharmaWalletRepository, onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var server by remember { mutableStateOf<SudharmaRpcClient.Status?>(null) }
+    var connection by remember { mutableStateOf(if (repository.preferences.rpcUrl.isBlank()) "RPC not configured" else "Checking…") }
+    var serverLog by remember { mutableStateOf("No server check has completed yet.") }
+    var lastRefreshMs by remember { mutableStateOf<Long?>(null) }
+
+    fun refresh() {
+        if (repository.preferences.rpcUrl.isBlank()) {
+            server = null
+            connection = "RPC not configured"
+            serverLog = "No RPC endpoint is configured for this wallet."
+            lastRefreshMs = System.currentTimeMillis()
+            return
+        }
+        connection = "Checking…"
+        scope.launch {
+            runCatching { repository.serverStatus() }
+                .onSuccess {
+                    server = it
+                    connection = "Connected"
+                    serverLog = "Connected to ${it.network} RPC. Height ${it.height}, ${it.peers} peer(s), ${it.mempool} transaction(s) in mempool."
+                    lastRefreshMs = System.currentTimeMillis()
+                }
+                .onFailure {
+                    server = null
+                    connection = "Offline / unavailable"
+                    serverLog = it.message ?: "Unable to read server status"
+                    lastRefreshMs = System.currentTimeMillis()
+                }
+        }
+    }
+
+    LaunchedEffect(repository.preferences.rpcUrl) { refresh() }
+
+    ScreenFrame("Activity", onBack) {
+        TestnetBadge()
+        Text("Server & network activity", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("Live connection details for the Sudharma Testnet RPC used by this wallet.", style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick = { refresh() }) { Text("Refresh server status") }
+        DetailRow(label = "Connection", value = connection)
+        DetailRow(label = "RPC endpoint", value = repository.preferences.rpcUrl.ifBlank { "Not configured" })
+        server?.let {
+            DetailRow(label = "Network", value = "${it.network} (${it.symbol})")
+            DetailRow(label = "Chain height", value = it.height.toString())
+            DetailRow(label = "Peers", value = it.peers.toString())
+            DetailRow(label = "Mempool", value = it.mempool.toString())
+            DetailRow(label = "Tip hash", value = it.tipHash.ifBlank { "—" })
+            DetailRow(label = "Issued supply", value = "${formatAtomic(it.issuedSupply)} SUDH")
+        }
+        lastRefreshMs?.let { DetailRow(label = "Last refresh", value = TransactionDetailFormatter.timestampLabel(it)) }
+        HorizontalDivider()
+        Text("Server log", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Card(Modifier.fillMaxWidth()) {
+            Text(serverLog, modifier = Modifier.padding(14.dp), style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun TransactionHistoryScreen(repository: SudharmaWalletRepository, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var items by remember { mutableStateOf<List<WalletActivityItem>>(emptyList()) }
     var selected by remember { mutableStateOf<WalletActivityItem?>(null) }
@@ -698,7 +763,7 @@ private fun ActivityScreen(repository: SudharmaWalletRepository, onBack: () -> U
                     items = it
                     message = if (it.isEmpty()) "No transactions yet." else ""
                 }
-                .onFailure { message = it.message ?: "Unable to load activity" }
+                .onFailure { message = it.message ?: "Unable to load history" }
         }
     }
 
@@ -713,10 +778,10 @@ private fun ActivityScreen(repository: SudharmaWalletRepository, onBack: () -> U
         return
     }
 
-    ScreenFrame("Activity", onBack) {
+    ScreenFrame("History", onBack) {
         TestnetBadge()
         Text("Sent and received transactions are sorted newest first. Tap any record for full transaction details.", style = MaterialTheme.typography.bodySmall)
-        OutlinedButton(onClick = { refresh() }) { Text("Refresh") }
+        OutlinedButton(onClick = { refresh() }) { Text("Refresh history") }
         if (message.isNotEmpty()) Text(message)
         items.forEach { item ->
             TransactionHistoryCard(item = item, onOpen = { selected = item })
