@@ -1,4 +1,4 @@
-import { __githubJsonForTests, classifyAsset, isRetryableGitHubStatus, normalizeReleases, withSameSiteWalletUrls } from "../scripts/sync-github-releases.mjs";
+import { __githubJsonForTests, classifyAsset, isRetryableGitHubStatus, normalizeReleases, withSameSitePublicUrls } from "../scripts/sync-github-releases.mjs";
 
 const release = {
   tag_name: "wallet-testnet-v0.1.0",
@@ -36,7 +36,7 @@ it("propagates the GitHub SHA256 digest and sidecar URL", () => {
 });
 
 it("publishes the newest Android wallet through fixed same-site URLs", () => {
-  const [wallet] = withSameSiteWalletUrls(normalizeReleases([release]));
+  const [wallet] = withSameSitePublicUrls(normalizeReleases([release]));
   expect(wallet.version).toBe("wallet-testnet-v0.1.0");
   expect(wallet.sha256).toBe("f4d0ec7898bcfd19a857a9930f71a2433c297112e4b1589b6856c1d397d8ebab");
   expect(wallet.downloadUrl).toBe("/downloads/Sudharma-Wallet-latest.apk");
@@ -66,18 +66,29 @@ it("keeps only the newest verified release for each product slot", () => {
   expect(wallets[0].version).toBe("wallet-testnet-v0.1.0");
 });
 
-it("classifies CUDA and OpenCL miner packages as experimental", () => {
+it("classifies CUDA, OpenCL and one-click Windows GPU miner packages as experimental", () => {
   const minerRelease = { ...release, tag_name: "test-mining-v0.1.0", name: "Sudharma Public Test Mining — Khushi Algorithm v0.1" };
   const cuda = classifyAsset(minerRelease, { name: "khushi-miner-nvidia-windows.zip", size: 1, digest: "sha256:abc", browser_download_url: "https://github.com/sudharma-networks/sudharma/releases/download/test-mining-v0.1.0/khushi-miner-nvidia-windows.zip" });
   const opencl = classifyAsset(minerRelease, { name: "khushi-miner-opencl-windows.zip", size: 1, digest: "sha256:def", browser_download_url: "https://github.com/sudharma-networks/sudharma/releases/download/test-mining-v0.1.0/khushi-miner-opencl-windows.zip" });
+  const oneClick = classifyAsset(minerRelease, { name: "sudharma-gpu-miner-windows.zip", size: 1, digest: "sha256:fff", browser_download_url: "https://github.com/sudharma-networks/sudharma/releases/download/test-mining-v0.1.0/sudharma-gpu-miner-windows.zip" });
   expect(cuda?.slot).toBe("nvidia-miner");
   expect(opencl?.slot).toBe("amd-miner");
+  expect(oneClick?.slot).toBe("windows-gpu-miner");
+  expect(oneClick?.architecture).toMatch(/GPU/i);
   expect(cuda?.channel).toBe("experimental");
   expect(opencl?.channel).toBe("experimental");
   expect(cuda).not.toBeNull();
 
-  const [sameSiteCuda] = withSameSiteWalletUrls([cuda!]);
+  const [sameSiteCuda] = withSameSitePublicUrls([cuda!]);
   expect(sameSiteCuda.downloadUrl).toBe(cuda!.downloadUrl);
+});
+
+it("publishes the one-click Windows GPU miner through fixed same-site URLs", () => {
+  const minerRelease = { ...release, tag_name: "windows-gpu-miner-v0.1.0", name: "Sudharma Windows GPU Miner v0.1.0" };
+  const asset = { name: "sudharma-gpu-miner-windows.zip", size: 1024, digest: "sha256:abc123", browser_download_url: "https://github.com/sudharma-networks/sudharma/releases/download/windows-gpu-miner-v0.1.0/sudharma-gpu-miner-windows.zip" };
+  const [oneClick] = withSameSitePublicUrls(normalizeReleases([{ ...minerRelease, assets: [asset, { name: "sudharma-gpu-miner-windows.zip.sha256", browser_download_url: "https://github.com/sudharma-networks/sudharma/releases/download/windows-gpu-miner-v0.1.0/sudharma-gpu-miner-windows.zip.sha256" }] }]));
+  expect(oneClick.downloadUrl).toBe("/downloads/Sudharma-GPU-Miner-Windows-latest.zip");
+  expect(oneClick.checksumUrl).toBe("/downloads/Sudharma-GPU-Miner-Windows-latest.zip.sha256");
 });
 
 it("does not promote unknown binary assets", () => {

@@ -17,7 +17,9 @@ type Result struct {
 	Found     bool
 }
 
-// Mine searches for a valid nonce.
+// Mine is a development helper used by historical tests. Production
+// public-testnet and mainnet mining is GPU-only (Khushi / sudharma-gpupow-v1).
+// CPU mining and ASIC mining are not supported as public mining products.
 func Mine(block *blockchain.Block, startNonce uint64, maxAttempts uint64) Result {
 	start := time.Now()
 

@@ -19,6 +19,9 @@ test('allows the public wallet and faucet route shapes', () => {
     ['GET', `/v1/accounts/${ADDRESS}`, 'account'],
     ['POST', '/v1/transactions', 'submitTransaction'],
     ['POST', '/v1/miner/wake', 'minerWake'],
+    ['GET', '/v1/mining/work', 'miningWorkGet'],
+    ['POST', '/v1/mining/work', 'miningWorkPost'],
+    ['POST', '/v1/mining/submit', 'miningSubmit'],
     ['GET', '/v1/transactions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'transactionStatus'],
     ['GET', '/v1/faucet/info', 'faucetInfo'],
     ['GET', '/v1/faucet/health', 'faucetHealth'],
@@ -49,6 +52,8 @@ test('rejects forbidden, malformed and wrong-method routes', () => {
     ['POST', '/v1/faucet/info'],
     ['GET', '/v1/faucet/request'],
     ['GET', '/v1/faucet/challenge'],
+    ['PUT', '/v1/mining/work'],
+    ['GET', '/v1/mining/submit'],
   ];
   for (const [method, path] of cases) {
     assert.throws(() => matchRoute(method, path), undefined, `${method} ${path}`);
@@ -109,3 +114,35 @@ test('rejects oversized request bodies before any upstream call', () => {
     requestContext: { http: { method: 'POST' } },
   }), /too large/i);
 });
+
+test('proxies GPU mining work and submit without allowing CPU-only routes', () => {
+  const address = ADDRESS;
+  const getWork = normalizeEvent({
+    rawPath: '/v1/mining/work',
+    rawQueryString: `address=${address}`,
+    requestContext: { http: { method: 'GET' } },
+  });
+  assert.equal(getWork.kind, 'miningWorkGet');
+  assert.equal(getWork.queryString, `address=${address}`);
+
+  const body = JSON.stringify({ address });
+  const postWork = normalizeEvent({
+    rawPath: '/v1/mining/work',
+    headers: { 'content-type': 'application/json' },
+    body,
+    isBase64Encoded: false,
+    requestContext: { http: { method: 'POST' } },
+  });
+  assert.equal(postWork.kind, 'miningWorkPost');
+  assert.deepEqual(postWork.body, Buffer.from(body, 'utf8'));
+
+  const submit = normalizeEvent({
+    rawPath: '/v1/mining/submit',
+    headers: { 'content-type': 'application/json' },
+    body: '{"algorithm":"sudharma-gpupow-v1","nonce":1}',
+    isBase64Encoded: false,
+    requestContext: { http: { method: 'POST' } },
+  });
+  assert.equal(submit.kind, 'miningSubmit');
+});
+

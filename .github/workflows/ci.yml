@@ -90,6 +90,8 @@ jobs:
           set -euo pipefail
           go build -trimpath -o "$RUNNER_TEMP/sudharma-demand-miner" ./cmd/sudharma-demand-miner
           go build -trimpath -o "$RUNNER_TEMP/sudharmad" ./cmd/sudharmad
+          go build -trimpath -o "$RUNNER_TEMP/sudharma-miner" ./cmd/sudharma-miner
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -o "$RUNNER_TEMP/sudharma-miner.exe" ./cmd/sudharma-miner
 
       - name: Run demand-miner installer safety test
         run: bash deployment/testnet/install-demand-miner_test.sh

@@ -113,3 +113,18 @@ test('Android wallet publish is manual-only and confirm-gated', () => {
   assert.match(source, /gh release create/);
   assert.match(source, /confirm\s*==\s*'PUBLISH'|inputs\.confirm == 'PUBLISH'/);
 });
+
+test('Windows GPU miner publish is manual-only and confirm-gated', () => {
+  const workflow = '.github/workflows/windows-gpu-miner-publish.yml';
+  if (!fs.existsSync(workflow)) {
+    return;
+  }
+
+  const source = fs.readFileSync(workflow, 'utf8');
+  assertManualOnly(source, workflow);
+  assert.match(source, /contents:\s*write/);
+  assert.match(source, /gh release create/);
+  assert.match(source, /confirm\s*==\s*'PUBLISH'|inputs\.confirm == 'PUBLISH'/);
+  assert.match(source, /GOOS=windows/);
+  assert.match(source, /GPU-only/);
+});
