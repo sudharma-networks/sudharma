@@ -53,6 +53,9 @@ jobs:
       - name: Verify explorer API contract
         run: bash ./scripts/check-explorer-api-contract_test.sh
 
+      - name: Verify testnet RC readiness contract
+        run: bash ./scripts/check-testnet-rc-readiness_test.sh
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
