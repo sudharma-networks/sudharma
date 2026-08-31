@@ -11,7 +11,7 @@ export default function MiningPage() {
     <section className="info-card page-stack">
       <p className="eyebrow">ONE-CLICK WINDOWS GPU MINER</p>
       <h2>Paste your wallet address. Start mining.</h2>
-      <p>The Windows miner asks only for the 40-character Sudharma address that should receive rewards. It never asks for a seed phrase or private key, and it never starts the demand miner. Double-click Start Mining. A Khushi GPU hasher in the same folder is optional.</p>
+      <p>The Windows miner asks only for your 40-character Sudharma wallet address once. It connects to public-testnet automatically, remembers your address, and starts mining on the next double-click. It never asks for a seed phrase or private key.</p>
       <p>Sudharma does not ship a CPU miner and does not support ASIC firmware.</p>
     </section>
     <section className="card-grid">{topics.map(([title, slug, text]) => <Link className="info-card linked-card" href={`/mining/${slug}`} key={slug}><span className="mono">GUIDE</span><h2>{title}</h2><p>{text}</p><span className="text-link">Open guide →</span></Link>)}</section>

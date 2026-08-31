@@ -52,7 +52,7 @@ func TestRunProbeConnectsWithoutCPUFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "GPU-only") && !strings.Contains(out.String(), "GPU miner work is not being issued") {
+	if !strings.Contains(out.String(), "GPU-only") && !strings.Contains(out.String(), "Mining work is not live yet") {
 		t.Fatalf("output = %q", out.String())
 	}
 	if strings.Contains(strings.ToLower(out.String()), "cpu mining started") {
@@ -162,6 +162,43 @@ func TestRunOnceMinesCandidateBlockWithoutHasher(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "demand miner") && strings.Contains(strings.ToLower(out.String()), "starting demand") {
 		t.Fatal("must not start the demand miner")
+	}
+}
+
+func TestRunAutoUsesSavedAddress(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("SUDHARMA_MINER_DATA_DIR", dir)
+	address := "cccccccccccccccccccccccccccccccccccccccc"
+	if err := gpuminer.SaveAddress(address); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"network": "sudharma", "height": 12})
+		default:
+			_ = json.NewEncoder(w).Encode(gpuminer.Work{
+				Algorithm: params.ProductionMiningAlgorithm,
+				Height:    3,
+				Target:    "0f",
+				HeaderPrefix: "aa",
+			})
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	out := &strings.Builder{}
+	err := run([]string{"-rpc", server.URL, "-auto", "-probe"}, strings.NewReader(""), out, ioDiscard())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Using saved wallet address") {
+		t.Fatalf("output = %q", out.String())
+	}
+	if !strings.Contains(out.String(), address[:6]) {
+		t.Fatalf("output = %q", out.String())
 	}
 }
 

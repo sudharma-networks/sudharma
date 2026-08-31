@@ -63,11 +63,19 @@ type SubmitResult struct {
 }
 
 func ValidateRewardAddress(address string) error {
-	got := strings.TrimSpace(address)
+	got := strings.ToLower(strings.TrimSpace(address))
 	if !rewardAddressPattern.MatchString(got) {
 		return fmt.Errorf("wallet address must be 40 lowercase hex characters")
 	}
 	return nil
+}
+
+func NormalizeRewardAddress(address string) (string, error) {
+	got := strings.ToLower(strings.TrimSpace(address))
+	if err := ValidateRewardAddress(got); err != nil {
+		return "", err
+	}
+	return got, nil
 }
 
 func Resolve(cfg Config) (Config, error) {
@@ -93,7 +101,7 @@ func Resolve(cfg Config) (Config, error) {
 		backend = params.ProductionMiningBackend
 	}
 	return Config{
-		Address: strings.TrimSpace(cfg.Address),
+		Address: strings.ToLower(strings.TrimSpace(cfg.Address)),
 		Network: network,
 		RPCURL:  strings.TrimRight(rpcURL, "/"),
 		Backend: backend,

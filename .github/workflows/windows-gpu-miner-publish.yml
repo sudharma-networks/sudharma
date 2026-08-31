@@ -58,6 +58,7 @@ jobs:
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -o dist/windows-gpu-miner/sudharma-miner.exe ./cmd/sudharma-miner
           cp "packaging/windows-gpu-miner/Start Mining.bat" dist/windows-gpu-miner/
           cp packaging/windows-gpu-miner/README.txt dist/windows-gpu-miner/
+          cp packaging/windows-gpu-miner/SudharmaMiner.ps1 dist/windows-gpu-miner/
           (
             cd dist
             zip -r sudharma-gpu-miner-windows.zip windows-gpu-miner
@@ -78,7 +79,8 @@ jobs:
           Sudharma is GPU-only (Khushi / sudharma-gpupow-v1). CPU mining and ASIC
           mining are not supported on public-testnet or mainnet.
 
-          Paste a 40-character wallet address and start. Never enter a seed phrase.
+          Paste a 40-character wallet address once. The miner connects to Sudharma
+          public-testnet automatically and remembers your address for one-click restarts.
 
           Default network: public-testnet
           RPC: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com

@@ -106,6 +106,25 @@ func (c *Client) decodeSubmit(ctx context.Context, payload []byte) (SubmitResult
 	return result, nil
 }
 
+type NetworkStatus struct {
+	Network string `json:"network"`
+	Height  uint64 `json:"height"`
+	Peers   int    `json:"peers"`
+	Mempool int    `json:"mempool"`
+}
+
+func (c *Client) NetworkStatus(ctx context.Context) (NetworkStatus, error) {
+	raw, err := c.do(ctx, http.MethodGet, "/v1/status", nil)
+	if err != nil {
+		return NetworkStatus{}, err
+	}
+	var status NetworkStatus
+	if err := json.Unmarshal(raw, &status); err != nil {
+		return NetworkStatus{}, fmt.Errorf("invalid status JSON: %w", err)
+	}
+	return status, nil
+}
+
 func (c *Client) do(ctx context.Context, method, path string, body []byte) ([]byte, error) {
 	if c == nil || c.http == nil {
 		return nil, fmt.Errorf("mining RPC client is unavailable")
