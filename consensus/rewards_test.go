@@ -39,3 +39,19 @@ func TestSubsidyEventuallyBecomesZero(t *testing.T) {
 		t.Fatalf("expected zero subsidy, got %d", reward)
 	}
 }
+
+func TestMonetaryPolicySupplyCaps(t *testing.T) {
+	if got := params.MaxSupplyFor(params.MonetaryPolicyMainnet); got != 5_100_000_000_000_000 {
+		t.Fatalf("mainnet max supply: expected %d, got %d", uint64(5_100_000_000_000_000), got)
+	}
+
+	if got := params.MaxSupplyFor(params.MonetaryPolicyPublicTestnet); got != params.MaxSupply {
+		t.Fatalf("testnet max supply changed: expected %d, got %d", params.MaxSupply, got)
+	}
+}
+
+func TestValidateMonetaryPolicyRejectsUnknown(t *testing.T) {
+	if err := params.ValidateMonetaryPolicy(params.MonetaryPolicy(255)); err == nil {
+		t.Fatal("expected unknown monetary policy to be rejected")
+	}
+}
