@@ -50,6 +50,9 @@ jobs:
       - name: Verify canonical faucet recovery contract
         run: bash ./scripts/check-canonical-faucet-recovery-contract_test.sh
 
+      - name: Verify explorer API contract
+        run: bash ./scripts/check-explorer-api-contract_test.sh
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:

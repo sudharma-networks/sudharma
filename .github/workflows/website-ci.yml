@@ -1,0 +1,51 @@
+name: Website CI
+
+on:
+  push:
+    branches:
+      - main
+      - cursor/canonical-integration-guard-8441
+    paths:
+      - 'web/**'
+      - 'deployment/website/**'
+      - 'rpc/**'
+      - 'blockchain/explorer*.go'
+      - 'deployment/testnet/public-rpc/lambda/**'
+      - '.github/workflows/website-ci.yml'
+      - '.github/workflows/provision-website-visitor-counter.yml'
+      - '.github/workflows/explorer-public-rpc-deploy.yml'
+      - '.github/workflows/explorer-seed-rpc-deploy.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'web/**'
+      - 'deployment/website/**'
+      - '.github/workflows/website-ci.yml'
+      - '.github/workflows/provision-website-visitor-counter.yml'
+permissions:
+  contents: read
+jobs:
+  website:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package.json
+      - name: Test visitor counter backend contract
+        working-directory: .
+        run: node --test deployment/website/visitor-counter/*.test.mjs
+      - run: npm install
+      - name: Sync verified GitHub release metadata
+        run: npm run sync:github
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e

@@ -1,0 +1,108 @@
+name: Explorer Seed RPC Deploy
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RPC_BASE_URL: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com
+  AWS_REGION: ap-south-1
+  TESTNET_DEMAND_MINER_BUCKET: ${{ vars.TESTNET_DEMAND_MINER_BUCKET }}
+
+jobs:
+  publish-rpcd:
+    runs-on: ubuntu-24.04
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      rpcd_url: ${{ steps.publish.outputs.rpcd_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: Publish sudharma-rpcd binary to S3
+        id: publish
+        run: |
+          set -euo pipefail
+          bash ./scripts/publish-sudharma-rpcd-binary.sh | tee /tmp/rpcd-publish.json
+          rpcd_url="$(jq -r '.sudharma_rpcd_bin_url' /tmp/rpcd-publish.json)"
+          echo "rpcd_url=$rpcd_url" >> "$GITHUB_OUTPUT"
+
+  deploy-seeds:
+    needs: publish-rpcd
+    runs-on: ubuntu-24.04
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - seed_name: seed1
+            seed_private_ip: 172.31.10.171
+            seed_instance_id: ${{ vars.TESTNET_SEED1_INSTANCE_ID }}
+            seed_fallback_instance_id: i-06e7ddb174e4941de
+          - seed_name: seed2
+            seed_private_ip: 172.31.32.195
+            seed_instance_id: ${{ vars.TESTNET_SEED2_INSTANCE_ID }}
+            seed_fallback_instance_id: ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+      - name: Resolve seed instance id
+        id: seed
+        run: |
+          set -euo pipefail
+          instance_id="$(bash deployment/testnet/resolve-seed-instance-id.sh \
+            "${{ matrix.seed_private_ip }}" \
+            "${{ matrix.seed_instance_id }}" \
+            "${{ matrix.seed_fallback_instance_id }}" 2>/dev/null || true)"
+          if [ -z "$instance_id" ]; then
+            echo "seed_instance_found=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Skipping ${{ matrix.seed_name }} RPC upgrade — instance id unavailable"
+            exit 0
+          fi
+          echo "seed_instance_found=true" >> "$GITHUB_OUTPUT"
+          echo "instance_id=$instance_id" >> "$GITHUB_OUTPUT"
+      - name: Upgrade sudharma-rpcd on seed
+        if: steps.seed.outputs.seed_instance_found == 'true'
+        env:
+          SUDHARMA_RPCD_BIN_URL: ${{ needs.publish-rpcd.outputs.rpcd_url }}
+        run: |
+          set -euo pipefail
+          bash deployment/testnet/ssm-send-remote-script.sh \
+            "${{ steps.seed.outputs.instance_id }}" \
+            "Explorer seed RPC upgrade (${{ matrix.seed_name }})" \
+            deployment/testnet/remote-install-sudharma-rpcd-from-url.sh \
+            'sudharma_rpcd_install'
+
+  verify-public-mempool:
+    needs: deploy-seeds
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Verify public explorer mempool endpoint
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 12); do
+            status="$(curl -sS -o /tmp/explorer-mempool.json -w '%{http_code}' \
+              "$RPC_BASE_URL/v1/explorer/mempool?limit=8")"
+            if [ "$status" = '200' ]; then
+              cat /tmp/explorer-mempool.json
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Expected HTTP 200 from /v1/explorer/mempool, last status=$status" >&2
+          cat /tmp/explorer-mempool.json || true
+          exit 1

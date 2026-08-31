@@ -33,6 +33,11 @@ export async function runExplorerLiveCheck({
     throw new Error('explorer transactions feed is unavailable');
   }
 
+  const mempool = await fetchJson(`${rpcBaseUrl}/v1/explorer/mempool?limit=3`);
+  if (mempool.status !== 200 || !Array.isArray(mempool.body?.transactions)) {
+    throw new Error('explorer mempool feed is unavailable');
+  }
+
   const tipHash = String(status.body.tip_hash || '');
   const search = await fetchJson(`${rpcBaseUrl}/v1/explorer/search?q=${encodeURIComponent(tipHash)}`);
   if (search.status !== 200 || search.body?.type !== 'block') {
