@@ -44,4 +44,6 @@ class ActivityHistorySplitTest {
         assertTrue(walletApp.contains("Transaction Details"))
         assertTrue(walletApp.contains("View on Explorer"))
     }
+
+    // Final verification marker for the trial build.
 }
