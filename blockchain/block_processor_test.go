@@ -202,3 +202,60 @@ func TestProcessBlock(t *testing.T) {
 		)
 	}
 }
+
+func TestProcessBlockForMainnetCreditsMainnetSubsidy(t *testing.T) {
+	state := NewState()
+	block := &Block{Height: 1}
+	want, err := consensus.BlockSubsidyFor(params.MonetaryPolicyMainnet, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ProcessBlockFor(state, params.MonetaryPolicyMainnet, block, "miner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("expected %d got %d", want, got)
+	}
+	if state.IssuedSupply() != want {
+		t.Fatalf("expected issued supply %d got %d", want, state.IssuedSupply())
+	}
+}
+
+func TestProcessBlockCompatibilityWrapperStillUsesPublicTestnet(t *testing.T) {
+	state := NewState()
+	block := &Block{Height: 0}
+	got, err := ProcessBlock(state, block, "miner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 50*params.CoinDecimals {
+		t.Fatalf("public testnet behavior changed: got %d", got)
+	}
+}
+
+func TestProcessBlockForUnknownPolicyLeavesStateUnchanged(t *testing.T) {
+	state := NewState()
+	if err := state.Credit("holder", 1_000); err != nil {
+		t.Fatal(err)
+	}
+	beforeIssued := state.IssuedSupply()
+	beforeBalance := state.Balance("holder")
+	beforeMiner := state.Balance("miner")
+
+	block := &Block{Height: 1}
+	_, err := ProcessBlockFor(state, params.MonetaryPolicy(255), block, "miner")
+	if err == nil {
+		t.Fatal("expected unknown monetary policy error")
+	}
+	if state.IssuedSupply() != beforeIssued {
+		t.Fatalf("issued supply mutated: before=%d after=%d", beforeIssued, state.IssuedSupply())
+	}
+	if state.Balance("holder") != beforeBalance {
+		t.Fatalf("holder balance mutated")
+	}
+	if state.Balance("miner") != beforeMiner {
+		t.Fatalf("miner balance mutated")
+	}
+}
