@@ -10,24 +10,39 @@ fi
 
 discover_config_files() {
   local -a files=()
-  local path
+  local path seen=""
+  add_file() {
+    local candidate="$1"
+    [ -n "$candidate" ] || return 0
+    [ -f "$candidate" ] || return 0
+    case "$seen" in
+      *"|${candidate}|"*) return 0 ;;
+    esac
+    seen="${seen}|${candidate}|"
+    files+=("$candidate")
+  }
+
   while IFS= read -r path; do
-    [ -n "$path" ] && files+=("$path")
+    add_file "$path"
   done < <(
-    grep -RIl --include='*.conf' --include='*.inc' -E '/v1/status|/v1/explorer/' /etc/nginx 2>/dev/null | sort -u
+    grep -RIl --include='*.conf' --include='*.inc' '29100' /etc/nginx /etc/sudharma /usr/local/etc/nginx 2>/dev/null | sort -u
   )
-  if [ "${#files[@]}" -eq 0 ] && command -v nginx >/dev/null 2>&1; then
+
+  if command -v nginx >/dev/null 2>&1; then
     while IFS= read -r path; do
-      [ -n "$path" ] && files+=("$path")
+      [ -n "$path" ] || continue
+      if grep -q '29100' "$path" 2>/dev/null; then
+        add_file "$path"
+      fi
     done < <(nginx -T 2>/dev/null | awk -F: '/^# configuration file / {print $2}' | sed 's/:$//' | sort -u)
   fi
-  if [ "${#files[@]}" -eq 0 ]; then
-    while IFS= read -r path; do
-      [ -n "$path" ] && files+=("$path")
-    done < <(
-      grep -RIl --include='*.conf' --include='*.inc' '29100' /etc/nginx /etc/sudharma /usr/local/etc/nginx 2>/dev/null | sort -u
-    )
-  fi
+
+  while IFS= read -r path; do
+    add_file "$path"
+  done < <(
+    grep -RIl --include='*.conf' --include='*.inc' -E '/v1/status|/v1/explorer/' /etc/nginx /etc/sudharma /usr/local/etc/nginx 2>/dev/null | sort -u
+  )
+
   printf '%s\n' "${files[@]}"
 }
 
@@ -40,6 +55,8 @@ if [ "${#config_files[@]}" -eq 0 ]; then
   fi
   exit 1
 fi
+
+export SEED_PRIVATE_IP="${SEED_PRIVATE_IP:-}"
 
 python3 - <<'PY' "${config_files[@]}"
 import json
@@ -84,7 +101,7 @@ def server_mining_ready(block: str) -> bool:
         and re.search(r"location\s+=\s+/v1/mining/submit\s*\{", block) is not None
     )
 
-def infer_upstream_base(block: str) -> str | None:
+def infer_upstream_base(block: str):
     patterns = (
         r"location\s+=\s+/v1/status\s*\{[^}]*?proxy_pass\s+([^;]+);",
         r"location\s+/v1/explorer/\s*\{[^}]*?proxy_pass\s+([^;]+);",
@@ -136,15 +153,27 @@ def patch_regex_allowlist(text: str) -> tuple[str, bool]:
     return text[:match.start(2)] + updated_group + text[match.end(2):], True
 
 def insert_after_status_location(block: str, snippet: str) -> tuple[str, bool]:
-    match = re.search(
-        r"(location\s+=\s+/v1/status\s*\{.*?\n\s*\})",
-        block,
-        re.S,
-    )
+    match = re.search(r"location\s+=\s+/v1/status\s*\{", block)
     if not match:
         return block, False
-    insert_at = match.end()
-    return block[:insert_at] + snippet + block[insert_at:], True
+    brace = block.find("{", match.start())
+    if brace == -1:
+        return block, False
+    depth = 0
+    for i in range(brace, len(block)):
+        if block[i] == "{":
+            depth += 1
+        elif block[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return block[: i + 1] + snippet + block[i + 1 :], True
+    return block, False
+
+def any_29100_server_ready(text: str) -> bool:
+    for _, _, block in iter_server_blocks(text):
+        if server_listens_on_29100(block) and server_mining_ready(block):
+            return True
+    return False
 
 changed = []
 for path in configs:
@@ -180,7 +209,14 @@ for path in configs:
         changed.append(str(path))
 
 if not changed:
-    print(json.dumps({"seed_mining_nginx": "already_enabled"}))
+    if any(any_29100_server_ready(path.read_text(encoding="utf-8")) for path in configs if path.is_file()):
+        print(json.dumps({"seed_mining_nginx": "already_enabled"}))
+    else:
+        print(json.dumps({
+            "seed_mining_nginx": "patch_failed",
+            "config_files": [str(p) for p in configs if p.is_file()],
+        }), file=sys.stderr)
+        sys.exit(1)
 else:
     print(json.dumps({"seed_mining_nginx": "updated", "files": changed}))
 PY
