@@ -7,11 +7,6 @@ on:
         description: 'Type RESET to wipe faucet DynamoDB and enable fresh grants'
         required: true
         default: ''
-  push:
-    branches:
-      - feature/faucet-recovery-stage2
-    paths:
-      - .github/FRESH_START_TRIGGER
 
 permissions:
   contents: read
