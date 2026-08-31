@@ -85,19 +85,22 @@ def infer_upstream(text: str) -> str | None:
             return match.group(1).strip()
     return None
 
+def mining_allowlist_ready(text: str) -> bool:
+    return "mining/work" in text and "mining/submit" in text
+
 def patch_regex_allowlist(text: str) -> tuple[str, bool]:
     pattern = re.compile(
         r"(location\s+~\s+\^/v1/\()([^)]+)(\)[^{]*\{[^}]*?proxy_pass\s+[^;]+;[^}]*\})",
         re.S,
     )
     match = pattern.search(text)
-    if not match or "mining" in match.group(2):
+    if not match or mining_allowlist_ready(match.group(2)):
         return text, False
     updated_group = match.group(2).rstrip("|") + "|mining/work|mining/submit|"
     return text[:match.start(2)] + updated_group + text[match.end(2):], True
 
 def patch_exact_locations(text: str, upstream: str) -> tuple[str, bool]:
-    if 'location = /v1/mining/work' in text and 'location = /v1/mining/submit' in text:
+    if mining_allowlist_ready(text):
         return text, False
     marker = "    # sudharma gpu mining routes"
     if marker in text:
@@ -134,6 +137,8 @@ for path in configs:
     if not path.is_file():
         continue
     text = path.read_text(encoding="utf-8")
+    if mining_allowlist_ready(text):
+        continue
     updated, ok = patch_regex_allowlist(text)
     if ok:
         path.write_text(updated, encoding="utf-8")
@@ -156,41 +161,33 @@ PY
 nginx -t
 systemctl reload nginx
 
-smoke_candidates=()
-if [ -n "${SEED_PRIVATE_IP:-}" ]; then
-  smoke_candidates+=("http://${SEED_PRIVATE_IP}:29100")
+nginx_smoke_url="${SEED_RPC_SMOKE_URL:-}"
+if [ -z "$nginx_smoke_url" ] && [ -n "${SEED_PRIVATE_IP:-}" ]; then
+  nginx_smoke_url="http://${SEED_PRIVATE_IP}:29100"
 fi
-if [ -n "${SEED_RPC_SMOKE_URL:-}" ]; then
-  smoke_candidates+=("${SEED_RPC_SMOKE_URL%/}")
+if [ -z "$nginx_smoke_url" ]; then
+  echo "SEED_RPC_SMOKE_URL or SEED_PRIVATE_IP is required for nginx mining smoke" >&2
+  exit 1
 fi
-smoke_candidates+=("http://127.0.0.1:29100")
+nginx_smoke_url="${nginx_smoke_url%/}"
 
-node_config="${SUDHARMA_NODE_CONFIG:-/etc/sudharma/node.json}"
-if [ -f "$node_config" ]; then
-  rpc_port="$(python3 - <<'PY' "$node_config"
-import json, sys
-with open(sys.argv[1], encoding="utf-8") as fh:
-    cfg = json.load(fh)
-print(str(cfg.get("rpc_address", "127.0.0.1:28545")).rsplit(":", 1)[-1])
-PY
-)"
-  smoke_candidates+=("http://127.0.0.1:${rpc_port}")
-fi
-
-for smoke_base in "${smoke_candidates[@]}"; do
-  for attempt in $(seq 1 8); do
-    if curl -fsS -X POST "${smoke_base}/v1/mining/work" \
-      -H 'content-type: application/json' \
-      --data '{"address":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}' \
-      | tee /tmp/seed-mining-work-smoke.json \
-      | jq -e '.algorithm and .block' >/dev/null 2>&1; then
-      jq -nc --arg url "$smoke_base" '{seed_mining_nginx:"ok",mining_work:"ready",smoke_url:$url}'
-      exit 0
-    fi
-    sleep 2
-  done
+for attempt in $(seq 1 12); do
+  status_code="$(curl -sS -o /tmp/seed-mining-work-smoke.json -w '%{http_code}' \
+    -X POST "${nginx_smoke_url}/v1/mining/work" \
+    -H 'content-type: application/json' \
+    --data '{"address":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}')"
+  if [ "$status_code" = '200' ] && jq -e '.algorithm and (.block or (.header_prefix and .target))' /tmp/seed-mining-work-smoke.json >/dev/null 2>&1; then
+    jq -nc --arg url "$nginx_smoke_url" '{seed_mining_nginx:"ok",mining_work:"ready",smoke_url:$url}'
+    exit 0
+  fi
+  echo "nginx mining smoke attempt $attempt: HTTP $status_code" >&2
+  head -c 400 /tmp/seed-mining-work-smoke.json 2>/dev/null >&2 || true
+  echo >&2
+  sleep 2
 done
 
-echo "nginx updated but loopback mining work smoke check did not succeed" >&2
-cat /tmp/seed-mining-work-smoke.json 2>/dev/null || true
+echo "seed nginx on ${nginx_smoke_url} did not serve POST /v1/mining/work" >&2
+if command -v nginx >/dev/null 2>&1; then
+  nginx -T 2>/dev/null | grep -E 'listen|/v1/mining|/v1/status|29100' | head -80 >&2 || true
+fi
 exit 1
