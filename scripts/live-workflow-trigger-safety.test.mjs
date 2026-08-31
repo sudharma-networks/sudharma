@@ -64,3 +64,14 @@ test('public-testnet mutation workflows are manual-only when present', () => {
     assertManualOnly(fs.readFileSync(workflow, 'utf8'), workflow);
   }
 });
+
+test('Android CI cannot publish releases', () => {
+  const workflow = '.github/workflows/android-wallet.yml';
+  if (!fs.existsSync(workflow)) {
+    return;
+  }
+
+  const source = fs.readFileSync(workflow, 'utf8');
+  assert.doesNotMatch(source, /^\s*contents:\s*write\s*$/m);
+  assert.doesNotMatch(source, /\bgh release (create|upload)\b/);
+});
