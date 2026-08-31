@@ -144,8 +144,13 @@ function createStore(tableName, timed) {
         TableName: tableName,
         Key: { pk: `ADDR#${address}` },
         UpdateExpression: 'SET initial_status = :failed, initial_error = :message',
-        ConditionExpression: 'initial_status = :reserved',
-        ExpressionAttributeValues: { ':failed': 'failed', ':reserved': 'reserved', ':message': String(message).slice(0, 160) },
+        ConditionExpression: 'initial_status = :reserved OR initial_status = :prepared',
+        ExpressionAttributeValues: {
+          ':failed': 'failed',
+          ':reserved': 'reserved',
+          ':prepared': 'prepared',
+          ':message': String(message).slice(0, 160),
+        },
       }));
     },
 
