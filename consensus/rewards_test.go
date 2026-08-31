@@ -40,6 +40,7 @@ func TestSubsidyEventuallyBecomesZero(t *testing.T) {
 	}
 }
 
+// These expectations intentionally precede the production policy implementation.
 func TestMonetaryPolicySupplyCaps(t *testing.T) {
 	if got := params.MaxSupplyFor(params.MonetaryPolicyMainnet); got != 5_100_000_000_000_000 {
 		t.Fatalf("mainnet max supply: expected %d, got %d", uint64(5_100_000_000_000_000), got)
