@@ -67,7 +67,10 @@ jobs:
           apk_name="Sudharma-Wallet-${version_name}.apk"
           mkdir -p dist
           cp mobile/android/app/build/outputs/apk/debug/app-debug.apk "dist/${apk_name}"
-          sha256sum "dist/${apk_name}" > "dist/${apk_name}.sha256"
+          (
+            cd dist
+            sha256sum "${apk_name}" | tee "${apk_name}.sha256"
+          )
           echo "Staged ${apk_name}"
 
       - name: Upload verified testnet APK
