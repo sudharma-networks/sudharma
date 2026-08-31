@@ -13,6 +13,7 @@ on:
       - 'rpc/server.go'
       - 'scripts/publish-sudharma-rpcd-binary.sh'
       - 'deployment/testnet/remote-install-sudharma-rpcd-from-url.sh'
+      - 'deployment/testnet/remote-enable-seed-mining-nginx.sh'
       - 'deployment/testnet/ssm-send-remote-script.sh'
       - 'deployment/testnet/resolve-seed-instance-id.sh'
 
@@ -114,6 +115,58 @@ jobs:
             'sudharma_rpcd_install'
           rm -f "$remote_script_file"
 
+  enable-seed-mining-nginx:
+    needs: deploy-seeds
+    runs-on: ubuntu-24.04
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - seed_name: seed1
+            seed_private_ip: 172.31.10.171
+            seed_instance_id: ${{ vars.TESTNET_SEED1_INSTANCE_ID }}
+            seed_fallback_instance_id: i-06e7ddb174e4941de
+          - seed_name: seed2
+            seed_private_ip: 172.31.32.195
+            seed_instance_id: ${{ vars.TESTNET_SEED2_INSTANCE_ID }}
+            seed_fallback_instance_id: ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+      - name: Resolve seed instance id
+        id: seed
+        run: |
+          set -euo pipefail
+          instance_id="$(bash deployment/testnet/resolve-seed-instance-id.sh \
+            "${{ matrix.seed_private_ip }}" \
+            "${{ matrix.seed_instance_id }}" \
+            "${{ matrix.seed_fallback_instance_id }}" 2>/dev/null || true)"
+          if [ -z "$instance_id" ]; then
+            echo "seed_instance_found=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Skipping ${{ matrix.seed_name }} nginx mining enablement — instance id unavailable"
+            exit 0
+          fi
+          echo "seed_instance_found=true" >> "$GITHUB_OUTPUT"
+          echo "instance_id=$instance_id" >> "$GITHUB_OUTPUT"
+      - name: Enable /v1/mining routes on seed nginx
+        if: steps.seed.outputs.seed_instance_found == 'true'
+        run: |
+          set -euo pipefail
+          remote_script_file="$(mktemp)"
+          cp deployment/testnet/remote-enable-seed-mining-nginx.sh "$remote_script_file"
+          bash deployment/testnet/ssm-send-remote-script.sh \
+            "${{ steps.seed.outputs.instance_id }}" \
+            "Enable GPU mining nginx routes (${{ matrix.seed_name }})" \
+            "$remote_script_file" \
+            'seed_mining_nginx'
+          rm -f "$remote_script_file"
+
   deploy-lambda:
     runs-on: ubuntu-24.04
     permissions:
@@ -160,7 +213,7 @@ jobs:
           aws lambda wait function-updated --function-name "$LAMBDA_NAME"
 
   verify-mining:
-    needs: [deploy-seeds, deploy-lambda]
+    needs: [enable-seed-mining-nginx, deploy-lambda]
     runs-on: ubuntu-24.04
     steps:
       - name: Verify public GPU mining routes
