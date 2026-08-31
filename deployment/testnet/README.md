@@ -18,6 +18,7 @@ The container runs as an unprivileged `sudharma` user, drops Linux capabilities 
 - `nginx-rpc.example.conf`: HTTPS/rate-limited RPC reverse-proxy starting point.
 - `demand-miner.example.json`: non-secret, testnet-only demand-miner configuration.
 - `gpu-miner.example.json`: non-secret GPU miner configuration using the same public-testnet seed-1/seed-2 RPC path as the wallet and explorer proxy.
+- `pool.example.json`: reference pool operator config for Stratum v1 with PPS/PPLNS/SOLO/FPPS payout schemes (`cmd/sudharma-pool`).
 - `gpu-miner.seed1-live.example.json` / `gpu-miner.seed2-live.example.json`: live-testnet GPU miner templates aligned with the demand-miner seed host naming.
 - `sudharma-demand-miner.service`: disabled-by-default hardened supervisor service.
 - `install-demand-miner.sh`: idempotent installer with optional explicit activation.

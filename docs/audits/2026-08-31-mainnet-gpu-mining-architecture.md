@@ -63,7 +63,7 @@ Mainnet reuses the **same miner client and RPC shape** but different gates and e
 
 These match what RVN/ETH ecosystems add after solo mining works:
 
-- **Stratum v1 bridge** — for pool operators; translate Stratum shares to Sudharma block submit (out of scope for v1).
+- **Stratum v1 bridge** — reference pool server in `cmd/sudharma-pool` with PPS/PPLNS/SOLO/FPPS payout ledgers (`pool/` package). Operators run it beside seed RPC; see `docs/audits/2026-08-31-pool-mining-architecture.md`.
 - **HiveOS / rig manager pack** — ship Khushi binary + `sudharma-miner --auto` wrapper (Windows one-click already exists).
 - **Work versioning** — add `version: 2` Khushi header jobs when GPU-PoW fully replaces SHA256d candidate mining on all networks.
 - **Difficulty retarget telemetry** — expose target/difficulty in work JSON (already present) for pool dashboards.

@@ -57,6 +57,9 @@ jobs:
       - name: Verify GPU mining API contract
         run: bash ./scripts/check-mining-api-contract_test.sh
 
+      - name: Verify pool mining contract
+        run: bash ./scripts/check-pool-mining-contract_test.sh
+
       - name: Verify testnet RC readiness contract
         run: bash ./scripts/check-testnet-rc-readiness_test.sh
 
