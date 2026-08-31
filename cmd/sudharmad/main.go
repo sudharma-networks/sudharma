@@ -78,7 +78,18 @@ func main() {
 		"create one valid funded pending transaction and leave it in the mempool",
 	)
 
+	networkName := flag.String(
+		"network",
+		"public-testnet",
+		"network to join: public-testnet (default). mainnet is refused until launch is authorized",
+	)
+
 	flag.Parse()
+
+	if _, err := params.ParseNetwork(*networkName); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 
 	fmt.Println("===================================")
 	fmt.Println("          Sudharma Network Node")

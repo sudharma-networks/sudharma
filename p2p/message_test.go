@@ -230,3 +230,32 @@ func TestNewHandshakeRejectsBadTotalWork(t *testing.T) {
 		)
 	}
 }
+
+func TestHandshakeNetworkIDRemainsPublicTestnet(t *testing.T) {
+	if NetworkID != "sudharma-testnet-1" {
+		t.Fatalf("handshake network ID changed: %q", NetworkID)
+	}
+	if MainnetNetworkID != "sudharma-mainnet-1" {
+		t.Fatalf("mainnet network ID changed: %q", MainnetNetworkID)
+	}
+	if NetworkID == MainnetNetworkID {
+		t.Fatal("testnet and mainnet P2P IDs must not match")
+	}
+
+	payload, err := json.Marshal(Handshake{
+		ProtocolVersion: ProtocolVersion,
+		NetworkID:       MainnetNetworkID,
+		NodeID:          "mainnet-node",
+		ListenAddress:   "127.0.0.1:18448",
+		Height:          0,
+		TipHash:         "test",
+		TotalWork:       "1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := &Message{Type: MessageHandshake, Payload: payload}
+	if _, err := DecodeHandshake(message); err == nil {
+		t.Fatal("mainnet handshake was accepted on the public-testnet daemon")
+	}
+}

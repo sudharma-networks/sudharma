@@ -11,6 +11,9 @@ import (
 const (
 	ProtocolVersion uint32 = 1
 	NetworkID              = "sudharma-testnet-1"
+	// MainnetNetworkID is the frozen mainnet P2P namespace. Handshake still
+	// uses NetworkID (public testnet) until mainnet launch is authorized.
+	MainnetNetworkID = "sudharma-mainnet-1"
 
 	MaxPeersPerMessage = 128
 )

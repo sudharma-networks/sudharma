@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	"github.com/sudharma-networks/sudharma/params"
 	"github.com/sudharma-networks/sudharma/transactions"
 )
 
@@ -212,22 +213,49 @@ func (b *Block) UpdateMerkleRoot() {
 		b.CalculateMerkleRoot()
 }
 
-// NewGenesisBlock creates Sudharma Network block 0.
+// NewGenesisBlock creates the live public-testnet genesis (block 0).
+// This identity must not change: altering it would fork the public testnet.
 func NewGenesisBlock() *Block {
+	return newGenesisBlock(1786924800, "Sudharma Network Genesis Block")
+}
+
+// NewMainnetGenesisBlock returns the review-frozen mainnet genesis candidate.
+// Nodes must not load this chain until params.MainnetLaunchAuthorized is true.
+func NewMainnetGenesisBlock() *Block {
+	return newGenesisBlock(
+		params.MainnetGenesisTimestamp,
+		"Sudharma Network Mainnet Genesis Block v1",
+	)
+}
+
+// GenesisFor returns the genesis block for a network. Mainnet is refused
+// while launch remains unauthorized.
+func GenesisFor(network params.NetworkID) (*Block, error) {
+	switch network {
+	case params.NetworkPublicTestnet:
+		return NewGenesisBlock(), nil
+	case params.NetworkMainnet:
+		if !params.MainnetLaunchAuthorized {
+			return nil, fmt.Errorf("mainnet genesis is not authorized")
+		}
+		return NewMainnetGenesisBlock(), nil
+	default:
+		return nil, fmt.Errorf("unknown network %q", network)
+	}
+}
+
+func newGenesisBlock(timestamp uint64, merkleRoot string) *Block {
 	block := &Block{
 		Version:      1,
 		Height:       0,
-		Timestamp:    1786924800,
+		Timestamp:    int64(timestamp),
 		PreviousHash: "0",
 		Difficulty:   1,
 		Nonce:        0,
 		MinerAddress: "",
 		Transactions: nil,
 	}
-
-	block.MerkleRoot =
-		"Sudharma Network Genesis Block"
-
+	block.MerkleRoot = merkleRoot
 	return block
 }
 
