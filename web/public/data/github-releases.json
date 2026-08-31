@@ -20,7 +20,7 @@
       "status": "available",
       "releaseTag": "wallet-testnet-0.1.4",
       "prerelease": true,
-      "safetyNote": "Public testnet software. Test SUDH has no monetary value. Never share a seed phrase or private key.",
+      "safetyNote": "Public testnet software. Do not use it for assets of real-world value.",
       "checksumUrl": "https://github.com/sudharma-networks/sudharma/releases/download/wallet-testnet-0.1.4/Sudharma-Wallet-0.1.4.apk.sha256"
     },
     {
