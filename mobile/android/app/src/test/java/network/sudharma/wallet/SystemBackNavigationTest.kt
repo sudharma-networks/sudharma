@@ -1,11 +1,22 @@
 package network.sudharma.wallet
 
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SystemBackNavigationTest {
+    private fun source(path: String): String {
+        val candidates = listOf(
+            File(path),
+            File("app/$path"),
+            File("mobile/android/app/$path"),
+        )
+        return candidates.firstOrNull { it.isFile }?.readText()
+            ?: error("Unable to locate source file: $path")
+    }
+
     @Test
     fun `system back follows the same previous screen as visible back controls`() {
         val expected = mapOf(
@@ -37,5 +48,13 @@ class SystemBackNavigationTest {
         ).forEach { screen ->
             assertFalse("$screen should not trap Android system back", SystemBackNavigation.intercepts(screen))
         }
+    }
+
+    @Test
+    fun `compose wires system back at wallet and transaction detail levels`() {
+        val walletApp = source("src/main/java/network/sudharma/wallet/WalletApp.kt")
+        assertTrue(walletApp.contains("BackHandler(enabled = SystemBackNavigation.intercepts(screen))"))
+        assertTrue(walletApp.contains("BackHandler(enabled = selected != null)"))
+        assertTrue(walletApp.contains("selected = null"))
     }
 }
