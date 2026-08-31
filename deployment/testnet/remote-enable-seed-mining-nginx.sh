@@ -43,23 +43,73 @@ fi
 
 python3 - <<'PY' "${config_files[@]}"
 import json
+import os
 import pathlib
 import re
 import sys
 
 configs = [pathlib.Path(p) for p in sys.argv[1:] if p]
-snippet = """
-    location = /v1/mining/work {
+seed_private_ip = os.environ.get("SEED_PRIVATE_IP", "").strip()
+
+def normalize_upstream_base(url: str) -> str:
+    match = re.match(r"(https?://[^/]+)", url.strip())
+    return match.group(1) if match else url.rstrip("/")
+
+def iter_server_blocks(text: str):
+    for match in re.finditer(r"\bserver\s*\{", text):
+        start = match.start()
+        brace = text.find("{", start)
+        if brace == -1:
+            continue
+        depth = 0
+        for i in range(brace, len(text)):
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    yield start, i + 1, text[start:i + 1]
+                    break
+
+def server_listens_on_29100(block: str) -> bool:
+    if not re.search(r"listen\s+[^;]*\b29100\b", block):
+        return False
+    if seed_private_ip and seed_private_ip not in block:
+        return False
+    return True
+
+def server_mining_ready(block: str) -> bool:
+    return (
+        re.search(r"location\s+=\s+/v1/mining/work\s*\{", block) is not None
+        and re.search(r"location\s+=\s+/v1/mining/submit\s*\{", block) is not None
+    )
+
+def infer_upstream_base(block: str) -> str | None:
+    patterns = (
+        r"location\s+=\s+/v1/status\s*\{[^}]*?proxy_pass\s+([^;]+);",
+        r"location\s+/v1/explorer/\s*\{[^}]*?proxy_pass\s+([^;]+);",
+        r"location\s+~\s+\^/v1/\([^\)]*\)[^{]*\{[^}]*?proxy_pass\s+([^;]+);",
+        r"proxy_pass\s+(https?://127\.0\.0\.1:[0-9]+)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, block, re.S)
+        if match:
+            return normalize_upstream_base(match.group(1))
+    return None
+
+def mining_locations_snippet(base: str) -> str:
+    return f"""
+    location = /v1/mining/work {{
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_connect_timeout 3s;
         proxy_read_timeout 30s;
-        proxy_pass UPSTREAM;
-    }
+        proxy_pass {base}/v1/mining/work;
+    }}
 
-    location = /v1/mining/submit {
+    location = /v1/mining/submit {{
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -67,26 +117,9 @@ snippet = """
         client_max_body_size 1m;
         proxy_connect_timeout 3s;
         proxy_read_timeout 30s;
-        proxy_pass UPSTREAM;
-    }
+        proxy_pass {base}/v1/mining/submit;
+    }}
 """
-
-def infer_upstream(text: str) -> str | None:
-    patterns = (
-        r"location\s+=\s+/v1/status\s*\{[^}]*?proxy_pass\s+([^;]+);",
-        r"location\s+/v1/explorer/\s*\{[^}]*?proxy_pass\s+([^;]+);",
-        r"location\s+/v1/status\s*\{[^}]*?proxy_pass\s+([^;]+);",
-        r"location\s+~\s+\^/v1/\([^\)]*\)[^{]*\{[^}]*?proxy_pass\s+([^;]+);",
-        r"proxy_pass\s+(http://127\.0\.0\.1:[0-9]+)",
-    )
-    for pattern in patterns:
-        match = re.search(pattern, text, re.S)
-        if match:
-            return match.group(1).strip()
-    return None
-
-def mining_allowlist_ready(text: str) -> bool:
-    return "mining/work" in text and "mining/submit" in text
 
 def patch_regex_allowlist(text: str) -> tuple[str, bool]:
     pattern = re.compile(
@@ -94,62 +127,56 @@ def patch_regex_allowlist(text: str) -> tuple[str, bool]:
         re.S,
     )
     match = pattern.search(text)
-    if not match or mining_allowlist_ready(match.group(2)):
+    if not match:
         return text, False
-    updated_group = match.group(2).rstrip("|") + "|mining/work|mining/submit|"
+    group = match.group(2)
+    if "mining/work" in group and "mining/submit" in group:
+        return text, False
+    updated_group = group.rstrip("|") + "|mining/work|mining/submit|"
     return text[:match.start(2)] + updated_group + text[match.end(2):], True
 
-def patch_exact_locations(text: str, upstream: str) -> tuple[str, bool]:
-    if mining_allowlist_ready(text):
-        return text, False
-    marker = "    # sudharma gpu mining routes"
-    if marker in text:
-        return text, False
-    anchor = text.find("/v1/status")
-    if anchor == -1:
-        anchor = text.find("/v1/explorer/")
-    if anchor == -1:
-        return text, False
-    server_start = text.rfind("server", 0, anchor)
-    if server_start == -1:
-        return text, False
-    brace = text.find("{", server_start)
-    if brace == -1:
-        return text, False
-    depth = 0
-    end = None
-    for i in range(brace, len(text)):
-        ch = text[i]
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                end = i
-                break
-    if end is None:
-        return text, False
-    insert = snippet.replace("UPSTREAM", upstream)
-    return text[:end] + marker + insert + text[end:], True
+def insert_after_status_location(block: str, snippet: str) -> tuple[str, bool]:
+    match = re.search(
+        r"(location\s+=\s+/v1/status\s*\{.*?\n\s*\})",
+        block,
+        re.S,
+    )
+    if not match:
+        return block, False
+    insert_at = match.end()
+    return block[:insert_at] + snippet + block[insert_at:], True
 
 changed = []
 for path in configs:
     if not path.is_file():
         continue
     text = path.read_text(encoding="utf-8")
-    if mining_allowlist_ready(text):
-        continue
-    updated, ok = patch_regex_allowlist(text)
-    if ok:
-        path.write_text(updated, encoding="utf-8")
-        changed.append(str(path))
-        continue
-    upstream = infer_upstream(text)
-    if not upstream:
-        continue
-    updated, ok = patch_exact_locations(text, upstream)
-    if ok:
-        path.write_text(updated, encoding="utf-8")
+    updated_text = text
+    file_changed = False
+
+    for start, end, block in iter_server_blocks(text):
+        if not server_listens_on_29100(block):
+            continue
+        if server_mining_ready(block):
+            continue
+        base = infer_upstream_base(block)
+        if not base:
+            continue
+        patched_block, ok = insert_after_status_location(block, mining_locations_snippet(base))
+        if not ok:
+            continue
+        updated_text = updated_text[:start] + patched_block + updated_text[end:]
+        file_changed = True
+        break
+
+    if not file_changed:
+        patched, ok = patch_regex_allowlist(updated_text)
+        if ok:
+            updated_text = patched
+            file_changed = True
+
+    if file_changed and updated_text != text:
+        path.write_text(updated_text, encoding="utf-8")
         changed.append(str(path))
 
 if not changed:
