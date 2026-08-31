@@ -1,0 +1,141 @@
+name: Provision Faucet VPC Endpoints
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      VPC_ID: vpc-0cd862d72cf8165fa
+      LAMBDA_SG_ID: sg-057c9893359ab2300
+      SUBNET_1: subnet-0c04f19843bf6a401
+      SUBNET_2: subnet-0f213d036a08fd543
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Test route table resolution
+        shell: bash
+        run: deployment/testnet/public-rpc/scripts/tests/resolve-lambda-route-tables.test.sh
+
+      - name: Print safe GitHub OIDC claims
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(curl -fsS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")"
+          token="$(printf '%s' "$response" | jq -r '.value')"
+          TOKEN="$token" python3 - <<'PY'
+          import base64, json, os
+          payload = os.environ['TOKEN'].split('.')[1]
+          payload += '=' * (-len(payload) % 4)
+          claims = json.loads(base64.urlsafe_b64decode(payload))
+          for key in ('aud', 'sub', 'repository', 'ref'):
+              print(f'{key}={claims.get(key)}')
+          PY
+
+      - name: Configure AWS credentials from GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+
+      - name: Allow private HTTPS within Lambda security group
+        shell: bash
+        run: |
+          set -euo pipefail
+          sg="$(aws ec2 describe-security-groups --group-ids "$LAMBDA_SG_ID" --output json)"
+          if ! printf '%s' "$sg" | jq -e --arg sg "$LAMBDA_SG_ID" '.SecurityGroups[0].IpPermissions[]? | select(.IpProtocol=="tcp" and .FromPort==443 and .ToPort==443) | .UserIdGroupPairs[]? | select(.GroupId==$sg)' >/dev/null; then
+            aws ec2 authorize-security-group-ingress --group-id "$LAMBDA_SG_ID" --ip-permissions "IpProtocol=tcp,FromPort=443,ToPort=443,UserIdGroupPairs=[{GroupId=${LAMBDA_SG_ID},Description='HTTPS from Sudharma Lambda to its private AWS endpoints'}]"
+          fi
+          sg="$(aws ec2 describe-security-groups --group-ids "$LAMBDA_SG_ID" --output json)"
+          if ! printf '%s' "$sg" | jq -e --arg sg "$LAMBDA_SG_ID" '.SecurityGroups[0].IpPermissionsEgress[]? | select(.IpProtocol=="tcp" and .FromPort==443 and .ToPort==443) | .UserIdGroupPairs[]? | select(.GroupId==$sg)' >/dev/null; then
+            aws ec2 authorize-security-group-egress --group-id "$LAMBDA_SG_ID" --ip-permissions "IpProtocol=tcp,FromPort=443,ToPort=443,UserIdGroupPairs=[{GroupId=${LAMBDA_SG_ID},Description='HTTPS to Sudharma private AWS endpoints'}]"
+          fi
+
+      - name: Create or reuse Secrets Manager interface endpoint
+        id: secrets_endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          SERVICE='com.amazonaws.ap-south-1.secretsmanager'
+          VPCE_ID="$(aws ec2 describe-vpc-endpoints --filters "Name=vpc-id,Values=${VPC_ID}" "Name=service-name,Values=${SERVICE}" --query 'VpcEndpoints[?State!=`deleted`] | [0].VpcEndpointId' --output text)"
+          if [ "$VPCE_ID" = 'None' ] || [ -z "$VPCE_ID" ]; then
+            VPCE_ID="$(aws ec2 create-vpc-endpoint --vpc-id "$VPC_ID" --vpc-endpoint-type Interface --service-name "$SERVICE" --subnet-ids "$SUBNET_1" "$SUBNET_2" --security-group-ids "$LAMBDA_SG_ID" --private-dns-enabled --query 'VpcEndpoint.VpcEndpointId' --output text)"
+          fi
+          echo "vpce_id=${VPCE_ID}" >> "$GITHUB_OUTPUT"
+          for attempt in $(seq 1 40); do
+            state="$(aws ec2 describe-vpc-endpoints --vpc-endpoint-ids "$VPCE_ID" --query 'VpcEndpoints[0].State' --output text)"
+            echo "Secrets Manager endpoint ${VPCE_ID} state: ${state}"
+            [ "$state" = 'available' ] && break
+            if [ "$state" = 'failed' ] || [ "$state" = 'rejected' ] || [ "$state" = 'deleted' ]; then exit 1; fi
+            sleep 5
+          done
+          [ "$(aws ec2 describe-vpc-endpoints --vpc-endpoint-ids "$VPCE_ID" --query 'VpcEndpoints[0].State' --output text)" = 'available' ]
+
+      - name: Create or reuse DynamoDB gateway endpoint
+        id: dynamodb_endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          SERVICE='com.amazonaws.ap-south-1.dynamodb'
+          mapfile -t ROUTE_TABLE_IDS < <(deployment/testnet/public-rpc/scripts/resolve-lambda-route-tables.sh "$VPC_ID" "$SUBNET_1" "$SUBNET_2")
+          if [ "${#ROUTE_TABLE_IDS[@]}" -eq 0 ]; then
+            echo 'No Lambda subnet route tables were resolved.' >&2
+            exit 1
+          fi
+          printf 'Effective Lambda route table: %s\n' "${ROUTE_TABLE_IDS[@]}"
+          VPCE_ID="$(aws ec2 describe-vpc-endpoints --filters "Name=vpc-id,Values=${VPC_ID}" "Name=service-name,Values=${SERVICE}" --query 'VpcEndpoints[?State!=`deleted`] | [0].VpcEndpointId' --output text)"
+          if [ "$VPCE_ID" = 'None' ] || [ -z "$VPCE_ID" ]; then
+            VPCE_ID="$(aws ec2 create-vpc-endpoint --vpc-id "$VPC_ID" --vpc-endpoint-type Gateway --service-name "$SERVICE" --route-table-ids "${ROUTE_TABLE_IDS[@]}" --query 'VpcEndpoint.VpcEndpointId' --output text)"
+          else
+            mapfile -t CURRENT_ROUTE_TABLE_IDS < <(aws ec2 describe-vpc-endpoints --vpc-endpoint-ids "$VPCE_ID" --query 'VpcEndpoints[0].RouteTableIds[]' --output text | tr '\t' '\n')
+            MISSING_ROUTE_TABLE_IDS=()
+            for route_table_id in "${ROUTE_TABLE_IDS[@]}"; do
+              found=false
+              for current_route_table_id in "${CURRENT_ROUTE_TABLE_IDS[@]}"; do
+                if [ "$route_table_id" = "$current_route_table_id" ]; then found=true; break; fi
+              done
+              if [ "$found" = false ]; then MISSING_ROUTE_TABLE_IDS+=("$route_table_id"); fi
+            done
+            if [ "${#MISSING_ROUTE_TABLE_IDS[@]}" -gt 0 ]; then
+              aws ec2 modify-vpc-endpoint --vpc-endpoint-id "$VPCE_ID" --add-route-table-ids "${MISSING_ROUTE_TABLE_IDS[@]}" >/dev/null
+            fi
+          fi
+          echo "vpce_id=${VPCE_ID}" >> "$GITHUB_OUTPUT"
+          for attempt in $(seq 1 40); do
+            state="$(aws ec2 describe-vpc-endpoints --vpc-endpoint-ids "$VPCE_ID" --query 'VpcEndpoints[0].State' --output text)"
+            echo "DynamoDB endpoint ${VPCE_ID} state: ${state}"
+            [ "$state" = 'available' ] && break
+            if [ "$state" = 'failed' ] || [ "$state" = 'rejected' ] || [ "$state" = 'deleted' ]; then exit 1; fi
+            sleep 5
+          done
+          [ "$(aws ec2 describe-vpc-endpoints --vpc-endpoint-ids "$VPCE_ID" --query 'VpcEndpoints[0].State' --output text)" = 'available' ]
+
+      - name: Allow Lambda HTTPS egress to DynamoDB prefix list
+        shell: bash
+        run: |
+          set -euo pipefail
+          DDB_PREFIX_LIST_ID="$(aws ec2 describe-prefix-lists --filters 'Name=prefix-list-name,Values=com.amazonaws.ap-south-1.dynamodb' --query 'PrefixLists[0].PrefixListId' --output text)"
+          if [ -z "$DDB_PREFIX_LIST_ID" ] || [ "$DDB_PREFIX_LIST_ID" = 'None' ]; then
+            echo 'Could not resolve the DynamoDB managed prefix list.' >&2
+            exit 1
+          fi
+          echo "DynamoDB prefix list: ${DDB_PREFIX_LIST_ID}"
+          sg="$(aws ec2 describe-security-groups --group-ids "$LAMBDA_SG_ID" --output json)"
+          if ! printf '%s' "$sg" | jq -e --arg pl "$DDB_PREFIX_LIST_ID" '.SecurityGroups[0].IpPermissionsEgress[]? | select(.IpProtocol=="tcp" and .FromPort==443 and .ToPort==443) | .PrefixListIds[]? | select(.PrefixListId==$pl)' >/dev/null; then
+            aws ec2 authorize-security-group-egress --group-id "$LAMBDA_SG_ID" --ip-permissions "IpProtocol=tcp,FromPort=443,ToPort=443,PrefixListIds=[{PrefixListId=${DDB_PREFIX_LIST_ID},Description='HTTPS to DynamoDB gateway endpoint'}]"
+          fi
+
+      - name: Verify endpoint state and restricted Lambda egress
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws ec2 describe-vpc-endpoints --vpc-endpoint-ids '${{ steps.secrets_endpoint.outputs.vpce_id }}' '${{ steps.dynamodb_endpoint.outputs.vpce_id }}' --query 'VpcEndpoints[].{Id:VpcEndpointId,Service:ServiceName,Type:VpcEndpointType,State:State,PrivateDns:PrivateDnsEnabled,Subnets:SubnetIds,RouteTables:RouteTableIds,SecurityGroups:Groups[].GroupId}' --output json
+          aws ec2 describe-security-groups --group-ids "$LAMBDA_SG_ID" --query 'SecurityGroups[].{GroupId:GroupId,Ingress:IpPermissions,Egress:IpPermissionsEgress}' --output json

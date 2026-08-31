@@ -1,0 +1,53 @@
+name: Inspect Faucet VPC
+
+# Diagnostic workflow for the staged testnet faucet. Keep this workflow safe:
+# never read or print the faucet secret value.
+# Diagnostic run 12 fresh trigger 2026-08-26.
+on:
+  push:
+    branches:
+      - feature/public-testnet-wallet-v2
+    paths:
+      - '.github/workflows/inspect-faucet-vpc.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Configure AWS credentials from GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+      - name: Read Lambda configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws lambda get-function-configuration --function-name Sudharma-Testnet-Wallet-Proxy --query '{State:State,LastUpdateStatus:LastUpdateStatus,Timeout:Timeout,VpcId:VpcConfig.VpcId,SubnetIds:VpcConfig.SubnetIds,SecurityGroupIds:VpcConfig.SecurityGroupIds,Environment:Environment.Variables}' --output json
+      - name: Inspect VPC endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          VPC_ID="$(aws lambda get-function-configuration --function-name Sudharma-Testnet-Wallet-Proxy --query 'VpcConfig.VpcId' --output text)"
+          aws ec2 describe-vpc-endpoints --filters "Name=vpc-id,Values=${VPC_ID}" --query 'VpcEndpoints[].{VpcEndpointId:VpcEndpointId,Service:ServiceName,Type:VpcEndpointType,State:State,PrivateDns:PrivateDnsEnabled,SubnetIds:SubnetIds,RouteTableIds:RouteTableIds,SecurityGroupIds:Groups[].GroupId}' --output json
+      - name: Inspect Lambda security group
+        shell: bash
+        run: |
+          set -euo pipefail
+          SG_IDS="$(aws lambda get-function-configuration --function-name Sudharma-Testnet-Wallet-Proxy --query 'VpcConfig.SecurityGroupIds' --output text)"
+          aws ec2 describe-security-groups --group-ids $SG_IDS --query 'SecurityGroups[].{GroupId:GroupId,Ingress:IpPermissions,Egress:IpPermissionsEgress}' --output json
+      - name: Inspect latest faucet request failure logs
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== Latest Lambda faucet request diagnostics; secret values are never requested ==='
+          aws logs tail /aws/lambda/Sudharma-Testnet-Wallet-Proxy --since 4h --format short \
+            | grep -E -A 50 -B 10 'faucet|initial|grant|payout|broadcast|transaction|tx|temporarily unavailable|Task timed out|AccessDenied|ValidationException|ConditionalCheckFailed|ResourceNotFound|ECONN|ETIMEDOUT|ERROR|Error|REPORT' \
+            | tail -n 500 || true

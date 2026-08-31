@@ -20,13 +20,13 @@ type output struct {
 
 func main() {
 	value := output{
-		Name: testnet.Name,
-		Slug: testnet.Slug,
+		Name:              testnet.Name,
+		Slug:              testnet.Slug,
 		ProtocolNetworkID: testnet.ProtocolNetworkID,
-		GenesisHash: testnet.GenesisHash(),
-		DefaultP2PPort: testnet.DefaultP2PPort,
-		DefaultRPCPort: testnet.DefaultRPCPort,
-		DefaultDataDir: testnet.DefaultDataDir,
+		GenesisHash:       testnet.GenesisHash(),
+		DefaultP2PPort:    testnet.DefaultP2PPort,
+		DefaultRPCPort:    testnet.DefaultRPCPort,
+		DefaultDataDir:    testnet.DefaultDataDir,
 	}
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")

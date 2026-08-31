@@ -15,7 +15,10 @@ const mutatingWorkflows = [
   '.github/workflows/faucet-prepared-payout-recovery.yml',
   '.github/workflows/faucet-recovery-retry.yml',
   '.github/workflows/faucet-refill.yml',
+  '.github/workflows/gpu-staging-aws-capability-preflight.yml',
+  '.github/workflows/provision-faucet-endpoints.yml',
   '.github/workflows/testnet-public-rpc.yml',
+  '.github/workflows/verify-testnet-signed-transfer-once.yml',
 ];
 
 function triggerBlock(source) {

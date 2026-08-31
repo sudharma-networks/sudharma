@@ -134,26 +134,9 @@ func TestBlockGossipTriangleNoDuplicateCommit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if nodeA.PeerCount() != 2 {
-		t.Fatalf(
-			"expected node A peer count 2, got %d",
-			nodeA.PeerCount(),
-		)
-	}
-
-	if nodeB.PeerCount() != 2 {
-		t.Fatalf(
-			"expected node B peer count 2, got %d",
-			nodeB.PeerCount(),
-		)
-	}
-
-	if nodeC.PeerCount() != 2 {
-		t.Fatalf(
-			"expected node C peer count 2, got %d",
-			nodeC.PeerCount(),
-		)
-	}
+	waitForPeerCount(t, nodeA, 2)
+	waitForPeerCount(t, nodeB, 2)
+	waitForPeerCount(t, nodeC, 2)
 
 	minerWallet, err := wallet.NewWallet()
 

@@ -1,0 +1,102 @@
+name: GPU Staging AWS Capability Preflight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: ap-south-1
+      VPC_ID: vpc-0cd862d72cf8165fa
+      SUBNET_ID: subnet-0c04f19843bf6a401
+    steps:
+      - name: Configure AWS credentials from GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+
+      - name: Confirm read-only environment discovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws sts get-caller-identity --query 'Arn' --output text
+          aws ec2 describe-vpcs --vpc-ids "$VPC_ID" --query 'Vpcs[0].{VpcId:VpcId,State:State}' --output json
+          aws ec2 describe-subnets --subnet-ids "$SUBNET_ID" --query 'Subnets[0].{SubnetId:SubnetId,VpcId:VpcId,Az:AvailabilityZone,PublicIp:MapPublicIpOnLaunch}' --output json
+          aws ec2 describe-instances --filters 'Name=tag:Name,Values=Sudharma-*' 'Name=instance-state-name,Values=pending,running,stopping,stopped' --query 'Reservations[].Instances[].{InstanceId:InstanceId,Name:Tags[?Key==`Name`]|[0].Value,State:State.Name}' --output json
+
+      - name: Resolve current Ubuntu 24.04 amd64 AMI
+        id: ami
+        shell: bash
+        run: |
+          set -euo pipefail
+          AMI_ID="$(aws ec2 describe-images \
+            --owners 099720109477 \
+            --filters 'Name=name,Values=ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*' 'Name=state,Values=available' \
+            --query 'reverse(sort_by(Images,&CreationDate))[0].ImageId' \
+            --output text)"
+          if [ -z "$AMI_ID" ] || [ "$AMI_ID" = "None" ]; then
+            echo 'Unable to resolve Ubuntu 24.04 amd64 AMI.' >&2
+            exit 1
+          fi
+          echo "ami_id=$AMI_ID" >> "$GITHUB_OUTPUT"
+          echo "resolved_ami=$AMI_ID"
+
+      - name: Dry-run dedicated staging security group creation
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          OUTPUT="$(aws ec2 create-security-group \
+            --dry-run \
+            --group-name Sudharma-GPU-Staging-DryRun \
+            --description 'Sudharma isolated GPU staging verifier dry-run' \
+            --vpc-id "$VPC_ID" 2>&1)"
+          STATUS=$?
+          set -e
+          printf '%s\n' "$OUTPUT"
+          if printf '%s' "$OUTPUT" | grep -q 'DryRunOperation'; then
+            echo 'security-group-create-dry-run=authorized'
+            exit 0
+          fi
+          echo "security-group-create-dry-run=not-authorized-or-unsupported status=$STATUS" >&2
+          exit 1
+
+      - name: Dry-run isolated t3.micro staging instance launch
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          OUTPUT="$(aws ec2 run-instances \
+            --dry-run \
+            --image-id '${{ steps.ami.outputs.ami_id }}' \
+            --instance-type t3.micro \
+            --subnet-id "$SUBNET_ID" \
+            --min-count 1 \
+            --max-count 1 \
+            --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=Sudharma-GPU-Staging-DryRun}]' 2>&1)"
+          STATUS=$?
+          set -e
+          printf '%s\n' "$OUTPUT"
+          if printf '%s' "$OUTPUT" | grep -q 'DryRunOperation'; then
+            echo 'instance-launch-dry-run=authorized'
+            exit 0
+          fi
+          echo "instance-launch-dry-run=not-authorized status=$STATUS" >&2
+          exit 1
+
+      - name: Record safety boundary
+        shell: bash
+        run: |
+          echo 'preflight=dry-run-only'
+          echo 'aws-resources-created=0'
+          echo 'seed-services=untouched'
+          echo 'consensus-activation=disabled'

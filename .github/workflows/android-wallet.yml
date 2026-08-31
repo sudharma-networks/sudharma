@@ -1,0 +1,112 @@
+name: Android Wallet
+
+on:
+  push:
+    branches:
+      - feature/android-wallet-v0.1
+      - feature/android-wallet-branding-v0.1-finalwork
+      - feature/public-testnet-wallet-v2
+    paths:
+      - 'mobile/android/**'
+      - '.github/workflows/android-wallet.yml'
+      - 'docs/superpowers/specs/2026-08-25-android-wallet-v0.1.md'
+      - 'docs/superpowers/plans/2026-08-25-android-wallet-v0.1.md'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'mobile/android/**'
+      - '.github/workflows/android-wallet.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Unit tests
+        working-directory: mobile/android
+        run: gradle --no-daemon :app:testDebugUnitTest
+
+      - name: Android lint
+        working-directory: mobile/android
+        run: gradle --no-daemon :app:lintDebug
+
+      - name: Build testnet APK
+        working-directory: mobile/android
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Stage named APK and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp mobile/android/app/build/outputs/apk/debug/app-debug.apk dist/Sudharma-Wallet-0.1.0-testnet.apk
+          sha256sum dist/Sudharma-Wallet-0.1.0-testnet.apk > dist/Sudharma-Wallet-0.1.0-testnet.apk.sha256
+
+      - name: Upload verified testnet APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: sudharma-wallet-0.1.0-testnet
+          path: |
+            dist/Sudharma-Wallet-0.1.0-testnet.apk
+            dist/Sudharma-Wallet-0.1.0-testnet.apk.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish public testnet release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/feature/public-testnet-wallet-v2'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG='android-wallet-v0.1.0-testnet'
+          TITLE='Sudharma Android Wallet v0.1.0 Testnet'
+          NOTES=$(cat <<'EOF'
+          Sudharma Android Wallet for the Sudharma Public Testnet.
+
+          This is testnet software for testing only. Test SUDH has no promised monetary value.
+
+          Highlights:
+          - Automatic Sudharma Public Testnet connection
+          - Balance, receive and send functionality
+          - Sudharma branding
+          - Testnet faucet/challenge integration under staged public-testnet verification
+
+          Security:
+          - No faucet private key is embedded in the APK.
+          - Do not use this development wallet for assets of real-world value.
+          EOF
+          )
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              dist/Sudharma-Wallet-0.1.0-testnet.apk \
+              dist/Sudharma-Wallet-0.1.0-testnet.apk.sha256 \
+              --clobber
+          else
+            gh release create "$TAG" \
+              dist/Sudharma-Wallet-0.1.0-testnet.apk \
+              dist/Sudharma-Wallet-0.1.0-testnet.apk.sha256 \
+              --target "$GITHUB_SHA" \
+              --title "$TITLE" \
+              --notes "$NOTES" \
+              --prerelease
+          fi

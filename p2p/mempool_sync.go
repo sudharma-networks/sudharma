@@ -3,8 +3,18 @@ package p2p
 import (
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/sudharma-networks/sudharma/transactions"
+)
+
+const (
+	// Mempool responses are delivered by the asynchronous peer read loop. Give
+	// public-network peers enough quiet time to return a snapshot after chain
+	// synchronization before callers immediately consume the mempool.
+	mempoolSyncQuietPeriod = 500 * time.Millisecond
+	mempoolSyncMaxWait     = 2 * time.Second
+	mempoolSyncPoll        = 10 * time.Millisecond
 )
 
 // syncMempoolToPeer sends a deterministic snapshot of this node's
@@ -72,6 +82,36 @@ func (n *Node) syncMempoolToPeer(
 	return sent, nil
 }
 
+// waitForMempoolSyncSettle gives the asynchronous peer reader enough time to
+// process the requested mempool snapshot before SyncMempoolWithPeer returns.
+// A bounded quiet period handles delayed public-network responses while any
+// observed inbound transaction resets the quiet window so a burst can finish.
+func (n *Node) waitForMempoolSyncSettle() {
+	if n == nil {
+		return
+	}
+
+	lastCount := n.MempoolCount()
+	quietUntil := time.Now().Add(mempoolSyncQuietPeriod)
+	deadline := time.Now().Add(mempoolSyncMaxWait)
+	ticker := time.NewTicker(mempoolSyncPoll)
+	defer ticker.Stop()
+
+	for {
+		now := time.Now()
+		if !now.Before(quietUntil) || !now.Before(deadline) {
+			return
+		}
+
+		<-ticker.C
+		count := n.MempoolCount()
+		if count != lastCount {
+			lastCount = count
+			quietUntil = time.Now().Add(mempoolSyncQuietPeriod)
+		}
+	}
+}
+
 // SyncMempoolWithPeer performs explicit post-chain-sync mempool exchange.
 //
 // IMPORTANT:
@@ -82,7 +122,8 @@ func (n *Node) syncMempoolToPeer(
 // The method:
 //  1. sends this node's current pending transactions to the peer;
 //  2. asks the peer to send its current pending transactions back;
-//  3. asks diverse connected peers for independent discovery snapshots.
+//  3. asks diverse connected peers for independent discovery snapshots;
+//  4. waits for the asynchronous inbound snapshot to settle before returning.
 func (n *Node) SyncMempoolWithPeer(
 	nodeID string,
 ) error {
@@ -164,6 +205,8 @@ func (n *Node) SyncMempoolWithPeer(
 			failed,
 		)
 	}
+
+	n.waitForMempoolSyncSettle()
 
 	return nil
 }

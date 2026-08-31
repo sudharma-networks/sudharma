@@ -26,6 +26,18 @@ wallets/
 *.secret
 secrets/
 
+# Android wallet local/build/signing data
+mobile/android/.gradle/
+mobile/android/**/build/
+mobile/android/local.properties
+mobile/android/keystore.properties
+mobile/android/google-services.json
+mobile/android/**/google-services.json
+mobile/android/*.jks
+mobile/android/*.keystore
+*.apk
+*.aab
+
 # Node runtime data
 data/
 data-*/
@@ -53,6 +65,7 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.log
+.worktrees/
 
 # Local migration backup
 go.mod.backup-before-step55e7

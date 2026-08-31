@@ -47,14 +47,26 @@ func TestPublicTestnetRehearsal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := seed.SetChain(seedChain); err != nil { t.Fatal(err) }
-	if err := seed.SetState(seedState); err != nil { t.Fatal(err) }
-	if err := joiner.SetChain(joinChain); err != nil { t.Fatal(err) }
-	if err := joiner.SetState(joinState); err != nil { t.Fatal(err) }
+	if err := seed.SetChain(seedChain); err != nil {
+		t.Fatal(err)
+	}
+	if err := seed.SetState(seedState); err != nil {
+		t.Fatal(err)
+	}
+	if err := joiner.SetChain(joinChain); err != nil {
+		t.Fatal(err)
+	}
+	if err := joiner.SetState(joinState); err != nil {
+		t.Fatal(err)
+	}
 
-	if err := seed.Start(); err != nil { t.Fatal(err) }
+	if err := seed.Start(); err != nil {
+		t.Fatal(err)
+	}
 	defer seed.Stop()
-	if err := joiner.Start(); err != nil { t.Fatal(err) }
+	if err := joiner.Start(); err != nil {
+		t.Fatal(err)
+	}
 
 	peer, err := joiner.Connect(seed.ListenAddress)
 	if err != nil {
@@ -78,14 +90,24 @@ func TestPublicTestnetRehearsal(t *testing.T) {
 	dataDir := t.TempDir()
 	chainPath := filepath.Join(dataDir, "sudharma-chain.json")
 	statePath := filepath.Join(dataDir, "sudharma-state.json")
-	if err := joinChain.SaveToFile(chainPath); err != nil { t.Fatal(err) }
-	if err := joinState.SaveToFile(statePath); err != nil { t.Fatal(err) }
-	if err := joiner.Stop(); err != nil { t.Fatal(err) }
+	if err := joinChain.SaveToFile(chainPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := joinState.SaveToFile(statePath); err != nil {
+		t.Fatal(err)
+	}
+	if err := joiner.Stop(); err != nil {
+		t.Fatal(err)
+	}
 
 	restartedChain, err := blockchain.LoadChainFromFile(chainPath)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	restartedState, err := blockchain.LoadStateFromFile(statePath)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	if restartedChain.Height() != seedChain.Height() || restartedChain.Tip().Hash() != seedChain.Tip().Hash() {
 		t.Fatalf("persisted chain did not survive restart")
 	}
@@ -94,9 +116,19 @@ func TestPublicTestnetRehearsal(t *testing.T) {
 	}
 
 	restartedNode, err := p2p.NewNode("testnet-rehearsal-restarted", "127.0.0.1:0", restartedChain.Height(), restartedChain.Tip().Hash())
-	if err != nil { t.Fatal(err) }
-	if err := restartedNode.SetChain(restartedChain); err != nil { t.Fatal(err) }
-	if err := restartedNode.SetState(restartedState); err != nil { t.Fatal(err) }
-	if err := restartedNode.Start(); err != nil { t.Fatal(err) }
-	if err := restartedNode.Stop(); err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restartedNode.SetChain(restartedChain); err != nil {
+		t.Fatal(err)
+	}
+	if err := restartedNode.SetState(restartedState); err != nil {
+		t.Fatal(err)
+	}
+	if err := restartedNode.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := restartedNode.Stop(); err != nil {
+		t.Fatal(err)
+	}
 }
