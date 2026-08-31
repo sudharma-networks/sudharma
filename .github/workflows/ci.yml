@@ -56,6 +56,9 @@ jobs:
       - name: Verify testnet RC readiness contract
         run: bash ./scripts/check-testnet-rc-readiness_test.sh
 
+      - name: Verify testnet go-live operator toolkit
+        run: bash ./scripts/check-testnet-go-live-readiness_test.sh
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:

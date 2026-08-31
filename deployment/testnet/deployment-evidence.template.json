@@ -1,0 +1,50 @@
+{
+  "kind": "sudharma-testnet-deployment-evidence",
+  "recorded_at": "2026-08-31T00:00:00Z",
+  "rc_candidate_commit": "REPLACE_WITH_RC_GIT_COMMIT_SHA",
+  "components": {
+    "seed1": {
+      "commit_or_artifact_sha256": "REPLACE_WITH_SEED1_ARTIFACT_SHA256",
+      "service_unit": "sudharma-testnet.service",
+      "observed_height": 0
+    },
+    "seed2": {
+      "commit_or_artifact_sha256": "REPLACE_WITH_SEED2_ARTIFACT_SHA256",
+      "service_unit": "sudharma-testnet.service",
+      "observed_height": 0
+    },
+    "public_rpc_lambda": {
+      "function_name": "Sudharma-Testnet-Wallet-Proxy",
+      "code_sha256": "REPLACE_WITH_LAMBDA_CODE_SHA256",
+      "faucet_enabled": false
+    },
+    "demand_miner_seed1": {
+      "commit_or_artifact_sha256": "REPLACE_WITH_DEMAND_MINER_SEED1_SHA256"
+    },
+    "demand_miner_seed2": {
+      "commit_or_artifact_sha256": "REPLACE_WITH_DEMAND_MINER_SEED2_SHA256"
+    },
+    "website": {
+      "build_id": "REPLACE_WITH_WEBSITE_BUILD_ID",
+      "deployment_url": "REPLACE_WITH_WEBSITE_URL"
+    },
+    "android_wallet": {
+      "tag": "REPLACE_WITH_APK_TAG",
+      "commit": "REPLACE_WITH_APK_SOURCE_COMMIT",
+      "checksum_sha256": "REPLACE_WITH_APK_SHA256"
+    }
+  },
+  "public_rpc_smoke": {
+    "rpc_base_url": "https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com",
+    "collected_at": "2026-08-31T00:00:00Z",
+    "ready": {},
+    "status": {},
+    "explorer_status": {},
+    "faucet_health": {},
+    "visitor_total": null
+  },
+  "operator_signoff": {
+    "reviewed_by": "REPLACE_WITH_OPERATOR_IDENTITY",
+    "notes": "Manual deploy workflows executed with workflow_dispatch only."
+  }
+}

@@ -30,7 +30,13 @@ for path in \
   web/package.json \
   mobile/android \
   cmd/sudharma-testnet-manifest \
-  docs/audits/2026-08-31-testnet-rc-attestation.md; do
+  docs/audits/2026-08-31-testnet-rc-attestation.md \
+  docs/audits/2026-08-31-testnet-go-live-runbook.md \
+  deployment/testnet/deployment-evidence.template.json \
+  scripts/collect-testnet-deployment-evidence.mjs \
+  scripts/verify-testnet-deployment-evidence.sh \
+  scripts/verify-testnet-deployment-evidence.test.mjs \
+  scripts/check-testnet-go-live-readiness_test.sh; do
   [ -e "$path" ] || fail "$path is missing"
 done
 

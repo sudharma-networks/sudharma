@@ -38,16 +38,18 @@ the recovery line's unique changes are integrated.
    secret-safety tests.
 4. Reconcile the recovery line file by file (**Stage 1 complete**).
 5. Integrate explorer API contract and website foundation (**Stage 2 complete**).
-6. Verify the complete testnet candidate at one exact commit (**Stage 3 complete
-   on guard branch**): RC readiness contract, attestation generator, explorer
-   rehearsal smoke, and operator evidence checklist documented in
-   `docs/audits/2026-08-31-testnet-rc-attestation.md`.
-7. Keep GPU staging and Mainnet Tokenomics v1 on independent review lines.
+6. Verify the complete testnet candidate at one exact commit (**Stage 3 complete** on
+   `5f92589`: RC readiness contract, attestation generator, explorer rehearsal smoke).
+7. Operator-gated go-live toolkit (**Stage 4 complete** on guard branch): deployment
+   evidence template, read-only public RPC collector, evidence verifier, and manual
+   workflow runbook in `docs/audits/2026-08-31-testnet-go-live-runbook.md`.
+8. Keep GPU staging and Mainnet Tokenomics v1 on independent review lines.
 
-## Stage 4 scope (next)
+## Stage 5 scope (next)
 
-Operator-gated testnet go-live: manual deploy workflows only, with deployed-revision
-evidence matched against the RC commit before declaring live testnet readiness.
+Execute manual deploy workflows in runbook order, collect deployment evidence, verify
+against the RC commit, and declare live testnet readiness only after operator sign-off.
+No automated go-live is permitted from CI.
 
 ## Required evidence before testnet deployment
 

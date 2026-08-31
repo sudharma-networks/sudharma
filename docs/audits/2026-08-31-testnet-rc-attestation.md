@@ -2,7 +2,7 @@
 
 **Recorded:** 2026-08-31  
 **Candidate branch:** `cursor/canonical-integration-guard-8441`  
-**Candidate commit:** `07d5c2cf277264f04652eb8331a73d838cbf7330` (regenerate with `bash scripts/generate-testnet-rc-attestation.sh` after later commits)
+**Candidate commit:** `5f9258918fb301009a4e37ceb3f522906a8fd699` (regenerate with `bash scripts/generate-testnet-rc-attestation.sh` after later commits)
 
 This document records source-control readiness for a public testnet release candidate.
 It is **not** a deployment attestation. Live seed, Lambda, demand-miner, website, and APK
@@ -15,7 +15,7 @@ revisions still require operator evidence before any go-live action.
 | 0 | Canonical wallet/faucet/demand-miner spine | Complete |
 | 1 | Faucet recovery reconciliation | Complete |
 | 2 | Explorer API + website foundation | Complete |
-| 3 | RC verification at one commit | Complete (source-control) |
+| 3 | RC verification at one commit | Complete — CI green on `5f92589` |
 
 ## Contract verification (automated)
 
