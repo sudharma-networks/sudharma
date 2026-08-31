@@ -37,8 +37,10 @@ aws s3api head-bucket --bucket "$bucket" >/dev/null 2>&1 || {
   exit 2
 }
 
-aws s3 cp "$out_dir/sudharma-demand-miner" "s3://${bucket}/${prefix}/sudharma-demand-miner" --region "$region"
-aws s3 cp "$out_dir/sudharmad" "s3://${bucket}/${prefix}/sudharmad" --region "$region"
+aws s3 cp "$out_dir/sudharma-demand-miner" "s3://${bucket}/${prefix}/sudharma-demand-miner" \
+  --only-show-errors --region "$region"
+aws s3 cp "$out_dir/sudharmad" "s3://${bucket}/${prefix}/sudharmad" \
+  --only-show-errors --region "$region"
 
 demand_url="$(aws s3 presign "s3://${bucket}/${prefix}/sudharma-demand-miner" --expires-in 900 --region "$region")"
 node_url="$(aws s3 presign "s3://${bucket}/${prefix}/sudharmad" --expires-in 900 --region "$region")"

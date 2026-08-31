@@ -22,7 +22,8 @@ aws s3api head-bucket --bucket "$bucket" >/dev/null 2>&1 || {
   exit 2
 }
 
-aws s3 cp "$out_dir/sudharma-rpcd" "s3://${bucket}/${prefix}/sudharma-rpcd" --region "$region"
+aws s3 cp "$out_dir/sudharma-rpcd" "s3://${bucket}/${prefix}/sudharma-rpcd" \
+  --only-show-errors --region "$region"
 rpcd_url="$(aws s3 presign "s3://${bucket}/${prefix}/sudharma-rpcd" --expires-in 900 --region "$region")"
 
 jq -nc \
