@@ -1,0 +1,34 @@
+name: Treasury Readonly Audit
+
+on:
+  push:
+    branches:
+      - feature/website-foundation
+    paths:
+      - '.github/workflows/treasury-readonly-audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query public explorer treasury history
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com'
+          address='16d7dc9ec0495109007860a584c7cf9055da9abf'
+          url="$base/v1/explorer/addresses/$address?limit=100"
+          echo "TREASURY_ADDRESS=$address"
+          curl --fail --silent --show-error --max-time 20 "$url" -o treasury.json
+          jq '{address,balance,confirmed_nonce,next_nonce,next_cursor,transaction_count:(.transactions|length)}' treasury.json
+          echo '--- TRANSACTIONS ---'
+          jq -r '.transactions[]? | [.transaction.id,.transaction.from,.transaction.to,(.transaction.amount|tostring),(.transaction.fee|tostring),(.status//""),(.block_height//0|tostring),(.confirmations//0|tostring)] | @tsv' treasury.json
+          echo '--- SUMMARY ---'
+          jq -r --arg address "$address" '
+            [ .transactions[]? ] as $txs |
+            ($txs | map(select(.transaction.to == $address)) | map(.transaction.amount) | add // 0) as $incoming |
+            ($txs | map(select(.transaction.from == $address)) | map(.transaction.amount + .transaction.fee) | add // 0) as $outgoing |
+            "balance_base_units=\(.balance)\nbalance_sudh=\((.balance / 100000000))\nincoming_visible_base_units=\($incoming)\noutgoing_visible_base_units=\($outgoing)"' treasury.json
