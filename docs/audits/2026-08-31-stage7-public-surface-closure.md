@@ -33,9 +33,13 @@ running total instead, set `web/public/data/visitor-counter.json` back to the
 ### Workflow dispatch caveat
 
 `promote-website-foundation.yml` cannot be dispatched with `gh workflow run` until it
-exists on the repository default branch (GitHub requirement). Until PR #69 merges,
-promote by pushing the `web/` tree onto `feature/website-foundation` directly, excluding
-build directories (`web/.next`, `web/out`, `web/node_modules`, `web/test-results`).
+exists on the repository default branch (GitHub requirement). Until PR #69 merges, use
+the local promote script, which excludes build directories automatically:
+
+```bash
+bash ./scripts/promote-website-tree.sh HEAD           # dry run
+bash ./scripts/promote-website-tree.sh HEAD --push    # publish
+```
 
 ## Operator steps (PowerShell)
 
@@ -75,6 +79,7 @@ Amplify rebuilds from `feature/website-foundation`. Confirm `/faucet` no longer 
 
 - Ported approved 51M mainnet tokenomics presentation from `feature/website-foundation`
 - `scripts/verify-faucet-browser-cors.mjs`
+- `scripts/promote-website-tree.sh` (local promote path, dry-run by default)
 - `.github/workflows/promote-website-foundation.yml` (manual-only)
 
 ## Out of scope
