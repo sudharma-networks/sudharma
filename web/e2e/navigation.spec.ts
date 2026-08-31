@@ -1,7 +1,9 @@
 import { test, expect } from "@playwright/test";
 import releaseSnapshot from "../public/data/github-releases.json";
+import visitorCounterConfig from "../public/data/visitor-counter.json";
 
-const visitorEndpoint = "https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com/v1/website/visitors";
+const visitorEndpoint = visitorCounterConfig.endpoint;
+const mockedVisitorTotal = 123;
 
 const walletArtifact = releaseSnapshot.artifacts.find(
   (artifact) => artifact.slot === "android-wallet" && artifact.status === "available",
@@ -12,12 +14,12 @@ test("Mining and Downloads navigation opens full pages", async ({ page }) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ total: 123 })
+      body: JSON.stringify({ total: mockedVisitorTotal })
     });
   });
   await page.goto("/");
   await expect(page.getByText("Website Visitors")).toBeVisible();
-  await expect(page.getByText("123", { exact: true })).toBeVisible();
+  await expect(page.getByText(String(mockedVisitorTotal), { exact: true })).toBeVisible();
   await page.getByRole("link", { name: "Mining" }).first().click();
   await expect(page).toHaveURL(/\/mining$/);
   await expect(page.getByRole("heading", { name: /mine sudharma/i })).toBeVisible();
