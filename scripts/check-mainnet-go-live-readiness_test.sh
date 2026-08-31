@@ -21,6 +21,7 @@ for file in \
   deployment/mainnet/public-profile.example.json \
   deployment/mainnet/nginx-rpc.example.conf \
   deployment/mainnet/docker-compose.example.yml \
+  deployment/mainnet/sudharma-mainnet.service \
   docs/audits/2026-08-31-mainnet-launch-operator-runbook.md \
   docs/audits/2026-08-31-mainnet-gpu-mining-architecture.md; do
   require_file "$file"
@@ -34,5 +35,8 @@ grep -Fq 'MainnetSeed1RPC' params/mining.go \
 
 grep -Fq 'REPLACE_WITH_REAL_DOMAIN' deployment/mainnet/public-profile.example.json \
   || fail 'mainnet public profile must keep unresolved placeholders until launch'
+
+go test ./gpuminer -run 'TestLoadMainnetFileConfigMatchesOperatorShape|TestLoadFileConfigMatchesDemandMinerShape' -count=1 >/dev/null \
+  || fail 'mainnet and testnet gpu-miner deployment configs must parse'
 
 printf 'PASS: mainnet go-live operator toolkit scaffold is present\n'

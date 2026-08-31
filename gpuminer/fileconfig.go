@@ -58,11 +58,19 @@ func (c FileConfig) Validate() error {
 	if c.Environment == "" {
 		return errors.New("environment is required")
 	}
-	if c.Environment != params.MiningNetworkPublicTestnet {
-		return errors.New("environment must be public-testnet")
+	network := params.NormalizeMiningNetwork(c.Environment)
+	if network != params.MiningNetworkPublicTestnet && network != params.MiningNetworkMainnet {
+		return fmt.Errorf("environment must be %q or %q", params.MiningNetworkPublicTestnet, params.MiningNetworkMainnet)
 	}
-	if c.ExpectedNetwork != "sudharma" {
-		return errors.New("expected_network must be sudharma")
+	switch network {
+	case params.MiningNetworkPublicTestnet:
+		if c.ExpectedNetwork != "sudharma" {
+			return errors.New("expected_network must be sudharma for public-testnet")
+		}
+	case params.MiningNetworkMainnet:
+		if c.ExpectedNetwork != string(params.NetworkMainnet) {
+			return fmt.Errorf("expected_network must be %q for mainnet", params.NetworkMainnet)
+		}
 	}
 	if c.ExpectedCoin != "Sudharma" {
 		return errors.New("expected_coin must be Sudharma")
@@ -99,9 +107,10 @@ func (c FileConfig) ToConfig() (Config, error) {
 	if backend == "" {
 		backend = params.ProductionMiningBackend
 	}
+	network := params.NormalizeMiningNetwork(c.Environment)
 	return Config{
 		Address:         address,
-		Network:         params.MiningNetworkPublicTestnet,
+		Network:         network,
 		RPCURLs:         c.MiningEndpoints(),
 		Backend:         backend,
 		Device:          c.Device,
@@ -112,6 +121,7 @@ func (c FileConfig) ToConfig() (Config, error) {
 }
 
 func (c FileConfig) MiningEndpoints() []string {
+	network := params.NormalizeMiningNetwork(c.Environment)
 	seen := make(map[string]struct{}, 3)
 	var endpoints []string
 	add := func(raw string) {
@@ -129,7 +139,7 @@ func (c FileConfig) MiningEndpoints() []string {
 	add(c.Seed2RPCURL)
 	add(c.PublicRPCURL)
 	if len(endpoints) == 0 {
-		if defaults, err := params.MiningRPCEndpointsForNetwork(params.MiningNetworkPublicTestnet); err == nil {
+		if defaults, err := params.MiningRPCEndpointsForNetwork(network); err == nil {
 			return defaults
 		}
 	}

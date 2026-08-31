@@ -6,7 +6,7 @@
   "expected_network": "sudharma-mainnet-1",
   "expected_coin": "Sudharma",
   "expected_symbol": "SUDH",
-  "reward_address": "REPLACE_WITH_YOUR_WALLET_ADDRESS",
+  "reward_address": "9ccdc094489874bed888ffe4bdf9b8298f4c5131",
   "backend": "gpu-only",
   "device": 0
 }

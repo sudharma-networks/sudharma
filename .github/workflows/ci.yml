@@ -8,6 +8,7 @@ on:
   pull_request:
     branches:
       - main
+      - cursor/mainnet-tokenomics-v1-8441
 
 permissions:
   contents: read

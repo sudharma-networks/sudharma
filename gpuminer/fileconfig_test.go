@@ -13,6 +13,43 @@ import (
 	"github.com/sudharma-networks/sudharma/params"
 )
 
+func TestLoadMainnetFileConfigMatchesOperatorShape(t *testing.T) {
+	path := filepath.Join("..", "deployment", "mainnet", "gpu-miner.example.json")
+	cfg, err := LoadFileConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Environment != params.MiningNetworkMainnet {
+		t.Fatalf("environment = %q", cfg.Environment)
+	}
+	if cfg.ExpectedNetwork != string(params.NetworkMainnet) {
+		t.Fatalf("expected_network = %q", cfg.ExpectedNetwork)
+	}
+	endpoints := cfg.MiningEndpoints()
+	if len(endpoints) != 3 {
+		t.Fatalf("endpoints = %#v", endpoints)
+	}
+	if endpoints[0] != strings.TrimRight(cfg.Seed1RPCURL, "/") {
+		t.Fatalf("seed-1 first = %q", endpoints[0])
+	}
+	if endpoints[1] != strings.TrimRight(cfg.Seed2RPCURL, "/") {
+		t.Fatalf("seed-2 second = %q", endpoints[1])
+	}
+	if endpoints[2] != strings.TrimRight(cfg.PublicRPCURL, "/") {
+		t.Fatalf("public proxy last = %q", endpoints[2])
+	}
+	minerCfg, err := cfg.ToConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if minerCfg.Network != params.MiningNetworkMainnet {
+		t.Fatalf("network = %q", minerCfg.Network)
+	}
+	if _, err := Resolve(minerCfg); err == nil {
+		t.Fatal("expected mainnet mining resolve to fail until MainnetMiningAuthorized")
+	}
+}
+
 func TestLoadFileConfigMatchesDemandMinerShape(t *testing.T) {
 	path := filepath.Join("..", "deployment", "testnet", "gpu-miner.example.json")
 	cfg, err := LoadFileConfig(path)

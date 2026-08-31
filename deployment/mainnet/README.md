@@ -16,6 +16,7 @@ Operator templates for mainnet seed nodes and GPU miners. **Mainnet is not autho
 - `public-profile.example.json` — mainnet manifest input; fails preflight until real endpoints exist
 - `nginx-rpc.example.conf` — HTTPS reverse proxy starting point with mining routes
 - `docker-compose.example.yml` — one-node container with loopback-only raw RPC
+- `sudharma-mainnet.service` — hardened systemd unit for native seed installs
 - `gpu-miner*.example.json` — GPU miner configs (placeholder RPC URLs until topology publish)
 - `deployment-evidence.template.json` — private operator evidence schema (no secrets in git)
 
