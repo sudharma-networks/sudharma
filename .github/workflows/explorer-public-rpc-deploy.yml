@@ -2,14 +2,6 @@ name: Explorer Public RPC Deploy
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - feature/faucet-recovery-stage2
-      - cursor/blockchain-explorer-mempool-deploy-83d4
-    paths:
-      - deployment/testnet/public-rpc/lambda/**
-      - .github/workflows/explorer-public-rpc-deploy.yml
-      - .github/workflows/explorer-seed-rpc-deploy.yml
 
 permissions:
   contents: read
