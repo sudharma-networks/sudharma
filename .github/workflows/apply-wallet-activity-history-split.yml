@@ -1,0 +1,185 @@
+name: Apply Wallet Activity History Split
+
+on:
+  push:
+    branches:
+      - cursor/wallet-txn-details-83d4
+    paths:
+      - .github/workflows/apply-wallet-activity-history-split.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cursor/wallet-txn-details-83d4
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Patch repository and Compose UI
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          repo = Path('mobile/android/app/src/main/java/network/sudharma/wallet/SudharmaWalletRepository.kt')
+          r = repo.read_text()
+          anchor = '    suspend fun balance(): AssetBalance = adapter().balance(account().address)\n\n'
+          replacement = anchor + '    suspend fun serverStatus(): SudharmaRpcClient.Status = rpcClient().status()\n\n'
+          if 'suspend fun serverStatus()' not in r:
+              if anchor not in r:
+                  raise SystemExit('repository balance anchor not found')
+              r = r.replace(anchor, replacement, 1)
+          repo.write_text(r)
+
+          app = Path('mobile/android/app/src/main/java/network/sudharma/wallet/WalletApp.kt')
+          t = app.read_text()
+
+          import_anchor = 'import network.sudharma.wallet.chain.sudharma.SudharmaPaymentUri\n'
+          rpc_import = 'import network.sudharma.wallet.chain.sudharma.SudharmaRpcClient\n'
+          if rpc_import not in t:
+              if import_anchor not in t:
+                  raise SystemExit('RPC import anchor not found')
+              t = t.replace(import_anchor, import_anchor + rpc_import, 1)
+
+          home_route = '''            onSend = { screen = WalletScreen.SEND },
+            onActivity = { screen = WalletScreen.ACTIVITY },
+            onSettings = { screen = WalletScreen.SETTINGS },'''
+          home_route_new = '''            onSend = { screen = WalletScreen.SEND },
+            onActivity = { screen = WalletScreen.ACTIVITY },
+            onHistory = { screen = WalletScreen.HISTORY },
+            onSettings = { screen = WalletScreen.SETTINGS },'''
+          if 'onHistory = { screen = WalletScreen.HISTORY }' not in t:
+              if home_route not in t:
+                  raise SystemExit('home route anchor not found')
+              t = t.replace(home_route, home_route_new, 1)
+
+          route_anchor = '        WalletScreen.ACTIVITY -> ActivityScreen(repository, onBack = { screen = WalletScreen.HOME })\n'
+          route_new = '''        WalletScreen.ACTIVITY -> ServerActivityScreen(repository, onBack = { screen = WalletScreen.HOME })
+        WalletScreen.HISTORY -> TransactionHistoryScreen(repository, onBack = { screen = WalletScreen.HOME })
+'''
+          if 'WalletScreen.HISTORY -> TransactionHistoryScreen' not in t:
+              if route_anchor not in t:
+                  raise SystemExit('activity route anchor not found')
+              t = t.replace(route_anchor, route_new, 1)
+
+          sig_anchor = '''    onSend: () -> Unit,
+    onActivity: () -> Unit,
+    onSettings: () -> Unit,
+) {'''
+          sig_new = '''    onSend: () -> Unit,
+    onActivity: () -> Unit,
+    onHistory: () -> Unit,
+    onSettings: () -> Unit,
+) {'''
+          if '    onHistory: () -> Unit,' not in t:
+              if sig_anchor not in t:
+                  raise SystemExit('HomeScreen signature anchor not found')
+              t = t.replace(sig_anchor, sig_new, 1)
+
+          t = t.replace('Text("Recent activity", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)',
+                        'Text("Recent history", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)', 1)
+          t = t.replace('TextButton(onClick = onActivity) { Text("View all activity") }',
+                        'TextButton(onClick = onHistory) { Text("View all history") }', 1)
+
+          bottom_anchor = '''        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            TextButton(onClick = onActivity) { Text("Activity") }
+            TextButton(onClick = onSettings) { Text("Settings") }
+        }'''
+          bottom_new = '''        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            TextButton(onClick = onActivity) { Text("Activity") }
+            TextButton(onClick = onHistory) { Text("History") }
+            TextButton(onClick = onSettings) { Text("Settings") }
+        }'''
+          if 'TextButton(onClick = onHistory) { Text("History") }' not in t:
+              if bottom_anchor not in t:
+                  raise SystemExit('bottom navigation anchor not found')
+              t = t.replace(bottom_anchor, bottom_new, 1)
+
+          history_anchor = '@Composable\nprivate fun ActivityScreen(repository: SudharmaWalletRepository, onBack: () -> Unit) {'
+          history_new = '@Composable\nprivate fun TransactionHistoryScreen(repository: SudharmaWalletRepository, onBack: () -> Unit) {'
+          if 'private fun TransactionHistoryScreen' not in t:
+              if history_anchor not in t:
+                  raise SystemExit('history rename anchor not found')
+              t = t.replace(history_anchor, history_new, 1)
+
+          server_screen = '''@Composable
+private fun ServerActivityScreen(repository: SudharmaWalletRepository, onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var server by remember { mutableStateOf<SudharmaRpcClient.Status?>(null) }
+    var connection by remember { mutableStateOf(if (repository.preferences.rpcUrl.isBlank()) "RPC not configured" else "Checking…") }
+    var serverLog by remember { mutableStateOf("No server check has completed yet.") }
+    var lastRefreshMs by remember { mutableStateOf<Long?>(null) }
+
+    fun refresh() {
+        if (repository.preferences.rpcUrl.isBlank()) {
+            server = null
+            connection = "RPC not configured"
+            serverLog = "No RPC endpoint is configured for this wallet."
+            lastRefreshMs = System.currentTimeMillis()
+            return
+        }
+        connection = "Checking…"
+        scope.launch {
+            runCatching { repository.serverStatus() }
+                .onSuccess {
+                    server = it
+                    connection = "Connected"
+                    serverLog = "Connected to ${it.network} RPC. Height ${it.height}, ${it.peers} peer(s), ${it.mempool} transaction(s) in mempool."
+                    lastRefreshMs = System.currentTimeMillis()
+                }
+                .onFailure {
+                    server = null
+                    connection = "Offline / unavailable"
+                    serverLog = it.message ?: "Unable to read server status"
+                    lastRefreshMs = System.currentTimeMillis()
+                }
+        }
+    }
+
+    LaunchedEffect(repository.preferences.rpcUrl) { refresh() }
+
+    ScreenFrame("Activity", onBack) {
+        TestnetBadge()
+        Text("Server & network activity", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("Live connection details for the Sudharma Testnet RPC used by this wallet.", style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick = { refresh() }) { Text("Refresh server status") }
+        DetailRow(label = "Connection", value = connection)
+        DetailRow(label = "RPC endpoint", value = repository.preferences.rpcUrl.ifBlank { "Not configured" })
+        server?.let {
+            DetailRow(label = "Network", value = "${it.network} (${it.symbol})")
+            DetailRow(label = "Chain height", value = it.height.toString())
+            DetailRow(label = "Peers", value = it.peers.toString())
+            DetailRow(label = "Mempool", value = it.mempool.toString())
+            DetailRow(label = "Tip hash", value = it.tipHash.ifBlank { "—" })
+            DetailRow(label = "Issued supply", value = "${formatAtomic(it.issuedSupply)} SUDH")
+        }
+        lastRefreshMs?.let { DetailRow(label = "Last refresh", value = TransactionDetailFormatter.timestampLabel(it)) }
+        HorizontalDivider()
+        Text("Server log", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Card(Modifier.fillMaxWidth()) {
+            Text(serverLog, modifier = Modifier.padding(14.dp), style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+'''
+          insert_anchor = '@Composable\nprivate fun TransactionHistoryScreen(repository: SudharmaWalletRepository, onBack: () -> Unit) {'
+          if 'private fun ServerActivityScreen' not in t:
+              if insert_anchor not in t:
+                  raise SystemExit('server screen insertion anchor not found')
+              t = t.replace(insert_anchor, server_screen + insert_anchor, 1)
+
+          app.write_text(t)
+          PY
+
+      - name: Commit patch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add mobile/android/app/src/main/java/network/sudharma/wallet/SudharmaWalletRepository.kt mobile/android/app/src/main/java/network/sudharma/wallet/WalletApp.kt
+          git commit -m "feat(android): split server activity from transaction history"
+          git push origin cursor/wallet-txn-details-83d4
