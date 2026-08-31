@@ -59,6 +59,9 @@ jobs:
       - name: Verify testnet go-live operator toolkit
         run: bash ./scripts/check-testnet-go-live-readiness_test.sh
 
+      - name: Verify mainnet readiness contract
+        run: bash ./scripts/check-mainnet-readiness-contract_test.sh
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -90,6 +93,7 @@ jobs:
           set -euo pipefail
           go build -trimpath -o "$RUNNER_TEMP/sudharma-demand-miner" ./cmd/sudharma-demand-miner
           go build -trimpath -o "$RUNNER_TEMP/sudharmad" ./cmd/sudharmad
+          go build -trimpath -o "$RUNNER_TEMP/sudharma-mainnet-readiness" ./cmd/sudharma-mainnet-readiness
 
       - name: Run demand-miner installer safety test
         run: bash deployment/testnet/install-demand-miner_test.sh

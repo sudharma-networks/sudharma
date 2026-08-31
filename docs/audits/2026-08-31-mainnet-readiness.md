@@ -26,17 +26,18 @@ Closes the remaining **engineering** gaps called out after Mainnet Tokenomics v1
 | Gate | Status |
 | --- | --- |
 | Merge/review Mainnet Tokenomics v1 (PR #76) | Open for review |
+| Merge/review Mainnet readiness freeze (PR #77) | Open for review |
 | Independent production security audit | Not started |
 | Freeze mainnet genesis unix timestamp (replace `0`) | Not frozen |
 | Flip `MainnetLaunchAuthorized` in a dedicated activation PR | Forbidden here |
-| Publish mainnet seed topology and operator runbook | Not started |
+| Publish mainnet seed topology and operator runbook | Draft at `docs/audits/2026-08-31-mainnet-launch-operator-runbook.md` |
 | DEX wrapped-asset / CEX integration pack | Deferred (native coin; Uniswap-style DEX needs a wrap/bridge after launch) |
-| GPU Windows + HiveOS miner packages | Deferred; keep isolated on `feature/gpu-pow-v1` |
+| GPU Windows + HiveOS miner packages | Deferred; separate public-testnet miner in PR #79 |
 
 ## Operator check
 
 ```bash
 go test ./params ./consensus ./blockchain ./p2p ./cmd/sudharmad -count=1
+go run ./cmd/sudharma-mainnet-readiness
+bash ./scripts/check-mainnet-readiness-contract_test.sh
 ```
-
-Expected: PASS, and `TestMainnetLaunchIsNotReady` keeps launch unauthorized.
