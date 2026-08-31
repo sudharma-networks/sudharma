@@ -18,7 +18,8 @@ jobs:
       id-token: write
       contents: read
     outputs:
-      rpcd_url: ${{ steps.publish.outputs.rpcd_url }}
+      rpcd_bucket: ${{ steps.publish.outputs.rpcd_bucket }}
+      rpcd_prefix: ${{ steps.publish.outputs.rpcd_prefix }}
     steps:
       - uses: actions/checkout@v4
       - uses: aws-actions/configure-aws-credentials@v4
@@ -32,9 +33,9 @@ jobs:
         id: publish
         run: |
           set -euo pipefail
-          bash ./scripts/publish-sudharma-rpcd-binary.sh | tee /tmp/rpcd-publish.json
-          rpcd_url="$(jq -r '.sudharma_rpcd_bin_url' /tmp/rpcd-publish.json)"
-          echo "rpcd_url=$rpcd_url" >> "$GITHUB_OUTPUT"
+          bash ./scripts/publish-sudharma-rpcd-binary.sh > /tmp/rpcd-publish.json
+          echo "rpcd_bucket=$(jq -r '.bucket' /tmp/rpcd-publish.json)" >> "$GITHUB_OUTPUT"
+          echo "rpcd_prefix=$(jq -r '.prefix' /tmp/rpcd-publish.json)" >> "$GITHUB_OUTPUT"
 
   deploy-seeds:
     needs: publish-rpcd
@@ -77,10 +78,11 @@ jobs:
           echo "instance_id=$instance_id" >> "$GITHUB_OUTPUT"
       - name: Upgrade sudharma-rpcd on seed
         if: steps.seed.outputs.seed_instance_found == 'true'
-        env:
-          SUDHARMA_RPCD_BIN_URL: ${{ needs.publish-rpcd.outputs.rpcd_url }}
         run: |
           set -euo pipefail
+          bucket="${{ needs.publish-rpcd.outputs.rpcd_bucket }}"
+          prefix="${{ needs.publish-rpcd.outputs.rpcd_prefix }}"
+          export SUDHARMA_RPCD_BIN_URL="$(aws s3 presign "s3://${bucket}/${prefix}/sudharma-rpcd" --expires-in 900 --region "$AWS_REGION")"
           bash deployment/testnet/ssm-send-remote-script.sh \
             "${{ steps.seed.outputs.instance_id }}" \
             "Explorer seed RPC upgrade (${{ matrix.seed_name }})" \

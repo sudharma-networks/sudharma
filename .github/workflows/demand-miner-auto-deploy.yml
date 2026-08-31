@@ -82,8 +82,8 @@ jobs:
     if: needs.assess-chain-work.outputs.should_deploy == 'true'
     runs-on: ubuntu-24.04
     outputs:
-      demand_url: ${{ steps.publish.outputs.demand_url }}
-      node_url: ${{ steps.publish.outputs.node_url }}
+      publish_bucket: ${{ steps.publish.outputs.publish_bucket }}
+      publish_prefix: ${{ steps.publish.outputs.publish_prefix }}
       publish_success: ${{ steps.publish.outcome == 'success' }}
     permissions:
       id-token: write
@@ -110,10 +110,9 @@ jobs:
           set -euo pipefail
           bucket="${TESTNET_DEMAND_MINER_BUCKET:-sudharma-testnet-demand-miner-981626123397}"
           export TESTNET_DEMAND_MINER_BUCKET="$bucket"
-          ./scripts/publish-demand-miner-binaries.sh | tee /tmp/published-binaries.json
-          echo "demand_url=$(jq -r .demand_miner_bin_url /tmp/published-binaries.json)" >> "$GITHUB_OUTPUT"
-          echo "node_url=$(jq -r .sudharmad_bin_url /tmp/published-binaries.json)" >> "$GITHUB_OUTPUT"
-          echo "bucket=$bucket" >> "$GITHUB_OUTPUT"
+          ./scripts/publish-demand-miner-binaries.sh > /tmp/published-binaries.json
+          echo "publish_bucket=$(jq -r .bucket /tmp/published-binaries.json)" >> "$GITHUB_OUTPUT"
+          echo "publish_prefix=$(jq -r .prefix /tmp/published-binaries.json)" >> "$GITHUB_OUTPUT"
 
   ensure-on-seeds:
     needs: [assess-chain-work, publish-binaries]
@@ -170,8 +169,10 @@ jobs:
           set -euo pipefail
           config_b64="$(base64 -w0 "${{ matrix.seed_config }}")"
           install_b64="$(base64 -w0 deployment/testnet/remote-install-demand-miner-from-urls.sh)"
-          demand_url="${{ needs.publish-binaries.outputs.demand_url }}"
-          node_url="${{ needs.publish-binaries.outputs.node_url }}"
+          bucket="${{ needs.publish-binaries.outputs.publish_bucket }}"
+          prefix="${{ needs.publish-binaries.outputs.publish_prefix }}"
+          demand_url="$(aws s3 presign "s3://${bucket}/${prefix}/sudharma-demand-miner" --expires-in 900 --region "$AWS_REGION")"
+          node_url="$(aws s3 presign "s3://${bucket}/${prefix}/sudharmad" --expires-in 900 --region "$AWS_REGION")"
           config_example="${{ matrix.seed_config }}"
 
           remote_script_file="$(mktemp)"
