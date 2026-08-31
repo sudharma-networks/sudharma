@@ -26,9 +26,32 @@ wallets/
 *.secret
 secrets/
 
+# Android wallet local/build/signing data
+mobile/android/.gradle/
+mobile/android/**/build/
+mobile/android/local.properties
+mobile/android/keystore.properties
+mobile/android/google-services.json
+mobile/android/**/google-services.json
+mobile/android/*.jks
+mobile/android/*.keystore
+*.apk
+*.aab
+
 # Node runtime data
+node_modules/
 data/
 data-*/
+
+# Website build artifacts (Amplify builds from source)
+web/.next/
+web/out/
+web/test-results/
+web/playwright-report/
+
+# Public website config written by provision-website-visitor-counter workflow
+!web/public/data/
+!web/public/data/visitor-counter.json
 
 # Development backups
 *_backup_*
@@ -53,6 +76,7 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.log
+.worktrees/
 
 # Local migration backup
 go.mod.backup-before-step55e7

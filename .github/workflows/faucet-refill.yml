@@ -1,0 +1,172 @@
+name: Faucet Refill
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RPC_BASE_URL: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com
+  AWS_REGION: ap-south-1
+  LAMBDA_NAME: Sudharma-Testnet-Wallet-Proxy
+  FAUCET_SIGNER: 9ccdc094489874bed888ffe4bdf9b8298f4c5131
+
+jobs:
+  assess-funding:
+    runs-on: ubuntu-24.04
+    outputs:
+      should_refill: ${{ steps.funding.outputs.should_refill }}
+      blocks: ${{ steps.funding.outputs.blocks }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Evaluate faucet funding
+        id: funding
+        run: |
+          set -euo pipefail
+          node ./scripts/evaluate-faucet-funding-readiness.mjs | tee /tmp/faucet-funding.json || true
+          should_refill="$(node --input-type=module -e "
+            import fs from 'node:fs';
+            const payload = JSON.parse(fs.readFileSync('/tmp/faucet-funding.json', 'utf8'));
+            process.stdout.write(payload.funding?.should_refill === true ? 'true' : 'false');
+          ")"
+          blocks="$(node --input-type=module -e "
+            import fs from 'node:fs';
+            const payload = JSON.parse(fs.readFileSync('/tmp/faucet-funding.json', 'utf8'));
+            const estimate = Number(payload.funding?.blocks_to_refill_estimate || 1);
+            process.stdout.write(String(Math.min(Math.max(estimate, 1), 3)));
+          ")"
+          echo "should_refill=$should_refill" >> "$GITHUB_OUTPUT"
+          echo "blocks=$blocks" >> "$GITHUB_OUTPUT"
+          cat /tmp/faucet-funding.json
+
+  mine-refill:
+    needs: assess-funding
+    if: needs.assess-funding.outputs.should_refill == 'true'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - seed_name: seed1
+            seed_private_ip: 172.31.10.171
+            seed_instance_id: ${{ vars.TESTNET_SEED1_INSTANCE_ID }}
+            seed_fallback_instance_id: i-06e7ddb174e4941de
+          - seed_name: seed2
+            seed_private_ip: 172.31.32.195
+            seed_instance_id: ${{ vars.TESTNET_SEED2_INSTANCE_ID }}
+            seed_fallback_instance_id: ''
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+
+      - name: Resolve seed instance id
+        id: seed
+        run: |
+          set -euo pipefail
+          instance_id="$(bash deployment/testnet/resolve-seed-instance-id.sh \
+            "${{ matrix.seed_private_ip }}" \
+            "${{ matrix.seed_instance_id }}" \
+            "${{ matrix.seed_fallback_instance_id }}" 2>/dev/null || true)"
+          if [ -z "$instance_id" ]; then
+            echo "seed_instance_found=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Faucet refill::No ${{ matrix.seed_name }} instance id for ${{ matrix.seed_private_ip }}"
+            exit 0
+          fi
+          echo "seed_instance_found=true" >> "$GITHUB_OUTPUT"
+          echo "instance_id=$instance_id" >> "$GITHUB_OUTPUT"
+          printf '{"seed":"%s","seed_instance_id":"%s"}\n' "${{ matrix.seed_name }}" "$instance_id"
+
+      - name: Mine faucet refill blocks
+        if: steps.seed.outputs.seed_instance_found == 'true'
+        run: |
+          set -euo pipefail
+          script_b64="$(base64 -w0 deployment/testnet/remote-mine-faucet-refill.sh)"
+          blocks='${{ needs.assess-funding.outputs.blocks }}'
+          command_id="$(aws ssm send-command \
+            --instance-ids "${{ steps.seed.outputs.instance_id }}" \
+            --document-name AWS-RunShellScript \
+            --timeout-seconds 900 \
+            --parameters "commands=[\"echo $script_b64 | base64 -d | env BLOCKS=$blocks bash\"]" \
+            --query 'Command.CommandId' \
+            --output text)"
+          for attempt in $(seq 1 60); do
+            status="$(aws ssm get-command-invocation \
+              --command-id "$command_id" \
+              --instance-id "${{ steps.seed.outputs.instance_id }}" \
+              --query 'Status' \
+              --output text)"
+            if [ "$status" = 'Success' ] || [ "$status" = 'Failed' ]; then
+              aws ssm get-command-invocation \
+                --command-id "$command_id" \
+                --instance-id "${{ steps.seed.outputs.instance_id }}" \
+                --query '{Status:Status,Stdout:StandardOutputContent,Stderr:StandardErrorContent}' \
+                --output json
+              [ "$status" = 'Success' ]
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "SSM faucet refill timed out on ${{ matrix.seed_name }}" >&2
+          exit 1
+
+  wait-for-funding:
+    needs: [assess-funding, mine-refill]
+    if: needs.assess-funding.outputs.should_refill == 'true'
+    runs-on: ubuntu-24.04
+    outputs:
+      refilled: ${{ steps.wait.outputs.refilled }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wait for faucet funding readiness
+        id: wait
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 18); do
+            if node ./scripts/evaluate-faucet-funding-readiness.mjs | tee /tmp/faucet-funding-after.json; then
+              echo "refilled=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 10
+          done
+          cat /tmp/faucet-funding-after.json
+          echo "refilled=false" >> "$GITHUB_OUTPUT"
+          exit 1
+
+  verify-live:
+    needs: [assess-funding, wait-for-funding]
+    if: >-
+      always() &&
+      (
+        needs.assess-funding.outputs.should_refill != 'true' ||
+        needs.wait-for-funding.outputs.refilled == 'true'
+      )
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify faucet request succeeds
+        run: |
+          set -euo pipefail
+          node ./scripts/evaluate-faucet-funding-readiness.mjs
+          test_address="$(node -e "process.stdout.write(require('crypto').randomBytes(20).toString('hex'))")"
+          response="$(curl -sS -w '\n%{http_code}' \
+            -X POST \
+            -H 'Content-Type: application/json' \
+            -d "{\"address\":\"$test_address\"}" \
+            "$RPC_BASE_URL/v1/faucet/request")"
+          status="$(printf '%s\n' "$response" | tail -n1)"
+          body="$(printf '%s\n' "$response" | sed '$d')"
+          printf '%s\n' "$body"
+          if [ "$status" != '202' ]; then
+            echo "Expected faucet request HTTP 202, got $status" >&2
+            exit 1
+          fi
+          echo "{\"faucet_live\":true,\"test_address\":\"$test_address\"}"
+        env:
+          RPC_BASE_URL: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com

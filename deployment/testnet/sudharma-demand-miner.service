@@ -1,0 +1,40 @@
+[Unit]
+Description=Sudharma public-testnet demand miner supervisor
+After=network-online.target sudharma.service
+Wants=network-online.target
+Requires=sudharma.service
+
+[Service]
+Type=simple
+User=sudharma-miner
+Group=sudharma-miner
+RuntimeDirectory=sudharma-demand-miner
+RuntimeDirectoryMode=0750
+ExecStart=/usr/local/bin/sudharma-demand-miner -config /etc/sudharma/demand-miner.json
+Restart=on-failure
+RestartSec=30s
+TimeoutStopSec=15s
+UMask=0027
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/sudharma-demand-miner
+ReadWritePaths=/run/sudharma-demand-miner
+
+[Install]
+WantedBy=multi-user.target

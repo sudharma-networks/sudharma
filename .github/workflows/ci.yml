@@ -22,13 +22,42 @@ jobs:
       - name: Run tracked secret safety test
         run: bash ./scripts/check-tracked-secrets_test.sh
 
-      - name: Set up Node
+      - name: Set up Node 24
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
 
       - name: Run Telegram bridge tests
         run: node --test scripts/telegram/*.test.js
+
+      - name: Enforce manual-only live mutation workflows
+        run: node --test scripts/live-workflow-trigger-safety.test.mjs
+
+      - name: Install public RPC Lambda dependencies
+        working-directory: deployment/testnet/public-rpc/lambda
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Run public RPC Lambda tests
+        working-directory: deployment/testnet/public-rpc/lambda
+        run: npm test
+
+      - name: Scan tracked files for secrets
+        run: bash ./scripts/check-tracked-secrets.sh
+
+      - name: Verify demand-miner CI safety gates
+        run: bash ./scripts/check-demand-miner-ci_test.sh
+
+      - name: Verify canonical faucet recovery contract
+        run: bash ./scripts/check-canonical-faucet-recovery-contract_test.sh
+
+      - name: Verify explorer API contract
+        run: bash ./scripts/check-explorer-api-contract_test.sh
+
+      - name: Verify testnet RC readiness contract
+        run: bash ./scripts/check-testnet-rc-readiness_test.sh
+
+      - name: Verify testnet go-live operator toolkit
+        run: bash ./scripts/check-testnet-go-live-readiness_test.sh
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -36,8 +65,54 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Verify Go formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          unformatted="$(gofmt -l $(git ls-files '*.go'))"
+          test -z "$unformatted" || {
+            printf 'Files requiring gofmt:\n%s\n' "$unformatted" >&2
+            exit 1
+          }
+
+      - name: Run focused demand-miner tests
+        run: go test ./demandminer ./cmd/sudharma-demand-miner -count=1
+
+      - name: Run focused demand-miner race tests
+        run: go test -race ./demandminer ./cmd/sudharma-demand-miner -count=1
+
+      - name: Run Go vet
+        run: go vet ./...
+
+      - name: Build demand-miner binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          go build -trimpath -o "$RUNNER_TEMP/sudharma-demand-miner" ./cmd/sudharma-demand-miner
+          go build -trimpath -o "$RUNNER_TEMP/sudharmad" ./cmd/sudharmad
+
+      - name: Run demand-miner installer safety test
+        run: bash deployment/testnet/install-demand-miner_test.sh
+
+      - name: Verify demand-miner systemd unit
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v systemd-analyze >/dev/null 2>&1; then
+            unit_root="$(mktemp -d)"
+            cp deployment/testnet/sudharma-testnet.service "$unit_root/sudharma.service"
+            cp deployment/testnet/sudharma-demand-miner.service "$unit_root/sudharma-demand-miner.service"
+            sed -i 's#^ExecStart=.*#ExecStart=/bin/true#' "$unit_root/sudharma.service" "$unit_root/sudharma-demand-miner.service"
+            systemd-analyze verify "$unit_root/sudharma.service" "$unit_root/sudharma-demand-miner.service"
+          else
+            echo 'systemd-analyze is unavailable on this runner; skipping unit verification.'
+          fi
+
       - name: Run tests
         run: go test ./... -count=1
+
+      - name: Run repository-wide race detector
+        run: go test -race ./... -count=1
 
       - name: Run local two-node testnet rehearsal
         run: bash ./scripts/testnet-rehearsal.sh
@@ -62,6 +137,3 @@ jobs:
           done
           docker logs sudharma-testnet-ci-node
           exit 1
-
-      - name: Run race detector
-        run: go test -race ./... -count=1

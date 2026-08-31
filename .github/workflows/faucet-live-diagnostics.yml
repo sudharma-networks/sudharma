@@ -1,0 +1,107 @@
+name: Faucet Live Diagnostics
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: ap-south-1
+  LAMBDA_NAME: Sudharma-Testnet-Wallet-Proxy
+  FAUCET_TABLE_NAME: Sudharma-Testnet-Faucet
+  FAILED_ADDRESS: 16d7dc9ec0495109007860a584c7cf9055da9abf
+  FAILED_REQUEST_ID: 634ac672-71c7-4afb-ab60-272ed93870ca
+
+jobs:
+  safe-live-evidence:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Analyze public faucet state
+        run: node ./scripts/analyze-faucet-public-state.mjs
+
+      - name: Configure AWS credentials from GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+
+      - name: Confirm read-only diagnostic identity
+        run: |
+          set -euo pipefail
+          aws sts get-caller-identity --query '{Account:Account,Arn:Arn}' --output json
+          aws lambda get-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --query '{State:State,LastUpdateStatus:LastUpdateStatus,FaucetEnabled:Environment.Variables.FAUCET_ENABLED}' \
+            --output json
+
+      - name: Read failed-address state safely
+        id: failed_state
+        run: |
+          set -u
+          key="{\"pk\":{\"S\":\"ADDR#$FAILED_ADDRESS\"}}"
+          fallback_ms="$(date -u -d '6 hours ago' +%s%3N)"
+          export DIAG_START_MS="$fallback_ms"
+          echo "DIAG_START_MS=$fallback_ms" >> "$GITHUB_ENV"
+          if aws dynamodb get-item \
+            --table-name "$FAUCET_TABLE_NAME" \
+            --key "$key" \
+            --consistent-read \
+            --projection-expression 'initial_status, initial_txid, initial_error, initial_reserved_at, initial_prepared_at, initial_submitted_at, initial_paid_at' \
+            --query 'Item.{initial_status:initial_status.S,initial_txid:initial_txid.S,initial_error:initial_error.S,initial_reserved_at:initial_reserved_at.N,initial_prepared_at:initial_prepared_at.N,initial_submitted_at:initial_submitted_at.N,initial_paid_at:initial_paid_at.N}' \
+            --output json > /tmp/failed-address.json; then
+            echo '{"dynamodb_get_item":"OK"}'
+            cat /tmp/failed-address.json
+            node ./scripts/compute-faucet-diag-start.mjs /tmp/failed-address.json
+          else
+            echo '{"dynamodb_get_item":"DENIED_OR_FAILED"}'
+          fi
+
+      - name: Read recent safe faucet dependency logs
+        run: |
+          set -u
+          start_ms="${DIAG_START_MS:?missing diagnostic start time}"
+          log_group="/aws/lambda/$LAMBDA_NAME"
+          echo "{\"diag_start_ms\":$start_ms}"
+          for pattern in '"faucet_dependency"' '"wallet_faucet_error"'; do
+            echo "=== filter $pattern ==="
+            raw_logs="$(mktemp)"
+            if aws logs filter-log-events \
+              --log-group-name "$log_group" \
+              --start-time "$start_ms" \
+              --filter-pattern "$pattern" \
+              --max-items 100 \
+              --query 'events[].message' \
+              --output text > "$raw_logs"; then
+              node ./scripts/sanitize-faucet-live-logs.mjs < "$raw_logs"
+              echo '{"cloudwatch_filter":"OK"}'
+            else
+              echo '{"cloudwatch_filter":"DENIED_OR_FAILED"}'
+            fi
+            rm -f "$raw_logs"
+          done
+
+      - name: Correlate failed payout request timeline
+        run: |
+          set -u
+          start_ms="${DIAG_START_MS:?missing diagnostic start time}"
+          log_group="/aws/lambda/$LAMBDA_NAME"
+          raw_logs="$(mktemp)"
+          echo "{\"failed_request_id\":\"$FAILED_REQUEST_ID\",\"diag_start_ms\":$start_ms}"
+          if aws logs filter-log-events \
+            --log-group-name "$log_group" \
+            --start-time "$start_ms" \
+            --filter-pattern "\"$FAILED_REQUEST_ID\"" \
+            --max-items 100 \
+            --query 'events[].message' \
+            --output text > "$raw_logs"; then
+            node ./scripts/correlate-faucet-live-logs.mjs "$FAILED_REQUEST_ID" < "$raw_logs"
+            echo '{"failed_request_timeline":"OK"}'
+          else
+            echo '{"failed_request_timeline":"DENIED_OR_FAILED"}'
+          fi
+          rm -f "$raw_logs"

@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+args="$*"
+case "$args" in
+  *"Name=association.subnet-id,Values=subnet-explicit"*)
+    printf '%s\n' 'rtb-explicit'
+    ;;
+  *"Name=association.subnet-id,Values=subnet-main"*)
+    printf '%s\n' 'None'
+    ;;
+  *"Name=association.main,Values=true"*"Name=vpc-id,Values=vpc-test"*)
+    printf '%s\n' 'rtb-main'
+    ;;
+  *)
+    printf 'unexpected aws invocation: %s\n' "$args" >&2
+    exit 64
+    ;;
+esac

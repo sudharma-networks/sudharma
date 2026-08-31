@@ -1,0 +1,21 @@
+{
+  "environment": "public-testnet",
+  "status_url": "http://127.0.0.1:28545",
+  "expected_network": "sudharma",
+  "expected_coin": "Sudharma",
+  "expected_symbol": "SUDH",
+  "seed_address": "127.0.0.1:28444",
+  "reward_address": "9ccdc094489874bed888ffe4bdf9b8298f4c5131",
+  "miner_binary": "/usr/local/libexec/sudharma-demand-miner/sudharmad",
+  "data_directory": "/var/lib/sudharma-demand-miner",
+  "lock_file": "/run/sudharma-demand-miner/lock",
+  "poll_every": "7s",
+  "cooldown": "10s",
+  "failure_backoff": "15s",
+  "child_timeout": "5m",
+  "scheduled_sweep_every": "30m",
+  "max_blocks_per_sweep": 32,
+  "faucet_min_balance": 10010000000,
+  "faucet_funding_blocks": 2,
+  "wake_listen": "127.0.0.1:28546"
+}

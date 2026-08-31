@@ -1,0 +1,302 @@
+import { normalizeEvent, RequestError } from './router.mjs';
+import { proxyWithFailover, UpstreamUnavailableError } from './upstream.mjs';
+import { wakeDemandMinerInBackground } from './miner-wake.mjs';
+
+const DEFAULT_SEEDS = [
+  'http://172.31.10.171:29100',
+  'http://172.31.32.195:29100',
+];
+const EXPLORER_CORS_HEADERS = { 'access-control-allow-origin': '*' };
+const FAUCET_CORS_HEADERS = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-methods': 'GET,POST,OPTIONS',
+  'access-control-allow-headers': 'content-type',
+  'access-control-max-age': '86400',
+};
+
+function jsonResponse(statusCode, payload, extraHeaders = {}) {
+  return {
+    statusCode,
+    headers: {
+      'cache-control': 'no-store',
+      'content-type': 'application/json; charset=utf-8',
+      'x-content-type-options': 'nosniff',
+      ...extraHeaders,
+    },
+    body: JSON.stringify(payload),
+    isBase64Encoded: false,
+  };
+}
+
+function visitorJsonResponse(statusCode, payload) {
+  return jsonResponse(statusCode, payload, { 'access-control-allow-origin': '*' });
+}
+
+function faucetJsonResponse(statusCode, payload) {
+  return jsonResponse(statusCode, payload, FAUCET_CORS_HEADERS);
+}
+
+function faucetOptionsResponse() {
+  return {
+    statusCode: 204,
+    headers: {
+      ...FAUCET_CORS_HEADERS,
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+    },
+    body: '',
+    isBase64Encoded: false,
+  };
+}
+
+function gatewayResponse(result, extraHeaders = {}) {
+  const contentType = result.headers['content-type'] || 'application/json; charset=utf-8';
+  const textual = /^(application\/json|text\/)/i.test(contentType);
+  return {
+    statusCode: result.statusCode,
+    headers: {
+      ...result.headers,
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+      ...extraHeaders,
+    },
+    body: textual ? result.body.toString('utf8') : result.body.toString('base64'),
+    isBase64Encoded: !textual,
+  };
+}
+
+function safeLog(logger, level, record) {
+  const fn = logger?.[level];
+  if (typeof fn === 'function') fn.call(logger, record);
+}
+
+function isFaucetRoute(kind) {
+  return kind === 'faucetInfo'
+    || kind === 'faucetHealth'
+    || kind === 'faucetDiagnostics'
+    || kind === 'faucetInitial'
+    || kind === 'faucetChallenge';
+}
+
+function isVisitorRoute(kind) {
+  return kind === 'websiteVisitorsRead' || kind === 'websiteVisitorsRecord';
+}
+
+function isExplorerRoute(kind) {
+  return typeof kind === 'string' && kind.startsWith('explorer');
+}
+
+function isExplorerPath(path) {
+  return typeof path === 'string' && path.startsWith('/v1/explorer/');
+}
+
+function isFaucetPath(path) {
+  return typeof path === 'string' && path.startsWith('/v1/faucet/');
+}
+
+function rejectionCorsHeaders(path) {
+  if (isExplorerPath(path)) return EXPLORER_CORS_HEADERS;
+  if (isFaucetPath(path)) return FAUCET_CORS_HEADERS;
+  return {};
+}
+
+export function createHandler(options = {}) {
+  const seeds = options.seeds || DEFAULT_SEEDS;
+  const fetchImpl = options.fetchImpl || globalThis.fetch;
+  const timeoutMs = options.timeoutMs;
+  const logger = options.logger || console;
+  const faucetHandler = options.faucetHandler || null;
+  const visitorHandler = options.visitorHandler || null;
+
+  return async function walletProxyHandler(event, context = {}) {
+    const started = Date.now();
+    const method = String(event?.requestContext?.http?.method || '').toUpperCase();
+    if (method === 'OPTIONS' && isFaucetPath(event?.rawPath)) {
+      return faucetOptionsResponse();
+    }
+
+    let request;
+    try {
+      request = normalizeEvent(event);
+    } catch (error) {
+      const statusCode = error instanceof RequestError ? error.statusCode : 400;
+      safeLog(logger, 'warn', {
+        event: 'wallet_proxy_rejected',
+        status_code: statusCode,
+        method: event?.requestContext?.http?.method || 'unknown',
+        path: event?.rawPath || 'unknown',
+      });
+      return jsonResponse(
+        statusCode,
+        { error: error instanceof RequestError ? error.message : 'invalid request' },
+        rejectionCorsHeaders(event?.rawPath),
+      );
+    }
+
+    safeLog(logger, 'info', {
+      event: 'wallet_proxy_request',
+      method: request.method,
+      path: request.path,
+      route: request.kind,
+      request_id: context?.awsRequestId || null,
+    });
+
+    if (isVisitorRoute(request.kind)) {
+      if (typeof visitorHandler !== 'function') {
+        return visitorJsonResponse(503, { error: 'website visitor counter is temporarily unavailable' });
+      }
+      try {
+        const result = await visitorHandler(request, { context });
+        const statusCode = Number.isInteger(result?.statusCode) ? result.statusCode : 200;
+        const payload = result?.payload ?? result ?? { total: 0 };
+        safeLog(logger, 'info', {
+          event: 'website_visitor_response',
+          route: request.kind,
+          status_code: statusCode,
+          latency_ms: Date.now() - started,
+          request_id: context?.awsRequestId || null,
+        });
+        return visitorJsonResponse(statusCode, payload);
+      } catch (error) {
+        const statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : 500;
+        safeLog(logger, statusCode >= 500 ? 'error' : 'warn', {
+          event: 'website_visitor_error',
+          route: request.kind,
+          status_code: statusCode,
+          latency_ms: Date.now() - started,
+          request_id: context?.awsRequestId || null,
+        });
+        return visitorJsonResponse(statusCode, {
+          error: statusCode >= 500
+            ? 'website visitor counter is temporarily unavailable'
+            : String(error?.message || 'visitor request rejected'),
+        });
+      }
+    }
+
+    if (isFaucetRoute(request.kind)) {
+      if (typeof faucetHandler !== 'function') {
+        safeLog(logger, 'warn', {
+          event: 'wallet_faucet_unavailable',
+          route: request.kind,
+          request_id: context?.awsRequestId || null,
+        });
+        return faucetJsonResponse(503, { error: 'testnet faucet is not configured yet' });
+      }
+      try {
+        const result = await faucetHandler(request, { context, seeds, fetchImpl, timeoutMs });
+        const statusCode = Number.isInteger(result?.statusCode) ? result.statusCode : 200;
+        const payload = result?.payload ?? result ?? { status: 'ok' };
+        safeLog(logger, 'info', {
+          event: 'wallet_faucet_response',
+          route: request.kind,
+          status_code: statusCode,
+          latency_ms: Date.now() - started,
+          request_id: context?.awsRequestId || null,
+        });
+        return faucetJsonResponse(statusCode, payload);
+      } catch (error) {
+        const statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : 500;
+        const errorRecord = {
+          event: 'wallet_faucet_error',
+          route: request.kind,
+          status_code: statusCode,
+          latency_ms: Date.now() - started,
+          request_id: context?.awsRequestId || null,
+        };
+        if (Number.isInteger(error?.upstreamStatus)) errorRecord.http_status = error.upstreamStatus;
+        if (typeof error?.errorCategory === 'string') errorRecord.error_category = error.errorCategory;
+        if (Number.isInteger(error?.expectedNonce)) errorRecord.expected_nonce = error.expectedNonce;
+        if (Number.isInteger(error?.submittedNonce)) errorRecord.submitted_nonce = error.submittedNonce;
+        safeLog(logger, statusCode >= 500 ? 'error' : 'warn', errorRecord);
+        return faucetJsonResponse(statusCode, {
+          error: statusCode >= 500
+            ? 'testnet faucet is temporarily unavailable'
+            : String(error?.message || 'faucet request rejected'),
+        });
+      }
+    }
+
+    const responseHeaders = isExplorerRoute(request.kind) ? EXPLORER_CORS_HEADERS : {};
+    try {
+      const result = await proxyWithFailover(request, { seeds, fetchImpl, timeoutMs });
+      if (request.kind === 'submitTransaction' && result.statusCode >= 200 && result.statusCode < 300) {
+        wakeDemandMinerInBackground({ seeds, fetchImpl, timeoutMs }, logger);
+      }
+      safeLog(logger, 'info', {
+        event: 'wallet_proxy_response',
+        method: request.method,
+        path: request.path,
+        route: request.kind,
+        status_code: result.statusCode,
+        latency_ms: Date.now() - started,
+        request_id: context?.awsRequestId || null,
+      });
+      return gatewayResponse(result, responseHeaders);
+    } catch (error) {
+      const unavailable = error instanceof UpstreamUnavailableError;
+      safeLog(logger, unavailable ? 'warn' : 'error', {
+        event: unavailable ? 'wallet_proxy_upstream_unavailable' : 'wallet_proxy_internal_error',
+        method: request.method,
+        path: request.path,
+        route: request.kind,
+        latency_ms: Date.now() - started,
+        request_id: context?.awsRequestId || null,
+      });
+      if (unavailable) {
+        return jsonResponse(503, {
+          error: request.kind === 'submitTransaction'
+            ? 'transaction outcome is uncertain because wallet service is unavailable; check transaction status before retrying'
+            : 'wallet service is temporarily unavailable',
+        }, responseHeaders);
+      }
+      return jsonResponse(500, { error: 'internal wallet proxy error' }, responseHeaders);
+    }
+  };
+}
+
+const configuredSeeds = [
+  process.env.SEED_1_URL || DEFAULT_SEEDS[0],
+  process.env.SEED_2_URL || DEFAULT_SEEDS[1],
+];
+const configuredTimeoutMs = Number.parseInt(process.env.UPSTREAM_TIMEOUT_MS || '3500', 10);
+const runtimeTimeoutMs = Number.isFinite(configuredTimeoutMs) ? configuredTimeoutMs : 3500;
+
+let productionFaucetHandler = null;
+if (process.env.FAUCET_TABLE_NAME && process.env.FAUCET_SECRET_ID) {
+  let runtimeHandlerPromise;
+  productionFaucetHandler = async (request) => {
+    if ((request.kind === 'faucetInitial' || request.kind === 'faucetChallenge') && process.env.FAUCET_ENABLED !== 'true') {
+      return { statusCode: 503, payload: { error: 'testnet faucet is temporarily unavailable' } };
+    }
+    if (!runtimeHandlerPromise) {
+      runtimeHandlerPromise = import('./faucet-runtime.mjs')
+        .then((module) => module.createRuntimeFaucetHandler({
+          seeds: configuredSeeds,
+          timeoutMs: runtimeTimeoutMs,
+        }));
+    }
+    const runtimeHandler = await runtimeHandlerPromise;
+    return runtimeHandler(request);
+  };
+}
+
+let productionVisitorHandler = null;
+if (process.env.FAUCET_TABLE_NAME) {
+  let visitorHandlerPromise;
+  productionVisitorHandler = async (request) => {
+    if (!visitorHandlerPromise) {
+      visitorHandlerPromise = import('./visitor-runtime.mjs')
+        .then((module) => module.createVisitorHandler({ tableName: process.env.FAUCET_TABLE_NAME }));
+    }
+    const visitorHandler = await visitorHandlerPromise;
+    return visitorHandler(request);
+  };
+}
+
+export const handler = createHandler({
+  seeds: configuredSeeds,
+  timeoutMs: runtimeTimeoutMs,
+  faucetHandler: productionFaucetHandler,
+  visitorHandler: productionVisitorHandler,
+});

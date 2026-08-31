@@ -39,7 +39,9 @@ func TestMetricsCanBeDisabled(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.EnableMetrics = false
 	disabled, err := NewServer(cfg, node, chain, state)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	response := request(t, disabled, http.MethodGet, "/metrics", nil, "")
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("disabled metrics returned %d", response.Code)

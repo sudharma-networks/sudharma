@@ -1,0 +1,449 @@
+name: Faucet Diagnostics Auto Deploy
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RPC_BASE_URL: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com
+  AWS_REGION: ap-south-1
+  LAMBDA_NAME: Sudharma-Testnet-Wallet-Proxy
+  FAUCET_TABLE_NAME: Sudharma-Testnet-Faucet
+  FAUCET_SECRET_ID: sudharma/testnet/faucet-wallet
+  FAUCET_RECOVERY_ADDRESS: 16d7dc9ec0495109007860a584c7cf9055da9abf
+  FAILED_ADDRESS: 16d7dc9ec0495109007860a584c7cf9055da9abf
+  FAILED_TXID: b66bde192c92d192b47ca6e972911e4bfb310a0f343b6ef15b77c468d8a989cc
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify deployment contract
+        run: bash ./scripts/check-faucet-deploy-contract_test.sh
+
+      - name: Run tracked secret safety test
+        run: bash ./scripts/check-tracked-secrets_test.sh
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install Lambda dependencies
+        working-directory: deployment/testnet/public-rpc/lambda
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Test Lambda proxy and faucet
+        working-directory: deployment/testnet/public-rpc/lambda
+        run: npm test
+
+      - name: Package tested Lambda artifact
+        run: |
+          set -euo pipefail
+          mkdir -p build/public-rpc
+          cd deployment/testnet/public-rpc/lambda
+          zip -q -9 -r "$GITHUB_WORKSPACE/build/public-rpc/sudharma-testnet-wallet-proxy.zip" \
+            index.mjs router.mjs upstream.mjs faucet.mjs faucet-funding.mjs faucet-runtime.mjs miner-wake.mjs visitor-runtime.mjs package.json node_modules
+
+      - name: Upload tested Lambda artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sudharma-testnet-wallet-proxy-diagnostics
+          path: build/public-rpc/sudharma-testnet-wallet-proxy.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  aws-preflight:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: ap-south-1
+      LAMBDA_NAME: Sudharma-Testnet-Wallet-Proxy
+      FAUCET_TABLE_NAME: Sudharma-Testnet-Faucet
+      FAUCET_SECRET_ID: sudharma/testnet/faucet-wallet
+    steps:
+      - name: Configure AWS credentials from GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+
+      - name: Verify AWS identity and faucet resources (read-only)
+        run: |
+          set -euo pipefail
+          aws sts get-caller-identity --query '{Account:Account,Arn:Arn}' --output json
+          aws dynamodb describe-table \
+            --table-name "$FAUCET_TABLE_NAME" \
+            --query 'Table.{Name:TableName,Status:TableStatus}' \
+            --output json
+          aws secretsmanager describe-secret \
+            --secret-id "$FAUCET_SECRET_ID" \
+            --query '{Name:Name,ARN:ARN}' \
+            --output json
+          aws lambda get-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --query '{Runtime:Runtime,Handler:Handler,Timeout:Timeout,MemorySize:MemorySize,State:State,LastUpdateStatus:LastUpdateStatus,FaucetEnabled:Environment.Variables.FAUCET_ENABLED}' \
+            --output json
+
+  deploy-diagnostics-only:
+    needs: [build, aws-preflight]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      RPC_BASE_URL: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com
+      AWS_REGION: ap-south-1
+      LAMBDA_NAME: Sudharma-Testnet-Wallet-Proxy
+      FAUCET_TABLE_NAME: Sudharma-Testnet-Faucet
+      FAUCET_SECRET_ID: sudharma/testnet/faucet-wallet
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download exact tested artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sudharma-testnet-wallet-proxy-diagnostics
+          path: build/public-rpc
+
+      - name: Configure AWS credentials from GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+
+      - name: Snapshot Lambda environment
+        run: |
+          set -euo pipefail
+          aws lambda get-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --query 'Environment.Variables' \
+            --output json > /tmp/lambda-environment-base.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const base = JSON.parse(fs.readFileSync('/tmp/lambda-environment-base.json', 'utf8')) ?? {};
+          if (typeof base !== 'object' || Array.isArray(base)) throw new Error('Lambda environment snapshot must be an object');
+          const common = {
+            SEED_1_URL: 'http://172.31.10.171:29100',
+            SEED_2_URL: 'http://172.31.32.195:29100',
+            UPSTREAM_TIMEOUT_MS: '3500',
+            FAUCET_TABLE_NAME: process.env.FAUCET_TABLE_NAME,
+            FAUCET_SECRET_ID: process.env.FAUCET_SECRET_ID,
+            FAUCET_RECOVERY_ADDRESS: process.env.FAUCET_RECOVERY_ADDRESS,
+          };
+          fs.writeFileSync('/tmp/lambda-environment-base-wrapper.json', JSON.stringify({ Variables: base }));
+          fs.writeFileSync('/tmp/lambda-environment-disabled.json', JSON.stringify({ Variables: { ...base, ...common, FAUCET_ENABLED: 'false' } }));
+          NODE
+
+      - name: Snapshot current Lambda code for rollback
+        run: |
+          set -euo pipefail
+          aws lambda get-function \
+            --function-name "$LAMBDA_NAME" \
+            --query 'Code.Location' \
+            --output text > /tmp/lambda-code-location.txt
+          code_location="$(cat /tmp/lambda-code-location.txt)"
+          case "$code_location" in
+            https://*) ;;
+            *) echo 'Lambda rollback code location is invalid.' >&2; exit 1 ;;
+          esac
+          curl --fail --silent --show-error --location \
+            "$code_location" \
+            --output /tmp/lambda-code-rollback.zip
+          test -s /tmp/lambda-code-rollback.zip
+
+      - name: Stage faucet disabled
+        run: |
+          set -euo pipefail
+          aws lambda update-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --environment file:///tmp/lambda-environment-disabled.json \
+            --no-cli-pager >/dev/null
+          aws lambda wait function-updated --function-name "$LAMBDA_NAME"
+
+      - name: Update Lambda code from tested artifact
+        run: |
+          set -euo pipefail
+          aws lambda update-function-code \
+            --function-name "$LAMBDA_NAME" \
+            --zip-file fileb://build/public-rpc/sudharma-testnet-wallet-proxy.zip \
+            --no-cli-pager >/dev/null
+          aws lambda wait function-updated --function-name "$LAMBDA_NAME"
+
+      - name: Verify shared public RPC before diagnostics verification
+        run: |
+          set -euo pipefail
+          rollback_shared_lambda() {
+            local original_status=$?
+            trap - ERR
+            set +e
+            echo 'Shared RPC check failed; restoring previous Lambda code and environment.' >&2
+            aws lambda update-function-code \
+              --function-name "$LAMBDA_NAME" \
+              --zip-file fileb:///tmp/lambda-code-rollback.zip \
+              --no-cli-pager >/dev/null
+            local code_status=$?
+            if [ "$code_status" -eq 0 ]; then
+              aws lambda wait function-updated --function-name "$LAMBDA_NAME"
+              code_status=$?
+            fi
+            aws lambda update-function-configuration \
+              --function-name "$LAMBDA_NAME" \
+              --environment file:///tmp/lambda-environment-base-wrapper.json \
+              --no-cli-pager >/dev/null
+            local env_status=$?
+            if [ "$env_status" -eq 0 ]; then
+              aws lambda wait function-updated --function-name "$LAMBDA_NAME"
+              env_status=$?
+            fi
+            if [ "$code_status" -ne 0 ] || [ "$env_status" -ne 0 ]; then
+              echo "ROLLBACK INCOMPLETE: code_status=$code_status env_status=$env_status" >&2
+            else
+              echo 'Previous Lambda code and environment restored.' >&2
+            fi
+            exit "$original_status"
+          }
+          trap 'rollback_shared_lambda' ERR
+          curl -fsS "$RPC_BASE_URL/v1/status" >/tmp/status.json
+          node -e "const s=require('/tmp/status.json'); if (!s || s.network !== 'sudharma') process.exit(1); console.log(JSON.stringify({network:s.network,height:s.height,peers:s.peers,mempool:s.mempool}))"
+          curl -fsS "$RPC_BASE_URL/v1/website/visitors" >/tmp/visitors.json
+          node -e "const v=require('/tmp/visitors.json'); if (!Number.isSafeInteger(v.total) || v.total < 0) process.exit(1); console.log(JSON.stringify({website_visitors:v.total}))"
+          curl -fsS "$RPC_BASE_URL/v1/explorer/status" >/tmp/explorer-status.json
+          node -e "const e=require('/tmp/explorer-status.json'); if (!e || typeof e !== 'object') process.exit(1); console.log(JSON.stringify({explorer_status:'ok'}))"
+          trap - ERR
+
+      - name: Verify diagnostics-only deployment remains fail-closed
+        run: |
+          set -euo pipefail
+          rollback_shared_lambda() {
+            local original_status=$?
+            trap - ERR
+            set +e
+            echo 'Diagnostics-only verification failed; restoring previous Lambda code and environment.' >&2
+            aws lambda update-function-code \
+              --function-name "$LAMBDA_NAME" \
+              --zip-file fileb:///tmp/lambda-code-rollback.zip \
+              --no-cli-pager >/dev/null
+            local code_status=$?
+            if [ "$code_status" -eq 0 ]; then
+              aws lambda wait function-updated --function-name "$LAMBDA_NAME"
+              code_status=$?
+            fi
+            aws lambda update-function-configuration \
+              --function-name "$LAMBDA_NAME" \
+              --environment file:///tmp/lambda-environment-base-wrapper.json \
+              --no-cli-pager >/dev/null
+            local env_status=$?
+            if [ "$env_status" -eq 0 ]; then
+              aws lambda wait function-updated --function-name "$LAMBDA_NAME"
+              env_status=$?
+            fi
+            if [ "$code_status" -ne 0 ] || [ "$env_status" -ne 0 ]; then
+              echo "ROLLBACK INCOMPLETE: code_status=$code_status env_status=$env_status" >&2
+            else
+              echo 'Previous Lambda code and environment restored.' >&2
+            fi
+            exit "$original_status"
+          }
+          trap 'rollback_shared_lambda' ERR
+          expected_code_sha256="$(openssl dgst -sha256 -binary build/public-rpc/sudharma-testnet-wallet-proxy.zip | openssl base64 -A)"
+          deployed_code_sha256="$(aws lambda get-function --function-name "$LAMBDA_NAME" --query 'Configuration.CodeSha256' --output text)"
+          if [ "$deployed_code_sha256" != "$expected_code_sha256" ]; then
+            echo 'Diagnostics-only deployed Lambda code identity does not match the tested artifact.' >&2
+            exit 1
+          fi
+          faucet_enabled="$(aws lambda get-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --query 'Environment.Variables.FAUCET_ENABLED' \
+            --output text)"
+          if [ "$faucet_enabled" != 'false' ]; then
+            echo 'FAUCET_ENABLED must remain false in diagnostics-only mode' >&2
+            exit 1
+          fi
+          info_response="$(curl -sS -w '\n%{http_code}' "$RPC_BASE_URL/v1/faucet/info")"
+          info_status="$(printf '%s\n' "$info_response" | tail -n1)"
+          info_body="$(printf '%s\n' "$info_response" | sed '$d')"
+          if [ "$info_status" != '200' ]; then
+            echo "Diagnostics-only faucet info returned HTTP $info_status" >&2
+            exit 1
+          fi
+          if ! BODY="$info_body" node --input-type=module -e "const body=JSON.parse(process.env.BODY); if (body.enabled !== false) process.exit(1); console.log(JSON.stringify({diagnostics_only:true,enabled:body.enabled,auto_deploy:true}))"; then
+            echo 'Diagnostics-only faucet info must report enabled=false.' >&2
+            exit 1
+          fi
+          echo '{"diagnostics_only":true,"artifact_identity":"verified","faucet_enabled":false,"auto_deploy":true}'
+          trap - ERR
+
+  recover-prepared-payout:
+    needs: deploy-diagnostics-only
+    runs-on: ubuntu-24.04
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Analyze public faucet state
+        run: |
+          node ./scripts/analyze-faucet-public-state.mjs | tee /tmp/public-analysis.json
+          curl -fsS "$RPC_BASE_URL/v1/faucet/diagnostics" | tee /tmp/faucet-diagnostics.json || echo '{"seed_mempool":{"available":false}}' > /tmp/faucet-diagnostics.json
+          export LAST_ERROR_CATEGORY="$(node --input-type=module -e "
+            const fs = await import('node:fs');
+            try {
+              const body = JSON.parse(fs.readFileSync('/tmp/public-analysis.json', 'utf8'));
+              process.stdout.write(String(body.last_error_category || ''));
+            } catch { process.stdout.write(''); }
+          ")"
+          node ./scripts/evaluate-faucet-recovery-readiness.mjs | tee /tmp/recovery-readiness.json || true
+
+      - name: Skip when recovery readiness says mempool still blocked
+        id: readiness
+        run: |
+          set -euo pipefail
+          if [ ! -f /tmp/recovery-readiness.json ]; then
+            echo 'skip_recovery=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          should_attempt="$(node --input-type=module -e "
+            const fs = await import('node:fs');
+            const payload = JSON.parse(fs.readFileSync('/tmp/recovery-readiness.json', 'utf8'));
+            process.stdout.write(payload.readiness?.should_attempt_recovery === false ? 'false' : 'true');
+          ")"
+          echo "should_attempt=$should_attempt" >> "$GITHUB_OUTPUT"
+          if [ "$should_attempt" = 'false' ]; then
+            cat /tmp/recovery-readiness.json
+            echo 'skip_recovery=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'skip_recovery=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip when prepared payout is already on chain
+        id: gate
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.readiness.outputs.skip_recovery }}" = 'true' ]; then
+            echo 'skip_recovery=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          chain_status="$(node --input-type=module -e "
+            const fs = await import('node:fs');
+            const analysis = JSON.parse(fs.readFileSync('/tmp/public-analysis.json', 'utf8'));
+            process.stdout.write(String(analysis.failed_payout?.chain_status || 'unknown'));
+          ")"
+          echo "chain_status=$chain_status" >> "$GITHUB_OUTPUT"
+          if [ "$chain_status" = 'confirmed' ] || [ "$chain_status" = 'pending' ]; then
+            echo '{"recovery_skipped":"already_on_chain","chain_status":"'"$chain_status"'"}'
+            echo 'skip_recovery=true' >> "$GITHUB_OUTPUT"
+          else
+            echo '{"recovery_skipped":false,"chain_status":"'"$chain_status"'"}'
+            echo 'skip_recovery=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure AWS credentials from GitHub OIDC
+        if: steps.gate.outputs.skip_recovery != 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+
+      - name: Prepare brief enable snapshots
+        if: steps.gate.outputs.skip_recovery != 'true'
+        id: enable
+        run: |
+          set -euo pipefail
+          aws lambda get-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --query 'Environment.Variables' \
+            --output json > /tmp/lambda-environment-base.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const base = JSON.parse(fs.readFileSync('/tmp/lambda-environment-base.json', 'utf8')) ?? {};
+          const common = {
+            SEED_1_URL: 'http://172.31.10.171:29100',
+            SEED_2_URL: 'http://172.31.32.195:29100',
+            UPSTREAM_TIMEOUT_MS: '3500',
+            FAUCET_TABLE_NAME: process.env.FAUCET_TABLE_NAME,
+            FAUCET_SECRET_ID: process.env.FAUCET_SECRET_ID,
+            FAUCET_RECOVERY_ADDRESS: process.env.FAUCET_RECOVERY_ADDRESS,
+          };
+          fs.writeFileSync('/tmp/lambda-environment-disabled.json', JSON.stringify({ Variables: { ...base, ...common, FAUCET_ENABLED: 'false' } }));
+          fs.writeFileSync('/tmp/lambda-environment-enabled.json', JSON.stringify({ Variables: { ...base, ...common, FAUCET_ENABLED: 'true' } }));
+          NODE
+          aws lambda update-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --environment file:///tmp/lambda-environment-enabled.json \
+            --no-cli-pager >/dev/null
+          aws lambda wait function-updated --function-name "$LAMBDA_NAME"
+          for attempt in $(seq 1 15); do
+            info_body="$(curl -fsS "$RPC_BASE_URL/v1/faucet/info")"
+            if BODY="$info_body" node --input-type=module -e "const body=JSON.parse(process.env.BODY); process.exit(body.enabled === true ? 0 : 1)"; then
+              echo "$info_body"
+              echo '{"brief_enable":"ready"}'
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'Faucet enable did not become visible on the public RPC endpoint.' >&2
+          exit 1
+
+      - name: Resubmit prepared payout for failed address only
+        if: steps.gate.outputs.skip_recovery != 'true'
+        run: |
+          set -euo pipefail
+          echo "recovery_started_ms=$(date -u +%s%3N)" >> "$GITHUB_ENV"
+          response="$(curl -sS -w '\n%{http_code}' \
+            -X POST \
+            -H 'Content-Type: application/json' \
+            -d "{\"address\":\"$FAILED_ADDRESS\"}" \
+            "$RPC_BASE_URL/v1/faucet/request")"
+          status="$(printf '%s\n' "$response" | tail -n1)"
+          body="$(printf '%s\n' "$response" | sed '$d')"
+          printf '%s\n' "$body"
+          echo "{\"recovery_http_status\":$status,\"failed_address\":\"$FAILED_ADDRESS\"}"
+
+      - name: Verify chain and DynamoDB state after recovery attempt
+        if: steps.gate.outputs.skip_recovery != 'true'
+        run: |
+          set -euo pipefail
+          curl -fsS "$RPC_BASE_URL/v1/transactions/$FAILED_TXID" | tee /tmp/recovery-tx-status.json || echo '{"status":"not_found"}' > /tmp/recovery-tx-status.json
+          cat /tmp/recovery-tx-status.json
+          key="{\"pk\":{\"S\":\"ADDR#$FAILED_ADDRESS\"}}"
+          aws dynamodb get-item \
+            --table-name "$FAUCET_TABLE_NAME" \
+            --key "$key" \
+            --consistent-read \
+            --projection-expression 'initial_status, initial_txid, initial_error, initial_last_error_category, initial_last_http_status, initial_last_expected_nonce, initial_last_submitted_nonce, initial_submitted_at, initial_paid_at' \
+            --query 'Item.{initial_status:initial_status.S,initial_txid:initial_txid.S,initial_error:initial_error.S,initial_last_error_category:initial_last_error_category.S,initial_last_http_status:initial_last_http_status.N,initial_last_expected_nonce:initial_last_expected_nonce.N,initial_last_submitted_nonce:initial_last_submitted_nonce.N,initial_submitted_at:initial_submitted_at.N,initial_paid_at:initial_paid_at.N}' \
+            --output json | tee /tmp/recovery-dynamodb.json
+          node ./scripts/analyze-faucet-public-state.mjs | tee /tmp/public-analysis-after.json
+
+      - name: Read safe recovery dependency logs
+        if: steps.gate.outputs.skip_recovery != 'true'
+        run: |
+          set -u
+          start_ms="${recovery_started_ms:?missing recovery start time}"
+          log_group="/aws/lambda/$LAMBDA_NAME"
+          for pattern in '"faucet_dependency"' '"wallet_faucet_error"'; do
+            raw_step="$(mktemp)"
+            if aws logs filter-log-events \
+              --log-group-name "$log_group" \
+              --start-time "$start_ms" \
+              --filter-pattern "$pattern" \
+              --max-items 50 \
+              --query 'events[].message' \
+              --output text > "$raw_step"; then
+              node ./scripts/sanitize-faucet-live-logs.mjs < "$raw_step"
+            fi
+            rm -f "$raw_step"
+          done
+          echo '{"recovery_log_capture":"OK"}'

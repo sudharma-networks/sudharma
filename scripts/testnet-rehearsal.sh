@@ -36,6 +36,11 @@ cd "$ROOT"
 rm -rf data-testnet-rehearsal
 mkdir -p "$LOG_DIR"
 
+for port in 28444 28445 28545 28546; do
+  fuser -k "${port}/tcp" 2>/dev/null || true
+done
+sleep 0.5
+
 go run ./cmd/sudharma-rpcd -config testnet/rehearsal/node1.json >"$NODE1_LOG" 2>&1 &
 NODE1_PID=$!
 wait_ready "http://127.0.0.1:28545" "node1"
@@ -57,4 +62,22 @@ for key in ("height", "tip_hash", "total_work"):
 if two.get("peers", 0) < 1:
     raise SystemExit("node2 did not retain a P2P peer")
 print(f"Sudharma testnet rehearsal OK: height={one['height']} tip={one['tip_hash']} peers(node2)={two['peers']}")
+PY
+
+EXPLORER_STATUS="$(curl --fail --silent http://127.0.0.1:28545/v1/explorer/status)"
+EXPLORER_BLOCKS="$(curl --fail --silent 'http://127.0.0.1:28545/v1/explorer/blocks?limit=1')"
+EXPLORER_MEMPOOL="$(curl --fail --silent 'http://127.0.0.1:28545/v1/explorer/mempool?limit=1')"
+
+python3 - "$EXPLORER_STATUS" "$EXPLORER_BLOCKS" "$EXPLORER_MEMPOOL" <<'PY'
+import json, sys
+status = json.loads(sys.argv[1])
+blocks = json.loads(sys.argv[2])
+mempool = json.loads(sys.argv[3])
+if status.get("network") != "sudharma":
+    raise SystemExit(f"explorer status network mismatch: {status.get('network')!r}")
+if not isinstance(blocks.get("blocks"), list):
+    raise SystemExit("explorer blocks feed missing blocks array")
+if not isinstance(mempool.get("transactions"), list):
+    raise SystemExit("explorer mempool feed missing transactions array")
+print(f"explorer rehearsal OK: height={status.get('height')} blocks={len(blocks['blocks'])} mempool={len(mempool['transactions'])}")
 PY

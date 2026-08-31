@@ -3,6 +3,7 @@ package wallet
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -37,7 +38,9 @@ func TestBackupEncryptedVerifiesSameWallet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm()&0077 != 0 {
+	// Unix permission bits do not represent Windows ACLs, so this assertion
+	// is meaningful only on Unix-like systems.
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0077 != 0 {
 		t.Fatalf("backup wallet permissions too broad: %o", info.Mode().Perm())
 	}
 }

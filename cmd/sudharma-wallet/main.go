@@ -5,10 +5,17 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/sudharma-networks/sudharma/rpc"
 	"golang.org/x/term"
 )
+
+var stdinPasswordReader struct {
+	mu     sync.Mutex
+	file   *os.File
+	reader *bufio.Reader
+}
 
 func main() {
 	fmt.Println("================================")
@@ -93,8 +100,16 @@ func readPassword(prompt string) (string, error) {
 		}
 		return strings.TrimSpace(string(passwordBytes)), nil
 	}
-	reader := bufio.NewReader(os.Stdin)
-	value, err := reader.ReadString('\n')
+
+	stdinPasswordReader.mu.Lock()
+	defer stdinPasswordReader.mu.Unlock()
+
+	if stdinPasswordReader.reader == nil || stdinPasswordReader.file != os.Stdin {
+		stdinPasswordReader.file = os.Stdin
+		stdinPasswordReader.reader = bufio.NewReader(os.Stdin)
+	}
+
+	value, err := stdinPasswordReader.reader.ReadString('\n')
 	if err != nil {
 		return "", err
 	}
