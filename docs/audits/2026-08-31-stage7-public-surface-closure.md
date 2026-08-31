@@ -11,6 +11,32 @@ Close the remaining public-surface gaps after Stage 6 code landed:
 2. Amplify website serving Stage 6 faucet UI + approved tokenomics copy
 3. Read-only verify scripts for operators
 
+## Outcome (2026-08-31)
+
+| Item | Result |
+| --- | --- |
+| Lambda redeploy (`Testnet Public RPC`, run `33410467973`) | **Done** — rollback snapshot taken, faucet reactivated, smoke passed |
+| Faucet browser CORS | **Live** — `node ./scripts/verify-faucet-browser-cors.mjs` reports `PASS` |
+| Website promotion to `feature/website-foundation` | **Done** — commit `dbeec63`; Amplify rebuilt |
+| Live `/faucet` | **Serving the real request UI** ("Request testnet SUDH safely") |
+| Live homepage | Approved tokenomics ("Designed for Scarcity") + `Tokenomics` nav |
+
+### Visitor counter endpoint change
+
+The promotion switched the website from the wallet-proxy path
+(`…ja6a03avlc…/v1/website/visitors`) to the dedicated counter provisioned in Stage 5
+step 4 (`…b8dr97u4ob…`). The dedicated service keeps website traffic off the wallet
+proxy but starts from its own count, so the displayed total restarts. To keep the older
+running total instead, set `web/public/data/visitor-counter.json` back to the
+`/v1/website/visitors` URL and re-promote.
+
+### Workflow dispatch caveat
+
+`promote-website-foundation.yml` cannot be dispatched with `gh workflow run` until it
+exists on the repository default branch (GitHub requirement). Until PR #69 merges,
+promote by pushing the `web/` tree onto `feature/website-foundation` directly, excluding
+build directories (`web/.next`, `web/out`, `web/node_modules`, `web/test-results`).
+
 ## Operator steps (PowerShell)
 
 Use branch `cursor/canonical-integration-guard-8441` for every run.

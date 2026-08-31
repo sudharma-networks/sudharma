@@ -27,7 +27,7 @@ wallet formats, and network parameters may still change before mainnet.
 | **4** | Operator go-live toolkit (runbook, evidence, verifier) | Complete (`04a7c12`) |
 | **5** | Operator-gated core go-live | Core complete; website publish + Android APK deferred |
 | **6** | Public surface hardening (faucet web + CORS + honest status) | Code complete; Lambda CORS needs operator redeploy |
-| **7** | Public surface operator closure (CORS verify + Amplify promote) | Code complete; waiting on operator workflow runs |
+| **7** | Public surface operator closure (CORS verify + Amplify promote) | **Complete** — CORS live, website published |
 
 ### Stage 5 operator outcomes
 
@@ -56,19 +56,17 @@ wallet formats, and network parameters may still change before mainnet.
 | Public RPC | `https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com` | Live — height **~467+**, `network: sudharma`, peers 2 |
 | Explorer API | `…/v1/explorer/*` | Live — sources `seed-1`, `seed-2`, `mempool`, `demand-miner`; CORS present |
 | Faucet API | `…/v1/faucet/info`, `/health` | Live — `enabled: true`, `ready: true` |
-| Faucet CORS | browser `Access-Control-*` on faucet | **Not live until Lambda redeploy** (OPTIONS currently 405) |
+| Faucet CORS | browser `Access-Control-*` on faucet | Live after redeploy — `verify-faucet-browser-cors.mjs` passes |
 | Visitor counter | `https://b8dr97u4ob.execute-api.ap-south-1.amazonaws.com` | Live |
 | Amplify website | `https://feature-website-foundation.d2mqyt0bt8sl9s.amplifyapp.com/` | Live preview; **does not yet include Stage 6 faucet UI** until publish |
 
 ## 4. Deferred / incomplete operator items
 
-1. Redeploy public RPC Lambda so Stage 6 faucet CORS lands live  
-   (`gh workflow run testnet-public-rpc.yml --ref cursor/canonical-integration-guard-8441 -f preflight=false -f deploy=true -f diagnostics_only=false`).
-2. Verify CORS: `node ./scripts/verify-faucet-browser-cors.mjs`.
-3. Website Amplify promote via `promote-website-foundation.yml` (dry_run then real).
-4. Android APK release (Stage 5 step 7, still deferred).
-5. Optional private deployment evidence file verify (`assemble` + `verify` scripts).
-6. Demand-miner binary promotion when/if chain work requires it.
+1. ~~Redeploy public RPC Lambda for faucet CORS~~ — **done** (run `33410467973`); verified `PASS`.
+2. ~~Website publish to Amplify~~ — **done** (`dbeec63`); live `/faucet` serves the request UI.
+3. Android APK release (Stage 5 step 7, still deferred).
+4. Optional private deployment evidence file verify (`assemble` + `verify` scripts).
+5. Demand-miner binary promotion when/if chain work requires it.
 
 ## 5. Independent review lines (not mixed in)
 

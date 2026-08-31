@@ -43,6 +43,12 @@ node_modules/
 data/
 data-*/
 
+# Website build artifacts (Amplify builds from source)
+web/.next/
+web/out/
+web/test-results/
+web/playwright-report/
+
 # Public website config written by provision-website-visitor-counter workflow
 !web/public/data/
 !web/public/data/visitor-counter.json
