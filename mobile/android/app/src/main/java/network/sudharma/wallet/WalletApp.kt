@@ -6,6 +6,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
@@ -100,6 +101,10 @@ fun WalletApp(repository: SudharmaWalletRepository, activity: FragmentActivity) 
     DisposableEffect(sensitive) {
         activity.setSensitiveScreen(sensitive)
         onDispose { if (sensitive) activity.setSensitiveScreen(false) }
+    }
+
+    BackHandler(enabled = SystemBackNavigation.intercepts(screen)) {
+        screen = SystemBackNavigation.previous(screen)
     }
 
     when (screen) {
@@ -698,6 +703,10 @@ private fun ActivityScreen(repository: SudharmaWalletRepository, onBack: () -> U
     }
 
     LaunchedEffect(Unit) { refresh() }
+
+    BackHandler(enabled = selected != null) {
+        selected = null
+    }
 
     selected?.let { item ->
         TransactionDetailScreen(item = item, onBack = { selected = null })
