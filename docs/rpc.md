@@ -72,3 +72,35 @@ These limits are independent of the P2P transport limits added in Step 57.
 ## Security boundary
 
 The API never accepts private keys and does not sign transactions. Clients must sign locally and submit only the completed signed transaction. This keeps wallet key custody outside the node RPC process.
+
+## Public testnet wallet proxy surfaces
+
+The public HTTPS wallet proxy exposes a reviewed subset of node RPC plus faucet and explorer routes. Live base URL (testnet):
+
+`https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com`
+
+### Explorer (read-only)
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/v1/explorer/status` | Network tip, peers, mempool count, issued supply |
+| `GET` | `/v1/explorer/blocks` | Recent blocks |
+| `GET` | `/v1/explorer/blocks/{height\|hash}` | Block detail |
+| `GET` | `/v1/explorer/transactions` | Recent confirmed transactions |
+| `GET` | `/v1/explorer/transactions/{id}` | Transaction detail |
+| `GET` | `/v1/explorer/addresses/{address}` | Address balance and history |
+| `GET` | `/v1/explorer/mempool` | Pending transactions |
+| `GET` | `/v1/explorer/search?q=` | Unified search |
+
+Explorer responses include `Access-Control-Allow-Origin: *` for browser clients.
+
+### Faucet (testnet grants)
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/v1/faucet/info` | Enabled flag, grant sizes, challenge parameters |
+| `GET` | `/v1/faucet/health` | Readiness (`ready: true\|false`) |
+| `POST` | `/v1/faucet/request` | Initial grant for one address (`{ "address": "<40-hex>" }`) |
+| `POST` | `/v1/faucet/challenge` | Challenge reward claim (wallet clients) |
+
+Faucet responses include browser CORS headers. Website clients may POST with `Content-Type: text/plain;charset=UTF-8` and a JSON body to avoid a CORS preflight. Test SUDH has no mainnet value.

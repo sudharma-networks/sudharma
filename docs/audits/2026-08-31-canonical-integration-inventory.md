@@ -43,13 +43,27 @@ the recovery line's unique changes are integrated.
 7. Operator-gated go-live toolkit (**Stage 4 complete** on guard branch): deployment
    evidence template, read-only public RPC collector, evidence verifier, and manual
    workflow runbook in `docs/audits/2026-08-31-testnet-go-live-runbook.md`.
-8. Keep GPU staging and Mainnet Tokenomics v1 on independent review lines.
+8. Operator-gated Stage 5 go-live (**core complete**): seeds, public RPC, faucet enable,
+   visitor counter provisioned; website static publish and Android APK release deferred.
+9. Keep GPU staging and Mainnet Tokenomics v1 on independent review lines.
 
-## Stage 5 scope (next)
+## Stage 5 status
 
-Execute manual deploy workflows in runbook order, collect deployment evidence, verify
-against the RC commit, and declare live testnet readiness only after operator sign-off.
-No automated go-live is permitted from CI.
+Core Stage 5 go-live completed on 2026-08-31 (see
+`docs/audits/2026-08-31-testnet-go-live-operator-completion.md`). Private evidence file
+assembly is optional. Website Amplify publish and Android APK release remain operator
+deferred.
+
+## Stage 6 scope (current)
+
+Public testnet surface hardening on the guard branch:
+
+- Faucet web client and request UI against the live wallet proxy
+- Browser CORS on faucet Lambda responses (deploy still operator-gated)
+- Honest roadmap / home / testnet status copy for explorer + faucet
+- Public API documentation for explorer and faucet surfaces
+
+See `docs/audits/2026-08-31-stage6-public-surface-hardening.md`.
 
 ## Required evidence before testnet deployment
 

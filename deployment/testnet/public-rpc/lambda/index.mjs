@@ -7,6 +7,12 @@ const DEFAULT_SEEDS = [
   'http://172.31.32.195:29100',
 ];
 const EXPLORER_CORS_HEADERS = { 'access-control-allow-origin': '*' };
+const FAUCET_CORS_HEADERS = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-methods': 'GET,POST,OPTIONS',
+  'access-control-allow-headers': 'content-type',
+  'access-control-max-age': '86400',
+};
 
 function jsonResponse(statusCode, payload, extraHeaders = {}) {
   return {
@@ -24,6 +30,23 @@ function jsonResponse(statusCode, payload, extraHeaders = {}) {
 
 function visitorJsonResponse(statusCode, payload) {
   return jsonResponse(statusCode, payload, { 'access-control-allow-origin': '*' });
+}
+
+function faucetJsonResponse(statusCode, payload) {
+  return jsonResponse(statusCode, payload, FAUCET_CORS_HEADERS);
+}
+
+function faucetOptionsResponse() {
+  return {
+    statusCode: 204,
+    headers: {
+      ...FAUCET_CORS_HEADERS,
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+    },
+    body: '',
+    isBase64Encoded: false,
+  };
 }
 
 function gatewayResponse(result, extraHeaders = {}) {
@@ -67,6 +90,16 @@ function isExplorerPath(path) {
   return typeof path === 'string' && path.startsWith('/v1/explorer/');
 }
 
+function isFaucetPath(path) {
+  return typeof path === 'string' && path.startsWith('/v1/faucet/');
+}
+
+function rejectionCorsHeaders(path) {
+  if (isExplorerPath(path)) return EXPLORER_CORS_HEADERS;
+  if (isFaucetPath(path)) return FAUCET_CORS_HEADERS;
+  return {};
+}
+
 export function createHandler(options = {}) {
   const seeds = options.seeds || DEFAULT_SEEDS;
   const fetchImpl = options.fetchImpl || globalThis.fetch;
@@ -77,6 +110,11 @@ export function createHandler(options = {}) {
 
   return async function walletProxyHandler(event, context = {}) {
     const started = Date.now();
+    const method = String(event?.requestContext?.http?.method || '').toUpperCase();
+    if (method === 'OPTIONS' && isFaucetPath(event?.rawPath)) {
+      return faucetOptionsResponse();
+    }
+
     let request;
     try {
       request = normalizeEvent(event);
@@ -91,7 +129,7 @@ export function createHandler(options = {}) {
       return jsonResponse(
         statusCode,
         { error: error instanceof RequestError ? error.message : 'invalid request' },
-        isExplorerPath(event?.rawPath) ? EXPLORER_CORS_HEADERS : {},
+        rejectionCorsHeaders(event?.rawPath),
       );
     }
 
@@ -143,7 +181,7 @@ export function createHandler(options = {}) {
           route: request.kind,
           request_id: context?.awsRequestId || null,
         });
-        return jsonResponse(503, { error: 'testnet faucet is not configured yet' });
+        return faucetJsonResponse(503, { error: 'testnet faucet is not configured yet' });
       }
       try {
         const result = await faucetHandler(request, { context, seeds, fetchImpl, timeoutMs });
@@ -156,7 +194,7 @@ export function createHandler(options = {}) {
           latency_ms: Date.now() - started,
           request_id: context?.awsRequestId || null,
         });
-        return jsonResponse(statusCode, payload);
+        return faucetJsonResponse(statusCode, payload);
       } catch (error) {
         const statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : 500;
         const errorRecord = {
@@ -171,7 +209,7 @@ export function createHandler(options = {}) {
         if (Number.isInteger(error?.expectedNonce)) errorRecord.expected_nonce = error.expectedNonce;
         if (Number.isInteger(error?.submittedNonce)) errorRecord.submitted_nonce = error.submittedNonce;
         safeLog(logger, statusCode >= 500 ? 'error' : 'warn', errorRecord);
-        return jsonResponse(statusCode, {
+        return faucetJsonResponse(statusCode, {
           error: statusCode >= 500
             ? 'testnet faucet is temporarily unavailable'
             : String(error?.message || 'faucet request rejected'),

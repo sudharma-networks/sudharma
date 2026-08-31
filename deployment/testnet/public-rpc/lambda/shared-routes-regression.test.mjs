@@ -70,6 +70,25 @@ test('visitor route dispatches locally and explorer responses keep CORS', async 
   assert.equal(upstreamCalls, 1);
 });
 
+test('faucet responses and OPTIONS preflight include browser CORS headers', async () => {
+  const handler = createHandler({
+    seeds,
+    faucetHandler: async () => ({ statusCode: 200, payload: { ready: true } }),
+    fetchImpl: async () => { throw new Error('must not proxy faucet'); },
+    logger: { info() {}, warn() {}, error() {} },
+  });
+
+  const health = await handler(event('GET', '/v1/faucet/health'));
+  assert.equal(health.statusCode, 200);
+  assert.equal(health.headers['access-control-allow-origin'], '*');
+  assert.equal(health.headers['access-control-allow-methods'], 'GET,POST,OPTIONS');
+
+  const options = await handler(event('OPTIONS', '/v1/faucet/request'));
+  assert.equal(options.statusCode, 204);
+  assert.equal(options.headers['access-control-allow-origin'], '*');
+  assert.equal(options.headers['access-control-allow-headers'], 'content-type');
+});
+
 test('faucet health still dispatches locally after shared-route restoration', async () => {
   let upstreamCalls = 0;
   const faucetKinds = [];
