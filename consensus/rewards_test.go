@@ -84,3 +84,53 @@ func TestMainnetEmissionTableInvariants(t *testing.T) {
 		}
 	}
 }
+
+func TestMainnetSubsidyEpochBoundaries(t *testing.T) {
+	for epochIndex, epoch := range params.MainnetEmissionEpochs {
+		start := uint64(epochIndex)*params.MainnetEpochLength + 1
+		end := start + params.MainnetEpochLength - 1
+		base := epoch.Issuance / params.MainnetEpochLength
+		remainder := epoch.Issuance % params.MainnetEpochLength
+
+		firstWant := base
+		if remainder > 0 {
+			firstWant++
+		}
+		first, err := BlockSubsidyFor(params.MonetaryPolicyMainnet, start)
+		if err != nil || first != firstWant {
+			t.Fatalf("epoch %d first block: want %d got %d err=%v", epochIndex+1, firstWant, first, err)
+		}
+
+		lastOffset := params.MainnetEpochLength - 1
+		lastWant := base
+		if lastOffset < remainder {
+			lastWant++
+		}
+		last, err := BlockSubsidyFor(params.MonetaryPolicyMainnet, end)
+		if err != nil || last != lastWant {
+			t.Fatalf("epoch %d last block: want %d got %d err=%v", epochIndex+1, lastWant, last, err)
+		}
+	}
+
+	got, err := BlockSubsidyFor(params.MonetaryPolicyMainnet, params.MainnetFinalSubsidyHeight+1)
+	if err != nil || got != 0 {
+		t.Fatalf("post-emission subsidy: want 0 got %d err=%v", got, err)
+	}
+}
+
+func TestMainnetCumulativeSubsidyIsExactHardCap(t *testing.T) {
+	var total uint64
+	for height := uint64(1); height <= params.MainnetFinalSubsidyHeight; height++ {
+		reward, err := BlockSubsidyFor(params.MonetaryPolicyMainnet, height)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if total > ^uint64(0)-reward {
+			t.Fatal("subsidy total overflow")
+		}
+		total += reward
+	}
+	if total != params.MainnetMaxSupply {
+		t.Fatalf("expected %d, got %d", params.MainnetMaxSupply, total)
+	}
+}
