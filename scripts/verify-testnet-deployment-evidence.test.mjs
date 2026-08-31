@@ -27,8 +27,8 @@ test('verify accepts complete evidence fixture', () => {
     recorded_at: '2026-08-31T12:00:00Z',
     rc_candidate_commit: '5f9258918fb301009a4e37ceb3f522906a8fd699',
     components: {
-      seed1: { commit_or_artifact_sha256: 'a'.repeat(64), service_unit: 'sudharma-testnet.service', observed_height: 12 },
-      seed2: { commit_or_artifact_sha256: 'b'.repeat(64), service_unit: 'sudharma-testnet.service', observed_height: 12 },
+      seed1: { commit_or_artifact_sha256: 'a'.repeat(64), service_unit: 'sudharma.service', observed_height: 12 },
+      seed2: { commit_or_artifact_sha256: 'b'.repeat(64), service_unit: 'sudharma.service', observed_height: 12 },
       public_rpc_lambda: { function_name: 'Sudharma-Testnet-Wallet-Proxy', code_sha256: 'c'.repeat(64), faucet_enabled: false },
       demand_miner_seed1: { commit_or_artifact_sha256: 'd'.repeat(64) },
       demand_miner_seed2: { commit_or_artifact_sha256: 'e'.repeat(64) },
@@ -48,6 +48,39 @@ test('verify accepts complete evidence fixture', () => {
   };
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sudharma-evidence-'));
+  const file = path.join(tempDir, 'evidence.json');
+  fs.writeFileSync(file, JSON.stringify(fixture, null, 2));
+  const result = runVerify(file, fixture.rc_candidate_commit);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test('verify accepts deferred website and android components', () => {
+  const fixture = {
+    kind: 'sudharma-testnet-deployment-evidence',
+    recorded_at: '2026-08-31T12:00:00Z',
+    rc_candidate_commit: '5f9258918fb301009a4e37ceb3f522906a8fd699',
+    components: {
+      seed1: { commit_or_artifact_sha256: 'a'.repeat(64), service_unit: 'sudharma.service', observed_height: 12 },
+      seed2: { commit_or_artifact_sha256: 'b'.repeat(64), service_unit: 'sudharma.service', observed_height: 12 },
+      public_rpc_lambda: { function_name: 'Sudharma-Testnet-Wallet-Proxy', code_sha256: 'c'.repeat(64), faucet_enabled: true },
+      demand_miner_seed1: { deferred: true, notes: 'Chain work not pending during go-live.' },
+      demand_miner_seed2: { deferred: true, notes: 'Chain work not pending during go-live.' },
+      website: { deferred: true, notes: 'Website publish deferred by operator.' },
+      android_wallet: { deferred: true, notes: 'Android APK release deferred by operator.' },
+    },
+    public_rpc_smoke: {
+      rpc_base_url: 'https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com',
+      collected_at: '2026-08-31T12:00:00Z',
+      ready: { status: 'ready' },
+      status: { network: 'sudharma', height: 12 },
+      explorer_status: { network: 'sudharma', height: 12 },
+      faucet_health: { ready: true },
+      visitor_total: 3,
+    },
+    operator_signoff: { reviewed_by: 'operator@example.com', notes: 'core testnet go-live complete with deferred website/APK' },
+  };
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sudharma-evidence-deferred-'));
   const file = path.join(tempDir, 'evidence.json');
   fs.writeFileSync(file, JSON.stringify(fixture, null, 2));
   const result = runVerify(file, fixture.rc_candidate_commit);

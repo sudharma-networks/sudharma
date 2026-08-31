@@ -40,16 +40,17 @@ required_paths = [
     ('components.seed1.commit_or_artifact_sha256', str),
     ('components.seed2.commit_or_artifact_sha256', str),
     ('components.public_rpc_lambda.code_sha256', str),
-    ('components.demand_miner_seed1.commit_or_artifact_sha256', str),
-    ('components.demand_miner_seed2.commit_or_artifact_sha256', str),
-    ('components.website.build_id', str),
-    ('components.android_wallet.tag', str),
-    ('components.android_wallet.commit', str),
-    ('components.android_wallet.checksum_sha256', str),
     ('public_rpc_smoke.rpc_base_url', str),
     ('public_rpc_smoke.collected_at', str),
     ('operator_signoff.reviewed_by', str),
 ]
+
+optional_component_groups = {
+    'components.demand_miner_seed1': ['commit_or_artifact_sha256'],
+    'components.demand_miner_seed2': ['commit_or_artifact_sha256'],
+    'components.website': ['build_id', 'deployment_url'],
+    'components.android_wallet': ['tag', 'commit', 'checksum_sha256'],
+}
 
 def get_path(obj, dotted):
     cur = obj
@@ -59,12 +60,34 @@ def get_path(obj, dotted):
         cur = cur[part]
     return cur
 
+def require_deferred_notes(component_path):
+    component = get_path(data, component_path)
+    if not isinstance(component, dict):
+        raise SystemExit(f'missing component object: {component_path}')
+    if component.get('deferred') is not True:
+        return False
+    notes = component.get('notes')
+    if not isinstance(notes, str) or not notes.strip():
+        raise SystemExit(f'{component_path}.notes is required when deferred=true')
+    return True
+
 for dotted, expected_type in required_paths:
     value = get_path(data, dotted)
     if value is None or value == '':
         raise SystemExit(f'missing required evidence field: {dotted}')
     if not isinstance(value, expected_type):
         raise SystemExit(f'field {dotted} must be {expected_type.__name__}')
+
+for component_path, fields in optional_component_groups.items():
+    if require_deferred_notes(component_path):
+        continue
+    for field in fields:
+        dotted = f'{component_path}.{field}'
+        value = get_path(data, dotted)
+        if value is None or value == '':
+            raise SystemExit(f'missing required evidence field: {dotted} (or set {component_path}.deferred=true with notes)')
+        if not isinstance(value, str):
+            raise SystemExit(f'field {dotted} must be str')
 
 smoke = data.get('public_rpc_smoke', {})
 for key in ('ready', 'status', 'explorer_status', 'faucet_health'):

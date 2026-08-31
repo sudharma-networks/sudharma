@@ -5,12 +5,12 @@
   "components": {
     "seed1": {
       "commit_or_artifact_sha256": "REPLACE_WITH_SEED1_ARTIFACT_SHA256",
-      "service_unit": "sudharma-testnet.service",
+      "service_unit": "sudharma.service",
       "observed_height": 0
     },
     "seed2": {
       "commit_or_artifact_sha256": "REPLACE_WITH_SEED2_ARTIFACT_SHA256",
-      "service_unit": "sudharma-testnet.service",
+      "service_unit": "sudharma.service",
       "observed_height": 0
     },
     "public_rpc_lambda": {
@@ -19,19 +19,27 @@
       "faucet_enabled": false
     },
     "demand_miner_seed1": {
-      "commit_or_artifact_sha256": "REPLACE_WITH_DEMAND_MINER_SEED1_SHA256"
+      "commit_or_artifact_sha256": "REPLACE_WITH_DEMAND_MINER_SEED1_SHA256",
+      "deferred": false,
+      "notes": ""
     },
     "demand_miner_seed2": {
-      "commit_or_artifact_sha256": "REPLACE_WITH_DEMAND_MINER_SEED2_SHA256"
+      "commit_or_artifact_sha256": "REPLACE_WITH_DEMAND_MINER_SEED2_SHA256",
+      "deferred": false,
+      "notes": ""
     },
     "website": {
       "build_id": "REPLACE_WITH_WEBSITE_BUILD_ID",
-      "deployment_url": "REPLACE_WITH_WEBSITE_URL"
+      "deployment_url": "REPLACE_WITH_WEBSITE_URL",
+      "deferred": false,
+      "notes": ""
     },
     "android_wallet": {
       "tag": "REPLACE_WITH_APK_TAG",
       "commit": "REPLACE_WITH_APK_SOURCE_COMMIT",
-      "checksum_sha256": "REPLACE_WITH_APK_SHA256"
+      "checksum_sha256": "REPLACE_WITH_APK_SHA256",
+      "deferred": false,
+      "notes": ""
     }
   },
   "public_rpc_smoke": {

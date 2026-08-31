@@ -13,6 +13,7 @@ require_file() {
 for file in \
   docs/audits/2026-08-31-testnet-rc-attestation.md \
   docs/audits/2026-08-31-testnet-go-live-runbook.md \
+  docs/audits/2026-08-31-testnet-go-live-operator-completion.md \
   deployment/testnet/deployment-evidence.template.json \
   scripts/generate-testnet-rc-attestation.sh \
   scripts/check-testnet-rc-readiness_test.sh \

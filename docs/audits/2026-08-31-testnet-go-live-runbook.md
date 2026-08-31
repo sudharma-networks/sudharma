@@ -35,6 +35,11 @@ Execute in order. Stop if any step fails rollback or smoke verification.
 | 6 | `Faucet Enable Public` | Only after Lambda deploy smoke and seed health pass |
 | 7 | Android release | Publish wallet APK only after RPC/faucet/explorer stability is confirmed |
 
+Steps 5 and 7 may be **deferred** after core testnet services (seeds, public RPC, visitor
+counter, faucet) are live. Record deferrals in the private evidence file with
+`deferred: true` and operator notes; verification accepts deferred website/APK/demand-miner
+components when documented.
+
 Diagnostics-only or recovery workflows (`faucet-diagnostics-auto-deploy`, prepared payout
 recovery, recovery retry) are for incident response — not part of initial go-live.
 
@@ -43,7 +48,8 @@ recovery, recovery retry) are for incident response — not part of initial go-l
 1. Copy `deployment/testnet/deployment-evidence.template.json` to a private operator path.
 
 2. Fill component artifact digests from each manual deploy output (seed binary SHA,
-   Lambda CodeSha256, demand-miner SHA, website build id, APK checksum).
+   Lambda CodeSha256, demand-miner SHA). For deferred website/APK/demand-miner steps, set
+   `deferred: true` and explain in `notes` instead of artifact digests.
 
 3. Collect read-only public RPC smoke (does not mutate live services):
 
@@ -70,6 +76,7 @@ Declare testnet go-live readiness only when:
 - Public RPC smoke shows `network: sudharma` on status and explorer status
 - Faucet health is independent of payout enable state until step 6 is deliberately run
 - Deployed Lambda CodeSha256 matches the tested artifact from step 2
+- Deferred website/APK components are explicitly documented in operator evidence
 
 ## Explicit non-actions
 
