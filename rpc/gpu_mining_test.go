@@ -51,7 +51,11 @@ func TestGPUMinerWorkDoesNotAdvertiseCPUMining(t *testing.T) {
 		RewardAddress string            `json:"reward_address"`
 		Height        uint64            `json:"height"`
 		Block         *blockchain.Block `json:"block"`
-		Note          string            `json:"note"`
+		POWCompat     struct {
+			GetBlockTemplate map[string]any `json:"getblocktemplate"`
+			EthGetWork       map[string]any `json:"eth_getWork"`
+		} `json:"pow_compat"`
+		Note string `json:"note"`
 	}
 	if err := json.Unmarshal(work.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
@@ -70,6 +74,12 @@ func TestGPUMinerWorkDoesNotAdvertiseCPUMining(t *testing.T) {
 	}
 	if payload.Height != 1 {
 		t.Fatalf("height = %d", payload.Height)
+	}
+	if payload.POWCompat.GetBlockTemplate["height"] != float64(1) && payload.POWCompat.GetBlockTemplate["height"] != uint64(1) {
+		t.Fatalf("pow_compat.getblocktemplate.height = %#v", payload.POWCompat.GetBlockTemplate["height"])
+	}
+	if payload.POWCompat.EthGetWork["header_hash"] == nil || payload.POWCompat.EthGetWork["header_hash"] == "" {
+		t.Fatalf("pow_compat.eth_getWork.header_hash = %#v", payload.POWCompat.EthGetWork["header_hash"])
 	}
 	if !strings.Contains(payload.Note, "Demand miner") {
 		t.Fatalf("note = %q", payload.Note)

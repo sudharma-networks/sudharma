@@ -36,6 +36,9 @@ grep -Fq 'MainnetSeed1RPC' params/mining.go \
 grep -Fq 'REPLACE_WITH_REAL_DOMAIN' deployment/mainnet/public-profile.example.json \
   || fail 'mainnet public profile must keep unresolved placeholders until launch'
 
+grep -Fq 'buildPOWCompatWork' rpc/mining_compat.go \
+  || fail 'PoW compatibility aliases must be encoded in rpc/mining_compat.go'
+
 go test ./gpuminer -run 'TestLoadMainnetFileConfigMatchesOperatorShape|TestLoadFileConfigMatchesDemandMinerShape' -count=1 >/dev/null \
   || fail 'mainnet and testnet gpu-miner deployment configs must parse'
 

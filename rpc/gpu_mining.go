@@ -68,6 +68,7 @@ func (s *Server) handleMiningWork(w http.ResponseWriter, r *http.Request) {
 		"block":          block,
 		"block_reward":   consensus.BlockSubsidy(block.Height),
 		"miner_balance":  s.state.Balance(address),
+		"pow_compat":     buildPOWCompatWork(block, parent, consensus.BlockSubsidy(block.Height)),
 		"note":           "GPU miner API. Demand miner is a separate process and is not modified. Submit the solved block to /v1/mining/submit to credit reward_address.",
 	})
 }

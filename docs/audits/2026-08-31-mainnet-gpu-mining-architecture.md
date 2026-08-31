@@ -19,6 +19,7 @@ Common patterns:
 3. **Separate read and write paths** — explorers/wallets use read-only APIs; mining uses explicit submit endpoints.
 4. **Proxy allowlists** — public Internet sees only mining + wallet routes, not admin RPC.
 5. **Failover seeds** — wallets and miners try seed-1 then seed-2 (Sudharma public-testnet Lambda already does this).
+6. **Compatibility aliases** — work JSON includes `pow_compat.getblocktemplate` (RVN/BTC field names) and `pow_compat.eth_getWork` (pre-merge Ethereum PoW names) so pool software can integrate without legacy JSON-RPC on sudharma-rpcd.
 
 ## Sudharma public-testnet (live path)
 
