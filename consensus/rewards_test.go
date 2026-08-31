@@ -134,3 +134,31 @@ func TestMainnetCumulativeSubsidyIsExactHardCap(t *testing.T) {
 		t.Fatalf("expected %d, got %d", params.MainnetMaxSupply, total)
 	}
 }
+
+func TestMainnetRemainderDistributionEveryEpoch(t *testing.T) {
+	for epochIndex, epoch := range params.MainnetEmissionEpochs {
+		base := epoch.Issuance / params.MainnetEpochLength
+		remainder := epoch.Issuance % params.MainnetEpochLength
+		var sum uint64
+		var plusOne uint64
+		for offset := uint64(0); offset < params.MainnetEpochLength; offset++ {
+			height := uint64(epochIndex)*params.MainnetEpochLength + offset + 1
+			got, err := BlockSubsidyFor(params.MonetaryPolicyMainnet, height)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got == base+1 {
+				plusOne++
+			} else if got != base {
+				t.Fatalf("epoch %d offset %d unexpected reward %d", epochIndex+1, offset, got)
+			}
+			sum += got
+		}
+		if plusOne != remainder {
+			t.Fatalf("epoch %d expected %d plus-one blocks got %d", epochIndex+1, remainder, plusOne)
+		}
+		if sum != epoch.Issuance {
+			t.Fatalf("epoch %d expected issuance %d got %d", epochIndex+1, epoch.Issuance, sum)
+		}
+	}
+}
