@@ -18,16 +18,16 @@ import (
 var rewardAddressPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
 type Config struct {
-	Environment     string `json:"environment"`
-	StatusURL       string `json:"status_url"`
-	ExpectedNetwork string `json:"expected_network"`
-	ExpectedCoin    string `json:"expected_coin"`
-	ExpectedSymbol  string `json:"expected_symbol"`
-	SeedAddress     string `json:"seed_address"`
-	RewardAddress   string `json:"reward_address"`
-	MinerBinary     string `json:"miner_binary"`
-	DataDirectory   string `json:"data_directory"`
-	LockFile        string `json:"lock_file"`
+	Environment         string `json:"environment"`
+	StatusURL           string `json:"status_url"`
+	ExpectedNetwork     string `json:"expected_network"`
+	ExpectedCoin        string `json:"expected_coin"`
+	ExpectedSymbol      string `json:"expected_symbol"`
+	SeedAddress         string `json:"seed_address"`
+	RewardAddress       string `json:"reward_address"`
+	MinerBinary         string `json:"miner_binary"`
+	DataDirectory       string `json:"data_directory"`
+	LockFile            string `json:"lock_file"`
 	PollEvery           string `json:"poll_every"`
 	Cooldown            string `json:"cooldown"`
 	FailureBackoff      string `json:"failure_backoff"`
