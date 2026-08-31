@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { PageHero } from "@/components/page-hero";
 import { StatusChip } from "@/components/status-chip";
 export default function TestnetPage() {
@@ -7,7 +8,10 @@ export default function TestnetPage() {
         eyebrow="TESTNET"
         title="A public place to test before mainnet."
         description="Sudharma public testnet is used to exercise node, wallet, transaction, mining and infrastructure behavior before production launch."
-      />
+      >
+        <Link className="button" href="/faucet">Request test SUDH</Link>
+        <Link className="button secondary" href="/explorer">Open explorer</Link>
+      </PageHero>
       <section className="status-grid">
         <article>
           <StatusChip status="Testnet" />
