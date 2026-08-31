@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+fail() {
+  printf 'FAIL: %s\n' "$1" >&2
+  exit 1
+}
+
+require_file() {
+  [ -f "$1" ] || fail "$1 is missing"
+}
+
+for file in \
+  deployment/mainnet/README.md \
+  deployment/mainnet/deployment-evidence.template.json \
+  deployment/mainnet/gpu-miner.example.json \
+  deployment/mainnet/gpu-miner.seed1-live.example.json \
+  deployment/mainnet/gpu-miner.seed2-live.example.json \
+  deployment/mainnet/seed1.node.example.json \
+  deployment/mainnet/seed2.node.example.json \
+  deployment/mainnet/public-profile.example.json \
+  deployment/mainnet/nginx-rpc.example.conf \
+  deployment/mainnet/docker-compose.example.yml \
+  docs/audits/2026-08-31-mainnet-launch-operator-runbook.md \
+  docs/audits/2026-08-31-mainnet-gpu-mining-architecture.md; do
+  require_file "$file"
+done
+
+grep -Fq 'MainnetMiningAuthorized = false' params/mining.go \
+  || fail 'mainnet GPU mining must stay unauthorized in params/mining.go'
+
+grep -Fq 'MainnetSeed1RPC' params/mining.go \
+  || fail 'mainnet seed RPC placeholders must be encoded in params/mining.go'
+
+grep -Fq 'REPLACE_WITH_REAL_DOMAIN' deployment/mainnet/public-profile.example.json \
+  || fail 'mainnet public profile must keep unresolved placeholders until launch'
+
+printf 'PASS: mainnet go-live operator toolkit scaffold is present\n'

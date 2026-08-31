@@ -1,0 +1,12 @@
+{
+  "environment": "mainnet",
+  "public_rpc_url": "https://mainnet.rpc.REPLACE_WITH_REAL_DOMAIN",
+  "seed1_rpc_url": "http://REPLACE_WITH_SEED1_PRIVATE_IP:29100",
+  "seed2_rpc_url": "http://REPLACE_WITH_SEED2_PRIVATE_IP:29100",
+  "expected_network": "sudharma-mainnet-1",
+  "expected_coin": "Sudharma",
+  "expected_symbol": "SUDH",
+  "reward_address": "REPLACE_WITH_YOUR_WALLET_ADDRESS",
+  "backend": "gpu-only",
+  "device": 0
+}

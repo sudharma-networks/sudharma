@@ -1,0 +1,11 @@
+{
+  "name": "Sudharma Mainnet",
+  "slug": "sudharma-mainnet-1",
+  "p2p_port": 28444,
+  "rpc_port": 28545,
+  "data_directory": "data-mainnet-1",
+  "seeds": [
+    "seed1.REPLACE_WITH_REAL_DOMAIN:28444",
+    "seed2.REPLACE_WITH_REAL_DOMAIN:28444"
+  ]
+}

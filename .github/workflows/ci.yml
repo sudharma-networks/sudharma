@@ -62,6 +62,9 @@ jobs:
       - name: Verify mainnet readiness contract
         run: bash ./scripts/check-mainnet-readiness-contract_test.sh
 
+      - name: Verify mainnet go-live operator toolkit
+        run: bash ./scripts/check-mainnet-go-live-readiness_test.sh
+
       - name: Run mainnet monetary rehearsal
         run: bash ./scripts/mainnet-monetary-rehearsal.sh
 

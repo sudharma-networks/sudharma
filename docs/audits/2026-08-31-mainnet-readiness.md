@@ -30,7 +30,7 @@ Closes the remaining **engineering** gaps called out after Mainnet Tokenomics v1
 | Independent production security audit | Not started |
 | Freeze mainnet genesis unix timestamp (replace `0`) | Not frozen |
 | Flip `MainnetLaunchAuthorized` in a dedicated activation PR | Forbidden here |
-| Publish mainnet seed topology and operator runbook | Draft at `docs/audits/2026-08-31-mainnet-launch-operator-runbook.md` |
+| Publish mainnet seed topology and operator runbook | Draft scaffold at `deployment/mainnet/` + `docs/audits/2026-08-31-mainnet-launch-operator-runbook.md` |
 | DEX wrapped-asset / CEX integration pack | Deferred (native coin; Uniswap-style DEX needs a wrap/bridge after launch) |
 | GPU Windows + HiveOS miner packages | Testnet live via PR #79; mainnet design at `docs/audits/2026-08-31-mainnet-gpu-mining-architecture.md` |
 
@@ -42,4 +42,5 @@ go run ./cmd/sudharma-mainnet-readiness
 go run ./cmd/sudharma-mainnet-genesis-info
 bash ./scripts/mainnet-monetary-rehearsal.sh
 bash ./scripts/check-mainnet-readiness-contract_test.sh
+bash ./scripts/check-mainnet-go-live-readiness_test.sh
 ```

@@ -31,9 +31,14 @@ const (
 	PublicTestnetSeed1RPC = "http://172.31.10.171:29100"
 	PublicTestnetSeed2RPC = "http://172.31.32.195:29100"
 
-	// MainnetMiningRPC is reserved for the authorized mainnet endpoint.
+	// MainnetMiningRPC is reserved for the authorized mainnet HTTPS proxy.
 	// Connecting still requires MainnetMiningAuthorized.
 	MainnetMiningRPC = "https://mainnet.rpc.sudharma.invalid"
+
+	// MainnetSeed1RPC and MainnetSeed2RPC are placeholders until operators
+	// publish the mainnet seed VPC topology in the activation PR.
+	MainnetSeed1RPC = "http://REPLACE_WITH_SEED1_PRIVATE_IP:29100"
+	MainnetSeed2RPC = "http://REPLACE_WITH_SEED2_PRIVATE_IP:29100"
 
 	// MainnetMiningAuthorized keeps mainnet mining closed until an explicit
 	// launch decision. The algorithm and backend rules below still apply:
@@ -75,6 +80,12 @@ func PublicTestnetMiningSeedRPCs() []string {
 	return []string{PublicTestnetSeed1RPC, PublicTestnetSeed2RPC}
 }
 
+// MainnetMiningSeedRPCs returns the ordered mainnet seed RPC endpoints once
+// operators replace the placeholder private IPs during launch preparation.
+func MainnetMiningSeedRPCs() []string {
+	return []string{MainnetSeed1RPC, MainnetSeed2RPC}
+}
+
 // MiningRPCEndpointsForNetwork returns the mining RPC endpoints for a network.
 // Public-testnet uses the same seed-1 then seed-2 path as the wallet, explorer,
 // and faucet public proxy. Internet clients should prefer the first HTTPS URL;
@@ -87,7 +98,7 @@ func MiningRPCEndpointsForNetwork(network string) ([]string, error) {
 		if !MainnetMiningAuthorized {
 			return nil, fmt.Errorf("mainnet mining is not authorized; Sudharma mainnet remains GPU-only and closed until launch")
 		}
-		return []string{MainnetMiningRPC}, nil
+		return append([]string{MainnetMiningRPC}, MainnetMiningSeedRPCs()...), nil
 	default:
 		return nil, fmt.Errorf("unsupported mining network %q (use public-testnet or mainnet)", network)
 	}
