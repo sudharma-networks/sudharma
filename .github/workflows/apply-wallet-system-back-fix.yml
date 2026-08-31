@@ -1,0 +1,84 @@
+name: Apply Wallet System Back Fix
+
+on:
+  push:
+    branches:
+      - cursor/wallet-txn-details-83d4
+    paths:
+      - .github/workflows/apply-wallet-system-back-fix.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cursor/wallet-txn-details-83d4
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Apply guarded Compose back-navigation patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('mobile/android/app/src/main/java/network/sudharma/wallet/WalletApp.kt')
+          text = path.read_text()
+
+          import_anchor = 'import androidx.activity.compose.rememberLauncherForActivityResult\n'
+          if 'import androidx.activity.compose.BackHandler\n' not in text:
+              if import_anchor not in text:
+                  raise SystemExit('BackHandler import anchor not found')
+              text = text.replace(import_anchor, 'import androidx.activity.compose.BackHandler\n' + import_anchor, 1)
+
+          wallet_anchor = '''    DisposableEffect(sensitive) {
+        activity.setSensitiveScreen(sensitive)
+        onDispose { if (sensitive) activity.setSensitiveScreen(false) }
+    }
+
+    when (screen) {'''
+          wallet_replacement = '''    DisposableEffect(sensitive) {
+        activity.setSensitiveScreen(sensitive)
+        onDispose { if (sensitive) activity.setSensitiveScreen(false) }
+    }
+
+    BackHandler(enabled = SystemBackNavigation.intercepts(screen)) {
+        screen = SystemBackNavigation.previous(screen)
+    }
+
+    when (screen) {'''
+          if 'BackHandler(enabled = SystemBackNavigation.intercepts(screen))' not in text:
+              if wallet_anchor not in text:
+                  raise SystemExit('Wallet-level back anchor not found')
+              text = text.replace(wallet_anchor, wallet_replacement, 1)
+
+          activity_anchor = '''    LaunchedEffect(Unit) { refresh() }
+
+    selected?.let { item ->'''
+          activity_replacement = '''    LaunchedEffect(Unit) { refresh() }
+
+    BackHandler(enabled = selected != null) {
+        selected = null
+    }
+
+    selected?.let { item ->'''
+          if 'BackHandler(enabled = selected != null)' not in text:
+              if activity_anchor not in text:
+                  raise SystemExit('Activity detail back anchor not found')
+              text = text.replace(activity_anchor, activity_replacement, 1)
+
+          path.write_text(text)
+          PY
+
+      - name: Commit patch and remove one-shot workflow
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/apply-wallet-system-back-fix.yml
+          git add mobile/android/app/src/main/java/network/sudharma/wallet/WalletApp.kt
+          git commit -m "fix(android): honor system back navigation"
+          git push origin cursor/wallet-txn-details-83d4
