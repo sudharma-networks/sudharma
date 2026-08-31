@@ -8,8 +8,8 @@ const (
 	MonetaryPolicyPublicTestnet MonetaryPolicy = 1
 	MonetaryPolicyMainnet       MonetaryPolicy = 2
 
-	MainnetMaxSupplySUDH       uint64 = 51_000_000
-	MainnetMaxSupply                  = MainnetMaxSupplySUDH * CoinDecimals
+	MainnetMaxSupplySUDH      uint64 = 51_000_000
+	MainnetMaxSupply                 = MainnetMaxSupplySUDH * CoinDecimals
 	MainnetFinalSubsidyHeight uint64 = 5_259_600
 	MainnetEpochLength        uint64 = 131_490
 	MainnetEpochCount         uint64 = 40
