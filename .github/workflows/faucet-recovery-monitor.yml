@@ -61,12 +61,3 @@ jobs:
           if [ "${{ github.event_name }}" = 'schedule' ] || [ "${{ github.event_name }}" = 'workflow_dispatch' ]; then
             exit 2
           fi
-
-  auto-deploy-demand-miner:
-    needs: monitor
-    if: needs.monitor.outputs.recovery_blocked == 'true'
-    permissions:
-      id-token: write
-      contents: read
-    uses: ./.github/workflows/demand-miner-auto-deploy.yml
-    secrets: inherit
