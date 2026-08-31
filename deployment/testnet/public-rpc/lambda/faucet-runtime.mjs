@@ -311,6 +311,9 @@ function createRpc({ seeds, fetchImpl, timeoutMs, timed }) {
     transaction(transactionId) {
       return call('seed.transaction', 'GET', `/v1/transactions/${transactionId}`);
     },
+    wake() {
+      return call('seed.miner_wake', 'POST', '/v1/miner/wake');
+    },
     async submit(transaction) {
       try {
         return await call('seed.submit_transaction', 'POST', '/v1/transactions', transaction);

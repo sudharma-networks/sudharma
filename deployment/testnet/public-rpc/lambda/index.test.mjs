@@ -99,3 +99,23 @@ test('safe logs never contain signed transaction body', async () => {
   assert.equal(result.statusCode, 202);
   assert.equal(records.some((line) => line.includes(secretMarker)), false);
 });
+
+test('successful transaction submit wakes demand miner in the background', async () => {
+  const calls = [];
+  const handler = createHandler({
+    seeds,
+    fetchImpl: async (url, init) => {
+      calls.push({ url, method: init.method });
+      if (url.endsWith('/v1/miner/wake')) {
+        return new Response('{"awoken":true}', { status: 202, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response('{"accepted":true,"transaction_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}', { status: 202, headers: { 'content-type': 'application/json' } });
+    },
+    logger: { info() {}, warn() {}, error() {} },
+  });
+  const body = '{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","signature":"fixture"}';
+  const result = await handler(event('POST', '/v1/transactions', body));
+  assert.equal(result.statusCode, 202);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(calls.some((call) => call.url.endsWith('/v1/miner/wake') && call.method === 'POST'));
+});
