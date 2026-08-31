@@ -12,7 +12,7 @@ it("surfaces the approved mainnet scarcity story on the homepage", () => {
 
 it("explains the approved mainnet tokenomics without presenting it as live testnet economics", () => {
   render(<SudhPage />);
-  expect(screen.getByText(/approved mainnet design/i)).toBeInTheDocument();
+  expect(screen.getByText(/approved mainnet design · implementation in progress\./i)).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: /51 million\. no premine\. predictable supply\./i })).toBeInTheDocument();
   expect(screen.getByText(/10-year mining era/i)).toBeInTheDocument();
   expect(screen.getByText(/0\.09%.*miners/i)).toBeInTheDocument();
