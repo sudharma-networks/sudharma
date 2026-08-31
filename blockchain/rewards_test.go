@@ -82,3 +82,57 @@ func TestCreditMinerRewardCompatibilityWrapperKeepsTestnetReward(t *testing.T) {
 		t.Fatalf("testnet reward changed: got %d", got)
 	}
 }
+
+func TestCreditMinerRewardForFinalHeightAndPostCapFeeOnly(t *testing.T) {
+	state := NewState()
+
+	finalSubsidy, err := consensus.BlockSubsidyFor(
+		params.MonetaryPolicyMainnet,
+		params.MainnetFinalSubsidyHeight,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finalSubsidy == 0 {
+		t.Fatal("expected non-zero final-height subsidy")
+	}
+
+	gotFinal, err := CreditMinerRewardFor(
+		state,
+		params.MonetaryPolicyMainnet,
+		params.MainnetFinalSubsidyHeight,
+		"miner",
+		0,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotFinal != finalSubsidy {
+		t.Fatalf("final height: expected %d got %d", finalSubsidy, gotFinal)
+	}
+	if state.IssuedSupply() != finalSubsidy {
+		t.Fatalf("final height issued: expected %d got %d", finalSubsidy, state.IssuedSupply())
+	}
+
+	before := state.IssuedSupply()
+	fees := uint64(9_000)
+	got, err := CreditMinerRewardFor(
+		state,
+		params.MonetaryPolicyMainnet,
+		params.MainnetFinalSubsidyHeight+1,
+		"miner",
+		fees,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != fees {
+		t.Fatalf("expected fee-only reward %d got %d", fees, got)
+	}
+	if state.IssuedSupply() != before {
+		t.Fatalf("fee-only block minted new supply")
+	}
+	if state.Balance("miner") != finalSubsidy+fees {
+		t.Fatalf("expected miner balance %d got %d", finalSubsidy+fees, state.Balance("miner"))
+	}
+}
