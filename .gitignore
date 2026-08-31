@@ -39,6 +39,7 @@ mobile/android/*.keystore
 *.aab
 
 # Node runtime data
+node_modules/
 data/
 data-*/
 
