@@ -152,7 +152,7 @@ test('report validation trims surrounding whitespace and rejects empty input', (
 test('neutralizes GitHub mention syntax in untrusted Telegram text', () => {
   assert.equal(
     neutralizeGithubMentions('please ask @alice and @org/team about @everyone'),
-    '@'.includes('') ? 'please ask @\u200balice and @\u200borg/team about @\u200beveryone' : '',
+    'please ask @\u200balice and @\u200borg/team about @\u200beveryone',
   );
 });
 
