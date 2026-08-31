@@ -58,7 +58,7 @@ wallet formats, and network parameters may still change before mainnet.
 | Faucet API | `…/v1/faucet/info`, `/health` | Live — `enabled: true`, `ready: true` |
 | Faucet CORS | browser `Access-Control-*` on faucet | Live after redeploy — `verify-faucet-browser-cors.mjs` passes |
 | Visitor counter | `https://b8dr97u4ob.execute-api.ap-south-1.amazonaws.com` | Live |
-| Amplify website | `https://feature-website-foundation.d2mqyt0bt8sl9s.amplifyapp.com/` | Live preview; **does not yet include Stage 6 faucet UI** until publish |
+| Amplify website | `https://feature-website-foundation.d2mqyt0bt8sl9s.amplifyapp.com/` | Live — serves Stage 6 faucet UI and approved tokenomics copy |
 
 ## 4. Deferred / incomplete operator items
 
