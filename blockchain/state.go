@@ -195,8 +195,19 @@ func (s *State) IssuedSupply() uint64 {
 	return s.issuedSupply
 }
 
-// MintSupply increases issued supply while enforcing MaxSupply.
+// MintSupply increases issued supply while enforcing the public-testnet
+// maximum supply. Existing call sites stay on the live testnet ceiling.
 func (s *State) MintSupply(amount uint64) error {
+	return s.MintSupplyFor(params.MonetaryPolicyPublicTestnet, amount)
+}
+
+// MintSupplyFor increases issued supply while enforcing the selected
+// monetary policy's hard cap.
+func (s *State) MintSupplyFor(policy params.MonetaryPolicy, amount uint64) error {
+	if err := params.ValidateMonetaryPolicy(policy); err != nil {
+		return err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -204,11 +215,13 @@ func (s *State) MintSupply(amount uint64) error {
 		return nil
 	}
 
-	if s.issuedSupply > params.MaxSupply {
+	maxSupply := params.MaxSupplyFor(policy)
+
+	if s.issuedSupply > maxSupply {
 		return fmt.Errorf("issued supply already exceeds max supply")
 	}
 
-	remaining := params.MaxSupply - s.issuedSupply
+	remaining := maxSupply - s.issuedSupply
 
 	if amount > remaining {
 		return fmt.Errorf(
