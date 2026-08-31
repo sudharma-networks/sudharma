@@ -8,6 +8,7 @@ object SystemBackNavigation {
         WalletScreen.RECEIVE,
         WalletScreen.SEND,
         WalletScreen.ACTIVITY,
+        WalletScreen.HISTORY,
         WalletScreen.SETTINGS,
         WalletScreen.BACKUP,
         -> true
@@ -22,6 +23,7 @@ object SystemBackNavigation {
         WalletScreen.RECEIVE,
         WalletScreen.SEND,
         WalletScreen.ACTIVITY,
+        WalletScreen.HISTORY,
         WalletScreen.SETTINGS,
         -> WalletScreen.HOME
 
