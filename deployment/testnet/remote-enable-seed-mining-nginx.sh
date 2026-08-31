@@ -49,11 +49,7 @@ discover_config_files() {
 mapfile -t config_files < <(discover_config_files)
 
 if [ "${#config_files[@]}" -eq 0 ]; then
-  echo "Could not locate sudharma public RPC nginx config" >&2
-  if command -v nginx >/dev/null 2>&1; then
-    nginx -T 2>/dev/null | grep -E 'listen|/v1/status|/v1/explorer|29100' | head -80 >&2 || true
-  fi
-  exit 1
+  echo "Could not locate sudharma public RPC nginx config via grep; falling back to nginx -T inside python" >&2
 fi
 
 export SEED_PRIVATE_IP="${SEED_PRIVATE_IP:-}"
@@ -63,16 +59,46 @@ import json
 import os
 import pathlib
 import re
+import subprocess
 import sys
 
-configs = [pathlib.Path(p) for p in sys.argv[1:] if p]
 seed_private_ip = os.environ.get("SEED_PRIVATE_IP", "").strip()
+cli_configs = [pathlib.Path(p) for p in sys.argv[1:] if p]
 
-def normalize_upstream_base(url: str) -> str:
+def normalize_upstream_base(url):
     match = re.match(r"(https?://[^/]+)", url.strip())
     return match.group(1) if match else url.rstrip("/")
 
-def iter_server_blocks(text: str):
+def discover_configs_from_nginx_t():
+    try:
+        text = subprocess.check_output(["nginx", "-T"], stderr=subprocess.STDOUT, text=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return []
+    current_file = None
+    file_chunks = {}
+    for line in text.splitlines():
+        if line.startswith("# configuration file "):
+            current_file = line.split(":", 1)[0].replace("# configuration file ", "").strip()
+            file_chunks.setdefault(current_file, [])
+            continue
+        if current_file is not None:
+            file_chunks[current_file].append(line)
+    configs = []
+    for path_str, lines in file_chunks.items():
+        body = "\n".join(lines)
+        if "29100" not in body and "/v1/status" not in body:
+            continue
+        path = pathlib.Path(path_str)
+        if path.is_file():
+            configs.append(path)
+    return configs
+
+configs = cli_configs or discover_configs_from_nginx_t()
+if not configs:
+    print(json.dumps({"seed_mining_nginx": "patch_failed", "reason": "no nginx config files resolved"}), file=sys.stderr)
+    sys.exit(1)
+
+def iter_server_blocks(text):
     for match in re.finditer(r"\bserver\s*\{", text):
         start = match.start()
         brace = text.find("{", start)
@@ -88,20 +114,20 @@ def iter_server_blocks(text: str):
                     yield start, i + 1, text[start:i + 1]
                     break
 
-def server_listens_on_29100(block: str) -> bool:
+def server_listens_on_29100(block):
     if not re.search(r"listen\s+[^;]*\b29100\b", block):
         return False
     if seed_private_ip and seed_private_ip not in block:
         return False
     return True
 
-def server_mining_ready(block: str) -> bool:
+def server_mining_ready(block):
     return (
         re.search(r"location\s+=\s+/v1/mining/work\s*\{", block) is not None
         and re.search(r"location\s+=\s+/v1/mining/submit\s*\{", block) is not None
     )
 
-def infer_upstream_base(block: str):
+def infer_upstream_base(block):
     patterns = (
         r"location\s+=\s+/v1/status\s*\{[^}]*?proxy_pass\s+([^;]+);",
         r"location\s+/v1/explorer/\s*\{[^}]*?proxy_pass\s+([^;]+);",
@@ -114,19 +140,19 @@ def infer_upstream_base(block: str):
             return normalize_upstream_base(match.group(1))
     return None
 
-def mining_locations_snippet(base: str) -> str:
-    return f"""
-    location = /v1/mining/work {{
+def mining_locations_snippet(base):
+    return """
+    location = /v1/mining/work {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_connect_timeout 3s;
         proxy_read_timeout 30s;
-        proxy_pass {base}/v1/mining/work;
-    }}
+        proxy_pass %s/v1/mining/work;
+    }
 
-    location = /v1/mining/submit {{
+    location = /v1/mining/submit {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -134,11 +160,11 @@ def mining_locations_snippet(base: str) -> str:
         client_max_body_size 1m;
         proxy_connect_timeout 3s;
         proxy_read_timeout 30s;
-        proxy_pass {base}/v1/mining/submit;
-    }}
-"""
+        proxy_pass %s/v1/mining/submit;
+    }
+""" % (base, base)
 
-def patch_regex_allowlist(text: str) -> tuple[str, bool]:
+def patch_regex_allowlist(text):
     pattern = re.compile(
         r"(location\s+~\s+\^/v1/\()([^)]+)(\)[^{]*\{[^}]*?proxy_pass\s+[^;]+;[^}]*\})",
         re.S,
@@ -152,7 +178,7 @@ def patch_regex_allowlist(text: str) -> tuple[str, bool]:
     updated_group = group.rstrip("|") + "|mining/work|mining/submit|"
     return text[:match.start(2)] + updated_group + text[match.end(2):], True
 
-def insert_after_status_location(block: str, snippet: str) -> tuple[str, bool]:
+def insert_after_status_location(block, snippet):
     match = re.search(r"location\s+=\s+/v1/status\s*\{", block)
     if not match:
         return block, False
@@ -169,7 +195,7 @@ def insert_after_status_location(block: str, snippet: str) -> tuple[str, bool]:
                 return block[: i + 1] + snippet + block[i + 1 :], True
     return block, False
 
-def any_29100_server_ready(text: str) -> bool:
+def any_29100_server_ready(text):
     for _, _, block in iter_server_blocks(text):
         if server_listens_on_29100(block) and server_mining_ready(block):
             return True
@@ -214,7 +240,8 @@ if not changed:
     else:
         print(json.dumps({
             "seed_mining_nginx": "patch_failed",
-            "config_files": [str(p) for p in configs if p.is_file()],
+            "config_files": [str(p) for p in configs],
+            "existing_files": [str(p) for p in configs if p.is_file()],
         }), file=sys.stderr)
         sys.exit(1)
 else:
