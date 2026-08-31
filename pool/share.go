@@ -30,13 +30,13 @@ func (k ShareKind) String() string {
 
 // ShareResult is the outcome of validating a worker nonce.
 type ShareResult struct {
-	Kind             ShareKind
-	Hash             string
-	Nonce            uint64
-	PoolDifficulty   uint32
-	BlockDifficulty  uint32
-	ShareWork        uint64
-	BlockWork        uint64
+	Kind            ShareKind
+	Hash            string
+	Nonce           uint64
+	PoolDifficulty  uint32
+	BlockDifficulty uint32
+	ShareWork       uint64
+	BlockWork       uint64
 }
 
 // ValidateShare checks a nonce against pool difficulty and network block difficulty.

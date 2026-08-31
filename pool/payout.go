@@ -39,12 +39,12 @@ func NormalizePayoutScheme(raw string) (PayoutScheme, error) {
 
 // ShareCredit records one accepted share for payout accounting.
 type ShareCredit struct {
-	Worker   WorkerIdentity
-	Work     uint64
-	Value    uint64
-	JobID    string
-	Height   uint64
-	IsBlock  bool
+	Worker  WorkerIdentity
+	Work    uint64
+	Value   uint64
+	JobID   string
+	Height  uint64
+	IsBlock bool
 }
 
 // PayoutLedger tracks share credits and block rewards for pool operators.
