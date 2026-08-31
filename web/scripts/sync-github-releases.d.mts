@@ -28,6 +28,7 @@ export interface GitHubJsonOptions {
 
 export function classifyAsset(release: any, asset: any): NormalizedReleaseArtifact | null;
 export function normalizeReleases(releases: any[]): NormalizedReleaseArtifact[];
+export function withSameSitePublicUrls(artifacts: NormalizedReleaseArtifact[]): NormalizedReleaseArtifact[];
 export function withSameSiteWalletUrls(artifacts: NormalizedReleaseArtifact[]): NormalizedReleaseArtifact[];
 export function projectStatus(releases: any[], commits: any[]): Record<string, string | null>;
 export function isRetryableGitHubStatus(status: number): boolean;

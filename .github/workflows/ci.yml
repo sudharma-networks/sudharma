@@ -62,6 +62,9 @@ jobs:
       - name: Verify mainnet readiness contract
         run: bash ./scripts/check-mainnet-readiness-contract_test.sh
 
+      - name: Run mainnet monetary rehearsal
+        run: bash ./scripts/mainnet-monetary-rehearsal.sh
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -94,6 +97,9 @@ jobs:
           go build -trimpath -o "$RUNNER_TEMP/sudharma-demand-miner" ./cmd/sudharma-demand-miner
           go build -trimpath -o "$RUNNER_TEMP/sudharmad" ./cmd/sudharmad
           go build -trimpath -o "$RUNNER_TEMP/sudharma-mainnet-readiness" ./cmd/sudharma-mainnet-readiness
+          go build -trimpath -o "$RUNNER_TEMP/sudharma-mainnet-genesis-info" ./cmd/sudharma-mainnet-genesis-info
+          go build -trimpath -o "$RUNNER_TEMP/sudharma-miner" ./cmd/sudharma-miner
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -o "$RUNNER_TEMP/sudharma-miner.exe" ./cmd/sudharma-miner
 
       - name: Run demand-miner installer safety test
         run: bash deployment/testnet/install-demand-miner_test.sh

@@ -17,7 +17,8 @@ for path in \
   params/mainnet_emission.go \
   docs/audits/2026-08-31-mainnet-readiness.md \
   docs/audits/2026-08-31-mainnet-launch-operator-runbook.md \
-  cmd/sudharma-mainnet-readiness/main.go; do
+  cmd/sudharma-mainnet-readiness/main.go \
+  cmd/sudharma-mainnet-genesis-info/main.go; do
   require_file "$path"
 done
 
@@ -27,6 +28,14 @@ fi
 
 if ! grep -Fq 'MainnetGenesisTimestamp uint64 = 0' params/network.go; then
   fail 'mainnet genesis timestamp must remain unset until human freeze'
+fi
+
+if ! grep -Fq 'MainnetMiningAuthorized = false' params/mining.go; then
+  fail 'mainnet GPU mining must stay unauthorized until launch'
+fi
+
+if ! grep -Fq 'mainnet-mining-authorization' params/readiness.go; then
+  fail 'mainnet mining authorization gate must be encoded'
 fi
 
 if ! grep -Fq 'func MainnetReadiness()' params/readiness.go; then

@@ -42,6 +42,11 @@ func MainnetReadiness() []ReadinessGate {
 			Ready:  false,
 			Detail: "mainnet seed addresses are not published or deployed",
 		},
+		{
+			Name:   "mainnet-mining-authorization",
+			Ready:  MainnetMiningAuthorized,
+			Detail: "GPU mining stays closed until mainnet launch arms MainnetMiningAuthorized",
+		},
 	}
 }
 
