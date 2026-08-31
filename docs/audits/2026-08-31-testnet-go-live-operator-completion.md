@@ -14,14 +14,9 @@ in the operator evidence vault (`deployment-evidence.template.json` copy), not i
 | 1 | Explorer Seed RPC Deploy | Both seeds upgraded (`sudharma.service`) |
 | 2 | Testnet Public RPC | Lambda deploy with rollback protection |
 | 4 | provision-website-visitor-counter | AWS provision + endpoint config commit |
+| 5 | Website publish | Amplify `feature/website-foundation` serving faucet UI + downloads |
 | 6 | Faucet Enable Public | Public faucet enabled on live Lambda |
-
-## Deferred by operator
-
-| Step | Component | Notes |
-| --- | --- | --- |
-| 5 | Website publish | Static site deploy deferred; visitor counter API provisioned |
-| 7 | Android APK release | Wallet APK publish deferred |
+| 7 | Android APK release | `wallet-testnet-0.1.5` published (SHA-256 `486c0c233a4eb53b…`) |
 
 Demand miner auto-deploy may report **skipped** when chain work is not pending. That is
 acceptable; mark `demand_miner_seed*` as `deferred: true` in private evidence when no
