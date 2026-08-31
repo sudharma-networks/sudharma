@@ -4,11 +4,6 @@ name: Inspect Faucet VPC
 # never read or print the faucet secret value.
 # Diagnostic run 12 fresh trigger 2026-08-26.
 on:
-  push:
-    branches:
-      - feature/public-testnet-wallet-v2
-    paths:
-      - '.github/workflows/inspect-faucet-vpc.yml'
   workflow_dispatch:
 
 permissions:

@@ -4,6 +4,11 @@ name: Testnet Public RPC
 
 on:
   workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy packaged Lambda to AWS (operator approval required)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -31,7 +36,7 @@ jobs:
           set -euo pipefail
           mkdir -p build/public-rpc
           cd deployment/testnet/public-rpc/lambda
-          zip -q -9 -r "$GITHUB_WORKSPACE/build/public-rpc/sudharma-testnet-wallet-proxy.zip" index.mjs router.mjs upstream.mjs faucet.mjs faucet-runtime.mjs package.json node_modules
+          zip -q -9 -r "$GITHUB_WORKSPACE/build/public-rpc/sudharma-testnet-wallet-proxy.zip" index.mjs router.mjs upstream.mjs faucet.mjs faucet-runtime.mjs faucet-funding.mjs miner-wake.mjs package.json node_modules
       - name: Upload Lambda artifact
         uses: actions/upload-artifact@v4
         with:
@@ -41,7 +46,7 @@ jobs:
           retention-days: 14
 
   provision-faucet:
-    if: github.ref == 'refs/heads/feature/public-testnet-wallet-v2'
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy == true
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -63,7 +68,7 @@ jobs:
           aws secretsmanager describe-secret --secret-id sudharma/testnet/faucet-wallet --query '{Name:Name,ARN:ARN}' --output json
 
   deploy:
-    if: github.ref == 'refs/heads/feature/public-testnet-wallet-v2'
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy == true
     needs: [build, provision-faucet]
     runs-on: ubuntu-latest
     permissions:
@@ -89,7 +94,7 @@ jobs:
           set -euo pipefail
           mkdir -p build/public-rpc
           cd deployment/testnet/public-rpc/lambda
-          zip -q -9 -r "$GITHUB_WORKSPACE/build/public-rpc/sudharma-testnet-wallet-proxy.zip" index.mjs router.mjs upstream.mjs faucet.mjs faucet-runtime.mjs package.json node_modules
+          zip -q -9 -r "$GITHUB_WORKSPACE/build/public-rpc/sudharma-testnet-wallet-proxy.zip" index.mjs router.mjs upstream.mjs faucet.mjs faucet-runtime.mjs faucet-funding.mjs miner-wake.mjs package.json node_modules
       - name: Configure AWS credentials from GitHub OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -130,6 +135,11 @@ jobs:
             exit 1
           fi
           printf '%s\n' "$body" | jq '{enabled,challenge_address,initial_grant_sudh,challenge_send_sudh,challenge_reward_sudh,max_rounds,cooldown_hours,testnet_only}'
+      - name: Verify faucet deep health after activation
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS "${RPC_BASE_URL}/v1/faucet/health" | jq '{ready}'
       - name: Verify normal public RPC after faucet activation
         shell: bash
         run: |

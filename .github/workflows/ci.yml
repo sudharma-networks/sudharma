@@ -47,6 +47,9 @@ jobs:
       - name: Verify demand-miner CI safety gates
         run: bash ./scripts/check-demand-miner-ci_test.sh
 
+      - name: Verify canonical faucet recovery contract
+        run: bash ./scripts/check-canonical-faucet-recovery-contract_test.sh
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:

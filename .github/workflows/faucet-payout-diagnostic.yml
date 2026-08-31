@@ -3,11 +3,6 @@ name: Faucet Payout Diagnostic
 # Stage 2 post-deployment dependency trace, 2026-08-27.
 
 on:
-  push:
-    branches:
-      - feature/public-testnet-wallet-v2
-    paths:
-      - '.github/workflows/faucet-payout-diagnostic.yml'
   workflow_dispatch:
 
 permissions:

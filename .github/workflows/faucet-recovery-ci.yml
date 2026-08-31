@@ -1,0 +1,63 @@
+name: Faucet Recovery CI
+
+on:
+  push:
+    branches:
+      - main
+      - cursor/canonical-integration-guard-8441
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deployment-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify canonical faucet recovery contract
+        run: bash ./scripts/check-canonical-faucet-recovery-contract_test.sh
+      - name: Enforce manual-only live mutation workflows
+        run: node --test scripts/live-workflow-trigger-safety.test.mjs
+
+  demand-miner:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Verify demand miner deployment safety
+        run: bash ./deployment/testnet/install-demand-miner_test.sh
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build demand miner and native node
+        run: go build -trimpath ./cmd/sudharma-demand-miner ./cmd/sudharmad
+      - name: Run demand miner tests
+        run: go test ./demandminer ./cmd/sudharma-demand-miner -count=1
+      - name: Run demand miner race detector
+        run: go test -race ./demandminer ./cmd/sudharma-demand-miner -count=1
+
+  lambda-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install Lambda dependencies
+        working-directory: deployment/testnet/public-rpc/lambda
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Run Lambda tests
+        working-directory: deployment/testnet/public-rpc/lambda
+        run: npm test

@@ -17,6 +17,8 @@ const mutatingWorkflows = [
   '.github/workflows/faucet-refill.yml',
   '.github/workflows/gpu-staging-aws-capability-preflight.yml',
   '.github/workflows/provision-faucet-endpoints.yml',
+  '.github/workflows/faucet-payout-diagnostic.yml',
+  '.github/workflows/inspect-faucet-vpc.yml',
   '.github/workflows/testnet-public-rpc.yml',
   '.github/workflows/verify-testnet-signed-transfer-once.yml',
 ];
