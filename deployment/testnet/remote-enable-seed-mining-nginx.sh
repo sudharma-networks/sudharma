@@ -97,7 +97,7 @@ def patch_regex_allowlist(text: str) -> tuple[str, bool]:
     return text[:match.start(2)] + updated_group + text[match.end(2):], True
 
 def patch_exact_locations(text: str, upstream: str) -> tuple[str, bool]:
-    if "/v1/mining/work" in text and "/v1/mining/submit" in text:
+    if 'location = /v1/mining/work' in text and 'location = /v1/mining/submit' in text:
         return text, False
     marker = "    # sudharma gpu mining routes"
     if marker in text:
@@ -156,16 +156,39 @@ PY
 nginx -t
 systemctl reload nginx
 
-for attempt in $(seq 1 20); do
-  if curl -fsS -X POST "http://127.0.0.1:29100/v1/mining/work" \
-    -H 'content-type: application/json' \
-    --data '{"address":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}' \
-    | tee /tmp/seed-mining-work-smoke.json \
-    | jq -e '.algorithm and .block' >/dev/null 2>&1; then
-    jq -nc '{seed_mining_nginx:"ok",mining_work:"ready"}'
-    exit 0
-  fi
-  sleep 3
+smoke_candidates=()
+if [ -n "${SEED_PRIVATE_IP:-}" ]; then
+  smoke_candidates+=("http://${SEED_PRIVATE_IP}:29100")
+fi
+if [ -n "${SEED_RPC_SMOKE_URL:-}" ]; then
+  smoke_candidates+=("${SEED_RPC_SMOKE_URL%/}")
+fi
+smoke_candidates+=("http://127.0.0.1:29100")
+
+node_config="${SUDHARMA_NODE_CONFIG:-/etc/sudharma/node.json}"
+if [ -f "$node_config" ]; then
+  rpc_port="$(python3 - <<'PY' "$node_config"
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as fh:
+    cfg = json.load(fh)
+print(str(cfg.get("rpc_address", "127.0.0.1:28545")).rsplit(":", 1)[-1])
+PY
+)"
+  smoke_candidates+=("http://127.0.0.1:${rpc_port}")
+fi
+
+for smoke_base in "${smoke_candidates[@]}"; do
+  for attempt in $(seq 1 8); do
+    if curl -fsS -X POST "${smoke_base}/v1/mining/work" \
+      -H 'content-type: application/json' \
+      --data '{"address":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}' \
+      | tee /tmp/seed-mining-work-smoke.json \
+      | jq -e '.algorithm and .block' >/dev/null 2>&1; then
+      jq -nc --arg url "$smoke_base" '{seed_mining_nginx:"ok",mining_work:"ready",smoke_url:$url}'
+      exit 0
+    fi
+    sleep 2
+  done
 done
 
 echo "nginx updated but loopback mining work smoke check did not succeed" >&2
