@@ -12,6 +12,7 @@ import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-sec
 import {
   CHALLENGE_REWARD_SUDH,
   CHALLENGE_SEND_SUDH,
+  COIN,
   COOLDOWN_MS,
   FaucetError,
   INITIAL_GRANT_SUDH,
@@ -64,6 +65,34 @@ function createStore(tableName, timed) {
   const send = (operation, command) => timed(operation, () => client.send(command));
 
   return {
+    async checkReadWrite() {
+      const owner = randomUUID();
+      const key = `HEALTH#${owner}`;
+      await send('dynamodb.health_write', new PutCommand({
+        TableName: tableName,
+        Item: { pk: key, kind: 'health', owner, expires_at: Date.now() + 60_000 },
+        ConditionExpression: 'attribute_not_exists(pk)',
+      }));
+      try {
+        const result = await send('dynamodb.health_read', new GetCommand({
+          TableName: tableName,
+          Key: { pk: key },
+          ConsistentRead: true,
+        }));
+        if (result.Item?.owner !== owner) {
+          throw new FaucetError(503, 'faucet state store health check failed');
+        }
+      } finally {
+        await send('dynamodb.health_delete', new DeleteCommand({
+          TableName: tableName,
+          Key: { pk: key },
+          ConditionExpression: '#owner = :owner',
+          ExpressionAttributeNames: { '#owner': 'owner' },
+          ExpressionAttributeValues: { ':owner': owner },
+        }));
+      }
+    },
+
     async getAddress(address) {
       const result = await send('dynamodb.get_address', new GetCommand({ TableName: tableName, Key: { pk: `ADDR#${address}` } }));
       return result.Item || null;
@@ -321,6 +350,22 @@ async function loadSigner(secretId, timed) {
   return createSigner(scalar);
 }
 
+export async function checkFaucetReadiness({ store, rpc, signer }) {
+  await store.checkReadWrite();
+  const account = await rpc.account(signer.address);
+  const nonce = account?.next_nonce ?? account?.nextNonce;
+  const balance = account?.balance;
+  if (!Number.isSafeInteger(nonce) || nonce < 0) {
+    throw new FaucetError(503, 'faucet account nonce is unavailable');
+  }
+  const amount = INITIAL_GRANT_SUDH * COIN;
+  const fee = Math.floor((amount * 10) / 10_000);
+  if (!Number.isSafeInteger(balance) || balance < amount + fee) {
+    throw new FaucetError(503, 'testnet faucet needs funding');
+  }
+  return { ready: true };
+}
+
 export function createRuntimeFaucetHandler({ seeds, fetchImpl = globalThis.fetch, timeoutMs, env = process.env, logger = console, now = Date.now }) {
   const tableName = env.FAUCET_TABLE_NAME;
   const secretId = env.FAUCET_SECRET_ID;
@@ -364,6 +409,12 @@ export function createRuntimeFaucetHandler({ seeds, fetchImpl = globalThis.fetch
           cooldown_hours: COOLDOWN_MS / (60 * 60 * 1000),
           testnet_only: true,
         },
+      };
+    }
+    if (request.kind === 'faucetHealth') {
+      return {
+        statusCode: 200,
+        payload: await checkFaucetReadiness({ store, rpc, signer: runtime.signer }),
       };
     }
 

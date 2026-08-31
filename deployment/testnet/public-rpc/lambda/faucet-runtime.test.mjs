@@ -1,6 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createOperationTimer, createRuntimeFaucetHandler } from './faucet-runtime.mjs';
+import { checkFaucetReadiness, createOperationTimer, createRuntimeFaucetHandler } from './faucet-runtime.mjs';
+import { COIN, INITIAL_GRANT_SUDH } from './faucet.mjs';
+
+test('faucet readiness requires store, signer nonce, and funding', async () => {
+  const signer = { address: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' };
+  const store = {
+    async checkReadWrite() {},
+  };
+  const rpc = {
+    async account() {
+      return {
+        balance: INITIAL_GRANT_SUDH * COIN + Math.floor((INITIAL_GRANT_SUDH * COIN * 10) / 10_000),
+        next_nonce: 0,
+      };
+    },
+  };
+
+  assert.deepEqual(await checkFaucetReadiness({ store, rpc, signer }), { ready: true });
+});
 
 test('dependency timer fails closed when an operation hangs', async () => {
   const timer = createOperationTimer({
