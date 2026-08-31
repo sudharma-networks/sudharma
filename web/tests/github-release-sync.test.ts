@@ -1,4 +1,5 @@
 import { __githubJsonForTests, classifyAsset, isRetryableGitHubStatus, normalizeReleases, withSameSiteWalletUrls } from "../scripts/sync-github-releases.mjs";
+import { walletMirrorPlan } from "../scripts/mirror-wallet-apk.mjs";
 
 const release = {
   tag_name: "wallet-testnet-v0.1.0",
@@ -117,4 +118,23 @@ it("does not retry a non-retryable GitHub failure", async () => {
   await expect(__githubJsonForTests("/repos/x/y/releases", { fetchImpl, delayMs: 1, sleep: async () => {} }))
     .rejects.toThrow(/GitHub API 404/);
   expect(calls).toBe(1);
+});
+
+it("mirrors the classified wallet APK from its GitHub release tag", () => {
+  const plan = walletMirrorPlan({
+    artifacts: [{
+      slot: "android-wallet",
+      status: "available",
+      releaseTag: "wallet-testnet-0.1.5",
+      id: "android-wallet:wallet-testnet-0.1.5:Sudharma-Wallet-0.1.5.apk",
+      downloadUrl: "/downloads/Sudharma-Wallet-latest.apk",
+      sha256: "486c0c233a4eb53b3292d643082e936c0599804063ffd15290f0edd2b50f9956"
+    }]
+  });
+  expect(plan).toEqual({
+    tag: "wallet-testnet-0.1.5",
+    apkUrl: "https://github.com/sudharma-networks/sudharma/releases/download/wallet-testnet-0.1.5/Sudharma-Wallet-0.1.5.apk",
+    checksumUrl: "https://github.com/sudharma-networks/sudharma/releases/download/wallet-testnet-0.1.5/Sudharma-Wallet-0.1.5.apk.sha256",
+    expectedSha256: "486c0c233a4eb53b3292d643082e936c0599804063ffd15290f0edd2b50f9956"
+  });
 });

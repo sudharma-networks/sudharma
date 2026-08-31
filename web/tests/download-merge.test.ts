@@ -13,6 +13,27 @@ it("verified releases replace matching placeholders without duplication", () => 
   expect(merged.some((item) => item.id === "sdk")).toBe(true);
 });
 
+it("promotes same-site Android wallet URLs as official public downloads", () => {
+  const generated = [{
+    id: "android-wallet:wallet-testnet-0.1.5:Sudharma-Wallet-0.1.5.apk",
+    slot: "android-wallet",
+    kind: "wallet",
+    name: "Wallet",
+    version: "wallet-testnet-0.1.5",
+    channel: "testnet",
+    platform: "Android",
+    architecture: "arm64",
+    status: "available",
+    downloadUrl: "/downloads/Sudharma-Wallet-latest.apk",
+    checksumUrl: "/downloads/Sudharma-Wallet-latest.apk.sha256",
+    sourceUrl: "https://github.com/sudharma-networks/sudharma"
+  }] as any;
+  const merged = mergeDownloads(generated, [
+    { id: "android-wallet", kind: "wallet", name: "Wallet", version: "dev", channel: "testnet", platform: "Android", architecture: "arm64", status: "in-development" }
+  ]);
+  expect(merged[0].downloadUrl).toBe("/downloads/Sudharma-Wallet-latest.apk");
+});
+
 it("every public download has official provenance and unavailable items have no URL", () => {
   for (const artifact of DOWNLOADS) {
     if (artifact.status === "available") expect(artifact.sourceUrl ?? artifact.releaseNotesUrl).toContain("github.com/sudharma-networks/sudharma");
