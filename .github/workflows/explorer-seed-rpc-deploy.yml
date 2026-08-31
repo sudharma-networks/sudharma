@@ -2,21 +2,6 @@ name: Explorer Seed RPC Deploy
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - feature/faucet-recovery-stage2
-      - cursor/blockchain-explorer-mempool-deploy-83d4
-      - cursor/explorer-mempool-gocache-83d4
-    paths:
-      - deployment/testnet/public-rpc/lambda/router.mjs
-      - deployment/testnet/public-rpc/lambda/router.test.mjs
-      - deployment/testnet/remote-build-sudharma-rpcd-on-seed.sh
-      - deployment/testnet/remote-install-sudharma-rpcd-from-url.sh
-      - deployment/testnet/resolve-seed-instance-id.sh
-      - deployment/testnet/ssm-send-remote-script.sh
-      - deployment/testnet/rollout-explorer-mempool-nginx.sh
-      - .github/workflows/explorer-seed-rpc-deploy.yml
-      - .github/workflows/explorer-public-rpc-deploy.yml
 
 permissions:
   contents: read
