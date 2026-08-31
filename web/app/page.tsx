@@ -63,7 +63,7 @@ export default function Home() {
         <div className="status-grid">
           <article><StatusChip status="Testnet" /><h3>Public test infrastructure</h3><p>Nodes, wallet connectivity and challenge infrastructure are being exercised before mainnet.</p></article>
           <article><StatusChip status="Experimental" /><h3>GPU mining</h3><p>NVIDIA CUDA and AMD/OpenCL paths are under staged validation and compatibility work.</p></article>
-          <article><StatusChip status="In Development" /><h3>Explorer + web integrations</h3><p>Public read-only views are planned as a separate, safely scoped integration.</p></article>
+          <article><StatusChip status="Testnet" /><h3>Explorer + faucet web</h3><p>Read-only explorer and public faucet request flow are live against the testnet wallet proxy.</p></article>
           <article><StatusChip status="Planned" /><h3>SDKs + application layer</h3><p>Developer SDKs, token standards and higher-level application capabilities follow protocol hardening.</p></article>
         </div>
       </section>

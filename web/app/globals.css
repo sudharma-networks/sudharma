@@ -42,3 +42,12 @@
 .explorer-break{word-break:break-all}
 @media(max-width:900px){.explorer-grid,.explorer-grid-three,.explorer-metrics{grid-template-columns:1fr 1fr}.explorer-detail-list>div{grid-template-columns:1fr}}
 @media(max-width:620px){.explorer-grid,.explorer-grid-three,.explorer-metrics{grid-template-columns:1fr}.explorer-search div{grid-template-columns:1fr}}
+
+.faucet-panel{display:grid;gap:24px}
+.faucet-status-card,.faucet-form-card{padding:24px;border:1px solid var(--line);border-radius:var(--radius);background:linear-gradient(145deg,rgba(17,28,43,.92),rgba(8,13,21,.94))}
+.faucet-form-card h2{font-size:1.35rem;margin:0 0 8px}
+.faucet-form{display:grid;gap:10px;margin-top:16px}
+.faucet-form label{font-size:.78rem;color:var(--muted);font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.faucet-form>div{display:grid;grid-template-columns:1fr auto;gap:10px}
+.faucet-form input{min-height:46px;border-radius:12px;border:1px solid var(--line);background:var(--panel);color:var(--text);padding:0 14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+@media(max-width:620px){.faucet-form>div{grid-template-columns:1fr}}
