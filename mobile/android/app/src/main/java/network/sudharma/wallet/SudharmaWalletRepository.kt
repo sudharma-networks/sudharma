@@ -44,6 +44,8 @@ class SudharmaWalletRepository(context: Context) {
 
     suspend fun balance(): AssetBalance = adapter().balance(account().address)
 
+    suspend fun serverStatus(): SudharmaRpcClient.Status = rpcClient().status()
+
     suspend fun faucetInfo(): TestnetFaucetClient.Info = faucetClient().info().also { lastFaucetInfo = it }
 
     suspend fun requestInitialTestTokens(): TestnetFaucetClient.InitialGrant {
