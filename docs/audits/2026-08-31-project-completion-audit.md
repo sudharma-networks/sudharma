@@ -26,7 +26,8 @@ wallet formats, and network parameters may still change before mainnet.
 | **3** | RC verification at one commit | Complete (`5f92589`) |
 | **4** | Operator go-live toolkit (runbook, evidence, verifier) | Complete (`04a7c12`) |
 | **5** | Operator-gated core go-live | Core complete; website publish + Android APK deferred |
-| **6** | Public surface hardening (faucet web + CORS + honest status) | Code complete on this branch; Lambda CORS needs operator redeploy |
+| **6** | Public surface hardening (faucet web + CORS + honest status) | Code complete; Lambda CORS needs operator redeploy |
+| **7** | Public surface operator closure (CORS verify + Amplify promote) | Code complete; waiting on operator workflow runs |
 
 ### Stage 5 operator outcomes
 
@@ -61,11 +62,13 @@ wallet formats, and network parameters may still change before mainnet.
 
 ## 4. Deferred / incomplete operator items
 
-1. Redeploy public RPC Lambda so Stage 6 faucet CORS lands live.
-2. Website Amplify static publish (Stage 5 step 5) including Stage 6 `/faucet`.
-3. Android APK release (Stage 5 step 7).
-4. Optional private deployment evidence file verify (`assemble` + `verify` scripts).
-5. Demand-miner binary promotion when/if chain work requires it.
+1. Redeploy public RPC Lambda so Stage 6 faucet CORS lands live  
+   (`gh workflow run testnet-public-rpc.yml --ref cursor/canonical-integration-guard-8441 -f preflight=false -f deploy=true -f diagnostics_only=false`).
+2. Verify CORS: `node ./scripts/verify-faucet-browser-cors.mjs`.
+3. Website Amplify promote via `promote-website-foundation.yml` (dry_run then real).
+4. Android APK release (Stage 5 step 7, still deferred).
+5. Optional private deployment evidence file verify (`assemble` + `verify` scripts).
+6. Demand-miner binary promotion when/if chain work requires it.
 
 ## 5. Independent review lines (not mixed in)
 

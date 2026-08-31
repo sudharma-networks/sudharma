@@ -65,6 +65,16 @@ Public testnet surface hardening on the guard branch:
 
 See `docs/audits/2026-08-31-stage6-public-surface-hardening.md`.
 
+## Stage 7 scope (current)
+
+Operator closure for the public surface:
+
+- Live CORS verify script (`scripts/verify-faucet-browser-cors.mjs`)
+- Manual `Promote Website Foundation` workflow for Amplify
+- Port approved mainnet tokenomics website copy onto the guard branch
+
+See `docs/audits/2026-08-31-stage7-public-surface-closure.md`.
+
 ## Required evidence before testnet deployment
 
 - Exact running commit or artifact digest for each seed service.

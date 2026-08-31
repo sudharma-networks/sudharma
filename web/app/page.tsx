@@ -4,7 +4,6 @@ import { ProjectActivity } from "@/components/project-activity";
 import { ReadinessBadge } from "@/components/readiness-badge";
 import { StatusChip } from "@/components/status-chip";
 import { VisitorCounter } from "@/components/visitor-counter";
-import { SUDH_PARAMETERS } from "@/lib/project";
 import visitorCounterConfig from "@/public/data/visitor-counter.json";
 
 export default function Home() {
@@ -41,9 +40,17 @@ export default function Home() {
       </section>
 
       <section className="section-shell section-block">
-        <div className="section-heading"><p className="eyebrow">SUDH AT A GLANCE</p><h2>Development parameters, clearly stated.</h2><p>These values describe the current pre-mainnet design and remain subject to reviewed change before mainnet.</p></div>
-        <div className="stats-grid">{SUDH_PARAMETERS.slice(0, 6).map(([label, value]) => <div className="stat" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
-        <Link className="text-link" href="/sudh">View all SUDH parameters →</Link>
+        <div className="section-heading"><p className="eyebrow">APPROVED MAINNET ECONOMICS</p><h2>Designed for Scarcity.</h2><p>Sudharma&apos;s approved mainnet design fixes issuance in advance: a finite hard cap, no premine and a gradually declining Proof-of-Work reward over a nominal ten-year mining era. Implementation is in progress; the public testnet keeps its current economics until mainnet activation.</p></div>
+        <div className="stats-grid">
+          <div className="stat"><span>Maximum supply</span><strong>51M</strong></div>
+          <div className="stat"><span>Launch allocation</span><strong>0 Premine</strong></div>
+          <div className="stat"><span>Mining era</span><strong>~10 Years</strong></div>
+          <div className="stat"><span>Reward path</span><strong>40 Quarterly Epochs</strong></div>
+          <div className="stat"><span>Target block time</span><strong>60 Seconds</strong></div>
+          <div className="stat"><span>After final emission</span><strong>0 New Subsidy</strong></div>
+        </div>
+        <p className="muted">New issuance is designed to decline over time. Scarcity is a supply rule, not a promise of market price or investment return.</p>
+        <Link className="text-link" href="/sudh">Explore tokenomics →</Link>
       </section>
 
       <section className="section-shell section-block">

@@ -1,0 +1,90 @@
+name: Promote Website Foundation
+
+# Copies web/ from a chosen ref onto feature/website-foundation so Amplify
+# rebuilds. Manual only — does not touch AWS directly.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Git ref whose web/ tree to promote (branch, tag, or SHA)
+        required: true
+        default: cursor/canonical-integration-guard-8441
+        type: string
+      dry_run:
+        description: Build and diff only; do not push to feature/website-foundation
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: promote-website-foundation
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 0
+          path: source
+
+      - name: Check out Amplify website branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/website-foundation
+          fetch-depth: 0
+          path: website
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: source/web/package.json
+
+      - name: Install and test source website
+        working-directory: source/web
+        run: |
+          npm install
+          npm test
+          npm run build
+
+      - name: Sync web tree onto website-foundation worktree
+        run: |
+          set -euo pipefail
+          rsync -a --delete \
+            --exclude node_modules \
+            --exclude .next \
+            --exclude out \
+            --exclude test-results \
+            --exclude playwright-report \
+            source/web/ website/web/
+
+      - name: Show promotion diff summary
+        working-directory: website
+        run: |
+          git status --short -- web | head -80
+          echo "changed_files=$(git status --porcelain -- web | wc -l)"
+
+      - name: Commit and push website-foundation
+        if: ${{ inputs.dry_run == false }}
+        working-directory: website
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- web && git diff --cached --quiet -- web; then
+            echo "No web/ changes to promote."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- web
+          SOURCE_SHA=$(git -C ../source rev-parse --short HEAD)
+          git commit -m "chore(web): promote website from ${{ inputs.source_ref }} (${SOURCE_SHA})"
+          git push origin HEAD:feature/website-foundation
