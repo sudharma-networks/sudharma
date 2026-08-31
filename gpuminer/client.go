@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sudharma-networks/sudharma/blockchain"
 	"github.com/sudharma-networks/sudharma/params"
 )
 
@@ -47,7 +48,12 @@ func (c *Client) GetWork(ctx context.Context, address string) (Work, error) {
 	}
 	raw, err := c.do(ctx, http.MethodPost, "/v1/mining/work", body)
 	if err != nil {
-		return Work{}, err
+		if isMissingRoute(err) {
+			raw, err = c.do(ctx, http.MethodGet, "/v1/mining/work?address="+url.QueryEscape(address), nil)
+		}
+		if err != nil {
+			return Work{}, err
+		}
 	}
 	return WorkFromJSON(raw)
 }
@@ -66,10 +72,26 @@ func (c *Client) Submit(ctx context.Context, work Work, nonce uint64) (SubmitRes
 		Target:        work.Target,
 		HeaderPrefix:  work.HeaderPrefix,
 		RewardAddress: work.RewardAddress,
+		CacheNodes:    work.CacheNodes,
 	})
 	if err != nil {
 		return SubmitResult{}, err
 	}
+	return c.decodeSubmit(ctx, payload)
+}
+
+func (c *Client) SubmitBlock(ctx context.Context, block *blockchain.Block) (SubmitResult, error) {
+	if block == nil {
+		return SubmitResult{}, fmt.Errorf("missing block")
+	}
+	payload, err := json.Marshal(block)
+	if err != nil {
+		return SubmitResult{}, err
+	}
+	return c.decodeSubmit(ctx, payload)
+}
+
+func (c *Client) decodeSubmit(ctx context.Context, payload []byte) (SubmitResult, error) {
 	raw, err := c.do(ctx, http.MethodPost, "/v1/mining/submit", payload)
 	if err != nil {
 		return SubmitResult{}, err
@@ -78,6 +100,9 @@ func (c *Client) Submit(ctx context.Context, work Work, nonce uint64) (SubmitRes
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return SubmitResult{}, fmt.Errorf("invalid mining submit JSON: %w", err)
 	}
+	if result.Accepted && result.Status == "" {
+		result.Status = "accepted"
+	}
 	return result, nil
 }
 
@@ -85,12 +110,18 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte) ([]by
 	if c == nil || c.http == nil {
 		return nil, fmt.Errorf("mining RPC client is unavailable")
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bytes.NewReader(body))
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reader)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("mining RPC request failed: %w", err)
@@ -113,4 +144,14 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte) ([]by
 		return nil, fmt.Errorf("mining RPC %d: %s", resp.StatusCode, rpcErr.Error)
 	}
 	return limited, nil
+}
+
+func isMissingRoute(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "mining rpc 404") ||
+		strings.Contains(msg, "mining rpc 405") ||
+		strings.Contains(msg, "route not found")
 }

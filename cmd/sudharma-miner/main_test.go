@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sudharma-networks/sudharma/blockchain"
+	"github.com/sudharma-networks/sudharma/blockchain/mempool"
 	"github.com/sudharma-networks/sudharma/gpuminer"
 	"github.com/sudharma-networks/sudharma/params"
 )
@@ -50,7 +52,7 @@ func TestRunProbeConnectsWithoutCPUFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "GPU-only") && !strings.Contains(out.String(), "GPU-PoW work is not being issued") {
+	if !strings.Contains(out.String(), "GPU-only") && !strings.Contains(out.String(), "GPU miner work is not being issued") {
 		t.Fatalf("output = %q", out.String())
 	}
 	if strings.Contains(strings.ToLower(out.String()), "cpu mining started") {
@@ -81,6 +83,88 @@ func TestRunPromptsForAddress(t *testing.T) {
 	}
 }
 
+func TestRunOnceMinesWithGPUHasher(t *testing.T) {
+	dir := t.TempDir()
+	hasher := filepath.Join(dir, "khushi-miner-nvidia")
+	script := "#!/bin/sh\necho staging-solution-nonce=7\n"
+	if err := os.WriteFile(hasher, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/mining/submit" {
+			_ = json.NewEncoder(w).Encode(gpuminer.SubmitResult{Status: "accepted"})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(gpuminer.Work{
+			WorkID:        "work-1",
+			Algorithm:     params.ProductionMiningAlgorithm,
+			Version:       2,
+			Height:        4,
+			Target:        "0f",
+			HeaderPrefix:  "aa",
+			RewardAddress: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		})
+	}))
+	t.Cleanup(server.Close)
+
+	out := &strings.Builder{}
+	err := run([]string{
+		"-address", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"-rpc", server.URL,
+		"-hasher-dir", dir,
+		"-once",
+	}, strings.NewReader(""), out, ioDiscard())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "accepted GPU share") {
+		t.Fatalf("output = %q", out.String())
+	}
+	if strings.Contains(strings.ToLower(out.String()), "cpu mining") {
+		t.Fatal("must not mention CPU mining")
+	}
+}
+
+func TestRunOnceMinesCandidateBlockWithoutHasher(t *testing.T) {
+	address := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	previous := mustGenesisCandidate(t, address)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/mining/submit" {
+			_ = json.NewEncoder(w).Encode(gpuminer.SubmitResult{Status: "accepted", Accepted: true, RewardAddress: address, Balance: 1})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(gpuminer.Work{
+			Algorithm:     params.ProductionMiningAlgorithm,
+			Height:        previous.Height,
+			Difficulty:    previous.Difficulty,
+			RewardAddress: address,
+			Block:         previous,
+		})
+	}))
+	t.Cleanup(server.Close)
+
+	out := &strings.Builder{}
+	err := run([]string{
+		"-address", address,
+		"-rpc", server.URL,
+		"-hasher-dir", t.TempDir(),
+		"-once",
+	}, strings.NewReader(""), out, ioDiscard())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "accepted GPU share") {
+		t.Fatalf("output = %q", out.String())
+	}
+	if strings.Contains(out.String(), "demand miner") && strings.Contains(strings.ToLower(out.String()), "starting demand") {
+		t.Fatal("must not start the demand miner")
+	}
+}
+
 func TestDetectGPUHasher(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := gpuminer.DetectGPUHasher(dir); err == nil {
@@ -104,3 +188,20 @@ type discard struct{}
 func (discard) Write(p []byte) (int, error) { return len(p), nil }
 
 func ioDiscard() *discard { return &discard{} }
+
+func mustGenesisCandidate(t *testing.T, minerAddr string) *blockchain.Block {
+	t.Helper()
+	previous := blockchain.NewGenesisBlock()
+	block, err := blockchain.NewBlockFromMempool(previous, mempool.NewMempool())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if block.Timestamp <= previous.Timestamp {
+		block.Timestamp = previous.Timestamp + 1
+	}
+	block.Difficulty = 1
+	block.MinerAddress = minerAddr
+	block.Nonce = 0
+	block.UpdateMerkleRoot()
+	return block
+}

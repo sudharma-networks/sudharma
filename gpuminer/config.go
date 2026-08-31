@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/sudharma-networks/sudharma/blockchain"
 	"github.com/sudharma-networks/sudharma/params"
 )
 
@@ -20,14 +21,21 @@ type Config struct {
 }
 
 type Work struct {
-	WorkID        string `json:"work_id"`
-	Algorithm     string `json:"algorithm"`
-	Version       uint32 `json:"version"`
-	Height        uint64 `json:"height"`
-	Difficulty    uint32 `json:"difficulty"`
-	Target        string `json:"target"`
-	HeaderPrefix  string `json:"header_prefix"`
-	RewardAddress string `json:"reward_address"`
+	WorkID        string            `json:"work_id"`
+	Job           string            `json:"job,omitempty"`
+	Algorithm     string            `json:"algorithm"`
+	Version       uint32            `json:"version"`
+	Height        uint64            `json:"height"`
+	Difficulty    uint32            `json:"difficulty"`
+	Target        string            `json:"target"`
+	HeaderPrefix  string            `json:"header_prefix"`
+	RewardAddress string            `json:"reward_address"`
+	CacheNodes    uint32            `json:"cache_nodes,omitempty"`
+	Parent        string            `json:"parent,omitempty"`
+	Block         *blockchain.Block `json:"block,omitempty"`
+	BlockReward   uint64            `json:"block_reward,omitempty"`
+	MinerBalance  uint64            `json:"miner_balance,omitempty"`
+	Note          string            `json:"note,omitempty"`
 }
 
 type Solution struct {
@@ -40,11 +48,18 @@ type Solution struct {
 	Target        string `json:"target"`
 	HeaderPrefix  string `json:"header_prefix"`
 	RewardAddress string `json:"reward_address"`
+	CacheNodes    uint32 `json:"cache_nodes,omitempty"`
 }
 
 type SubmitResult struct {
-	Status string `json:"status"`
-	Error  string `json:"error,omitempty"`
+	Status        string `json:"status"`
+	Accepted      bool   `json:"accepted,omitempty"`
+	Error         string `json:"error,omitempty"`
+	Height        uint64 `json:"height,omitempty"`
+	Hash          string `json:"hash,omitempty"`
+	RewardAddress string `json:"reward_address,omitempty"`
+	Balance       uint64 `json:"balance,omitempty"`
+	Broadcast     string `json:"broadcast,omitempty"`
 }
 
 func ValidateRewardAddress(address string) error {
@@ -91,11 +106,18 @@ func WorkFromJSON(raw []byte) (Work, error) {
 	if err := json.Unmarshal(raw, &work); err != nil {
 		return Work{}, fmt.Errorf("invalid mining work JSON: %w", err)
 	}
-	if err := params.ValidateProductionMiningAlgorithm(work.Algorithm); err != nil {
-		return Work{}, err
+	if strings.TrimSpace(work.Algorithm) != "" {
+		if err := params.ValidateProductionMiningAlgorithm(work.Algorithm); err != nil {
+			return Work{}, err
+		}
+	} else if work.Block == nil {
+		return Work{}, fmt.Errorf("%s", params.GPUOnlyMiningMessage)
 	}
 	if work.Version != 0 && work.Version != 2 {
 		return Work{}, fmt.Errorf("%s (unsupported work version %d)", params.GPUOnlyMiningMessage, work.Version)
+	}
+	if work.Block != nil {
+		return work, nil
 	}
 	if strings.TrimSpace(work.HeaderPrefix) == "" || strings.TrimSpace(work.Target) == "" {
 		return Work{}, fmt.Errorf("mining work is missing GPU-PoW header or target")

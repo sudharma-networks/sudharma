@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
 	"time"
 
@@ -29,7 +30,9 @@ func run(args []string, in io.Reader, out, errOut io.Writer) error {
 	rpcURL := fs.String("rpc", "", "optional mining RPC URL override for local testing")
 	backend := fs.String("backend", params.ProductionMiningBackend, "GPU backend: gpu-only, cuda, or opencl")
 	hasherDir := fs.String("hasher-dir", "", "folder that contains the NVIDIA or AMD GPU hasher")
+	device := fs.Int("device", 0, "GPU device index")
 	probe := fs.Bool("probe", false, "validate address, GPU-only policy and RPC without hashing")
+	once := fs.Bool("once", false, "fetch one GPU job, hash it, submit, then exit")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -37,6 +40,7 @@ func run(args []string, in io.Reader, out, errOut io.Writer) error {
 	fmt.Fprintln(out, "Sudharma GPU Miner — Khushi Algorithm")
 	fmt.Fprintln(out, params.GPUOnlyMiningMessage)
 	fmt.Fprintln(out, "NVIDIA CUDA and AMD/OpenCL GPUs only. Not CPU. Not ASIC.")
+	fmt.Fprintln(out, "This is not the demand miner. Demand miner is unchanged and can run in parallel.")
 	fmt.Fprintln(out, "")
 
 	reward := strings.TrimSpace(*address)
@@ -56,6 +60,7 @@ func run(args []string, in io.Reader, out, errOut io.Writer) error {
 		Network: *network,
 		RPCURL:  *rpcURL,
 		Backend: *backend,
+		Device:  *device,
 	})
 	if err != nil {
 		return err
@@ -76,26 +81,51 @@ func run(args []string, in io.Reader, out, errOut io.Writer) error {
 		defer cancel()
 		work, err := client.GetWork(ctx, cfg.Address)
 		if err != nil {
-			fmt.Fprintf(out, "Connected to %s. GPU-PoW work is not being issued yet: %v\n", cfg.Network, err)
+			fmt.Fprintf(out, "Connected to %s. GPU miner work is not being issued yet: %v\n", cfg.Network, err)
+			fmt.Fprintln(out, "Waiting is GPU-only. CPU and ASIC mining will not start.")
 			return nil
 		}
-		fmt.Fprintf(out, "GPU work ready at height %d algorithm %s\n", work.Height, work.Algorithm)
+		fmt.Fprintf(out, "GPU miner work ready at height %d algorithm %s reward %s\n", work.Height, work.Algorithm, work.RewardAddress)
 		return nil
 	}
 
+	var gpu gpuminer.Backend
 	hasher, err := gpuminer.DetectGPUHasher(*hasherDir)
+	if err != nil {
+		fmt.Fprintln(out, "Khushi GPU hasher not found in this folder. Mining public-testnet candidate blocks to your wallet.")
+		fmt.Fprintln(out, "Demand miner is a separate process and is not started from this app.")
+	} else {
+		fmt.Fprintf(out, "GPU hasher: %s\n", hasher)
+		gpu = gpuminer.CommandBackend{Path: hasher, Device: cfg.Device}
+	}
+	fmt.Fprintln(out, "Starting GPU miner. Rewards go to the address above. This will not mine on CPU or ASIC products.")
+
+	loop := &gpuminer.Loop{
+		Client:  client,
+		Address: cfg.Address,
+		Backend: gpu,
+		Once:    *once,
+		Log: func(format string, args ...any) {
+			fmt.Fprintf(out, format+"\n", args...)
+		},
+	}
+
+	ctx := context.Background()
+	var cancel context.CancelFunc
+	if *once {
+		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+	} else {
+		ctx, cancel = signal.NotifyContext(ctx, os.Interrupt)
+	}
+	defer cancel()
+
+	accepted, err := loop.Run(ctx)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "GPU hasher: %s\n", hasher)
-	fmt.Fprintln(out, "Starting GPU mining. CPU and ASIC paths are disabled.")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	work, err := client.GetWork(ctx, cfg.Address)
-	if err != nil {
-		return fmt.Errorf("connected to %s but GPU-PoW work is not active yet: %w", cfg.Network, err)
+	if *once && accepted < 1 {
+		return fmt.Errorf("connected to %s but no GPU share was accepted yet", cfg.Network)
 	}
-	fmt.Fprintf(out, "Received GPU work at height %d. Keep this window open while the GPU hasher searches.\n", work.Height)
+	fmt.Fprintf(out, "Stopped GPU mining after %d accepted share(s).\n", accepted)
 	return nil
 }
