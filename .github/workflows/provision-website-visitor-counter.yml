@@ -26,6 +26,10 @@ jobs:
         id: provision
         run: bash deployment/website/visitor-counter/provision.sh
 
+      - name: Record visitor counter endpoint
+        run: |
+          echo "Visitor counter endpoint: ${{ steps.provision.outputs.endpoint }}"
+
       - name: Commit public endpoint config
         run: |
           if git diff --quiet -- web/public/data/visitor-counter.json; then
@@ -34,6 +38,6 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add web/public/data/visitor-counter.json
+          git add -f web/public/data/visitor-counter.json
           git commit -m "chore(web): update public visitor counter endpoint"
           git push

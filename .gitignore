@@ -43,6 +43,10 @@ node_modules/
 data/
 data-*/
 
+# Public website config written by provision-website-visitor-counter workflow
+!web/public/data/
+!web/public/data/visitor-counter.json
+
 # Development backups
 *_backup_*
 *backup-before*
