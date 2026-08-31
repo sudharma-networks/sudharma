@@ -1,0 +1,82 @@
+name: Release Wallet 0.1.4
+
+on:
+  push:
+    branches:
+      - cursor/wallet-txn-details-83d4
+    paths:
+      - '.github/workflows/release-wallet-0.1.4.yml'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download exact user-tested APK artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p wallet
+          gh run download 33369970342 \
+            --repo sudharma-networks/sudharma \
+            --name sudharma-wallet-debug \
+            --dir wallet
+          mv wallet/app-debug.apk wallet/Sudharma-Wallet-0.1.4.apk
+
+      - name: Verify exact tested APK checksum
+        run: |
+          set -euo pipefail
+          expected='a6e4e4fa2201b7b3343f62254c373724f0f290de280b8322ec5f5e82e7ae6faf'
+          actual="$(sha256sum wallet/Sudharma-Wallet-0.1.4.apk | awk '{print $1}')"
+          test "$actual" = "$expected"
+          printf '%s  %s\n' "$actual" 'Sudharma-Wallet-0.1.4.apk' > wallet/Sudharma-Wallet-0.1.4.apk.sha256
+          test "$(stat -c '%s' wallet/Sudharma-Wallet-0.1.4.apk)" = '20958939'
+
+      - name: Publish Wallet 0.1.4 prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo='sudharma-networks/sudharma'
+          tag='wallet-testnet-0.1.4'
+          gh release view "$tag" --repo "$repo" >/dev/null 2>&1 && gh release delete "$tag" --repo "$repo" --yes || true
+          gh release create "$tag" \
+            wallet/Sudharma-Wallet-0.1.4.apk \
+            wallet/Sudharma-Wallet-0.1.4.apk.sha256 \
+            --repo "$repo" \
+            --target 62521c2c365c66be5b2296b04465593ae8a2817b \
+            --title 'Sudharma Wallet 0.1.4 (testnet)' \
+            --notes 'Approved public-testnet Android wallet. Includes separate Activity server/network diagnostics and History transaction records, ordinary received-transaction discovery, detailed transaction view with Explorer links, restored testnet faucet/challenge flow, and Android system back/swipe navigation. Testnet software only; Test SUDH has no monetary value. APK SHA-256: a6e4e4fa2201b7b3343f62254c373724f0f290de280b8322ec5f5e82e7ae6faf.' \
+            --prerelease
+
+      - name: Remove older wallet Release entries only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo='sudharma-networks/sudharma'
+          keep='wallet-testnet-0.1.4'
+          gh release list --repo "$repo" --limit 100 --json tagName --jq '.[].tagName' \
+            | while read -r tag; do
+                case "$tag" in
+                  wallet-testnet-*|wallet-testnet-v*)
+                    if [ "$tag" != "$keep" ]; then
+                      gh release delete "$tag" --repo "$repo" --yes
+                    fi
+                    ;;
+                esac
+              done
+
+      - name: Verify release and checksum asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo='sudharma-networks/sudharma'
+          gh release view wallet-testnet-0.1.4 --repo "$repo" --json tagName,name,isPrerelease,assets
+          leftovers="$(gh release list --repo "$repo" --limit 100 --json tagName --jq '[.[].tagName | select((startswith("wallet-testnet-")) or (startswith("wallet-testnet-v"))) | select(. != "wallet-testnet-0.1.4")] | length')"
+          test "$leftovers" = '0'
