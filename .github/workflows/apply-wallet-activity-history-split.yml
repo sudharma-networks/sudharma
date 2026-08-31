@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - cursor/wallet-txn-details-83d4
-    paths:
-      - .github/workflows/apply-wallet-activity-history-split.yml
 
 permissions:
   contents: write
