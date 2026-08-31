@@ -39,9 +39,36 @@ the recovery line's unique changes are integrated.
 4. Reconcile the recovery line's newer faucet, demand-miner, RPC, website, and
    operational changes file by file, preserving manual-only workflows. Deep
    health route and readiness checks are integrated; stale-prepared recovery,
-   faucet funding waits, and demand-miner wake hooks are integrated; shared
-   explorer/visitor routes and recovery workflow contracts remain pending.
+   faucet funding waits, demand-miner wake hooks, recovery contract CI, and
+   demand-miner Go funding/wake modules are integrated; shared explorer/visitor
+   routes and operator recovery workflow YAMLs remain pending.
 5. Select the explorer API contract before integrating the website.
+
+## Stage 2 route delta (recovery line vs guard branch)
+
+The recovery Lambda router at `2e2abd6` adds shared routes not yet on the guard
+branch. Stage 2 should reconcile these file-by-file with
+`shared-routes-regression.test.mjs` as the contract anchor:
+
+| Route | Kind | Dispatch |
+| --- | --- | --- |
+| `GET /v1/mempool` | `mempool` | upstream proxy |
+| `POST /v1/miner/wake` | `minerWake` | upstream proxy (integrated on guard branch) |
+| `GET /v1/faucet/diagnostics` | `faucetDiagnostics` | local faucet handler |
+| `GET/POST /v1/website/visitors` | `websiteVisitorsRead` / `websiteVisitorsRecord` | local visitor handler |
+| `GET /v1/explorer/status` | `explorerStatus` | upstream proxy |
+| `GET /v1/explorer/blocks` | `explorerBlocks` | upstream proxy |
+| `GET /v1/explorer/transactions` | `explorerTransactions` | upstream proxy |
+| `GET /v1/explorer/mempool` | `explorerMempool` | upstream proxy |
+| `GET /v1/explorer/search` | `explorerSearch` | upstream proxy (query preserved) |
+| `GET /v1/explorer/blocks/{id}` | `explorerBlock` | upstream proxy |
+| `GET /v1/explorer/transactions/{id}` | `explorerTransaction` | upstream proxy |
+| `GET /v1/explorer/addresses/{addr}` | `explorerAddress` | upstream proxy |
+
+Recovery `index.mjs` also adds local dispatch for visitor routes and explorer
+query validation in `normalizeEvent`. The explorer v1 branch (`62f350e`) and
+website foundation branch (`ebc8f43`) depend on this contract being frozen first.
+
 6. Verify the complete testnet candidate at one exact commit.
 7. Keep GPU staging and Mainnet Tokenomics v1 on independent review lines.
 

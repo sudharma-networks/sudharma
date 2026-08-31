@@ -47,6 +47,10 @@ export function matchRoute(methodInput, pathInput) {
     if (method !== 'POST') reject('method not allowed', 405);
     return { kind: 'submitTransaction', method, path };
   }
+  if (path === '/v1/miner/wake') {
+    if (method !== 'POST') reject('method not allowed', 405);
+    return { kind: 'minerWake', method, path };
+  }
   if (path === '/v1/faucet/health') {
     if (method !== 'GET') reject('method not allowed', 405);
     return { kind: 'faucetHealth', method, path };
