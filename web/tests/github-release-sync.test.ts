@@ -1,4 +1,4 @@
-import { classifyAsset, normalizeReleases, withSameSiteWalletUrls } from "../scripts/sync-github-releases.mjs";
+import { __githubJsonForTests, classifyAsset, isRetryableGitHubStatus, normalizeReleases, withSameSiteWalletUrls } from "../scripts/sync-github-releases.mjs";
 
 const release = {
   tag_name: "wallet-testnet-v0.1.0",
@@ -83,4 +83,38 @@ it("classifies CUDA and OpenCL miner packages as experimental", () => {
 it("does not promote unknown binary assets", () => {
   const unknown = classifyAsset(release, { name: "mystery.bin", size: 1, browser_download_url: "https://github.com/sudharma-networks/sudharma/releases/download/x/mystery.bin" });
   expect(unknown).toBeNull();
+});
+
+it("treats rate limits and gateway errors as retryable", () => {
+  expect(isRetryableGitHubStatus(403)).toBe(true);
+  expect(isRetryableGitHubStatus(429)).toBe(true);
+  expect(isRetryableGitHubStatus(503)).toBe(true);
+  expect(isRetryableGitHubStatus(404)).toBe(false);
+});
+
+it("retries a rate-limited GitHub response before succeeding", async () => {
+  const responses = [
+    new Response("rate limited", { status: 403 }),
+    new Response(JSON.stringify([{ tag_name: "x" }]), { status: 200, headers: { "content-type": "application/json" } })
+  ];
+  const fetchImpl = ((): typeof fetch => (async () => responses.shift()!) as unknown as typeof fetch)();
+  const sleeps: number[] = [];
+
+  const payload = await __githubJsonForTests("/repos/x/y/releases", {
+    fetchImpl,
+    delayMs: 1,
+    sleep: async (ms: number) => { sleeps.push(ms); }
+  });
+
+  expect(payload).toEqual([{ tag_name: "x" }]);
+  expect(sleeps).toEqual([1]);
+});
+
+it("does not retry a non-retryable GitHub failure", async () => {
+  let calls = 0;
+  const fetchImpl = (async () => { calls += 1; return new Response("nope", { status: 404 }); }) as unknown as typeof fetch;
+
+  await expect(__githubJsonForTests("/repos/x/y/releases", { fetchImpl, delayMs: 1, sleep: async () => {} }))
+    .rejects.toThrow(/GitHub API 404/);
+  expect(calls).toBe(1);
 });
