@@ -25,11 +25,20 @@ function conditionalFailure(error) {
   return error?.name === 'ConditionalCheckFailedException' || error?.name === 'TransactionCanceledException';
 }
 
-export function createOperationTimer({ logger = console, now = Date.now } = {}) {
+export function createOperationTimer({ logger = console, now = Date.now, timeoutMs = 6_000 } = {}) {
   return async function timeOperation(operation, action) {
     const started = now();
+    let timeoutId;
     try {
-      const result = await action();
+      const result = await Promise.race([
+        action(),
+        new Promise((_, reject) => {
+          timeoutId = setTimeout(
+            () => reject(new FaucetError(503, 'faucet dependency timed out')),
+            timeoutMs,
+          );
+        }),
+      ]);
       logger.info({ event: 'faucet_dependency', operation, outcome: 'success', latency_ms: now() - started });
       return result;
     } catch (error) {
@@ -41,6 +50,8 @@ export function createOperationTimer({ logger = console, now = Date.now } = {}) 
         latency_ms: now() - started,
       });
       throw error;
+    } finally {
+      clearTimeout(timeoutId);
     }
   };
 }
@@ -315,7 +326,15 @@ export function createRuntimeFaucetHandler({ seeds, fetchImpl = globalThis.fetch
   const secretId = env.FAUCET_SECRET_ID;
   if (!tableName || !secretId) throw new Error('faucet AWS configuration is incomplete');
 
-  const timed = createOperationTimer({ logger, now });
+  const dependencyTimeoutMs = Number.parseInt(env.FAUCET_DEPENDENCY_TIMEOUT_MS || '6000', 10);
+  const timed = createOperationTimer({
+    logger,
+    now,
+    timeoutMs:
+      Number.isInteger(dependencyTimeoutMs) && dependencyTimeoutMs >= 100 && dependencyTimeoutMs <= 15_000
+        ? dependencyTimeoutMs
+        : 6_000,
+  });
   const store = createStore(tableName, timed);
   const rpc = createRpc({ seeds, fetchImpl, timeoutMs, timed });
   let servicePromise;
