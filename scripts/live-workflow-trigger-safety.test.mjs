@@ -100,3 +100,16 @@ test('Android CI cannot publish releases', () => {
   assert.doesNotMatch(source, /^\s*contents:\s*write\s*$/m);
   assert.doesNotMatch(source, /\bgh release (create|upload)\b/);
 });
+
+test('Android wallet publish is manual-only and confirm-gated', () => {
+  const workflow = '.github/workflows/android-wallet-publish.yml';
+  if (!fs.existsSync(workflow)) {
+    return;
+  }
+
+  const source = fs.readFileSync(workflow, 'utf8');
+  assertManualOnly(source, workflow);
+  assert.match(source, /contents:\s*write/);
+  assert.match(source, /gh release create/);
+  assert.match(source, /confirm\s*==\s*'PUBLISH'|inputs\.confirm == 'PUBLISH'/);
+});

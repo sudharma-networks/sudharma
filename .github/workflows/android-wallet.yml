@@ -55,16 +55,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          version_name="$(python3 - <<'PY'
+          import re
+          text = open("mobile/android/app/build.gradle.kts", encoding="utf-8").read()
+          match = re.search(r'versionName\s*=\s*"([^"]+)"', text)
+          if not match:
+              raise SystemExit("versionName not found")
+          print(match.group(1).removesuffix("-testnet"))
+          PY
+          )"
+          apk_name="Sudharma-Wallet-${version_name}.apk"
           mkdir -p dist
-          cp mobile/android/app/build/outputs/apk/debug/app-debug.apk dist/Sudharma-Wallet-0.1.0-testnet.apk
-          sha256sum dist/Sudharma-Wallet-0.1.0-testnet.apk > dist/Sudharma-Wallet-0.1.0-testnet.apk.sha256
+          cp mobile/android/app/build/outputs/apk/debug/app-debug.apk "dist/${apk_name}"
+          sha256sum "dist/${apk_name}" > "dist/${apk_name}.sha256"
+          echo "Staged ${apk_name}"
 
       - name: Upload verified testnet APK
         uses: actions/upload-artifact@v4
         with:
-          name: sudharma-wallet-0.1.0-testnet
+          name: sudharma-wallet-testnet
           path: |
-            dist/Sudharma-Wallet-0.1.0-testnet.apk
-            dist/Sudharma-Wallet-0.1.0-testnet.apk.sha256
+            dist/*.apk
+            dist/*.apk.sha256
           if-no-files-found: error
           retention-days: 14
