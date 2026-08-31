@@ -159,7 +159,12 @@ jobs:
         run: |
           set -euo pipefail
           remote_script_file="$(mktemp)"
-          cp deployment/testnet/remote-enable-seed-mining-nginx.sh "$remote_script_file"
+          {
+            echo 'set -euo pipefail'
+            printf 'export SEED_PRIVATE_IP=%q\n' "${{ matrix.seed_private_ip }}"
+            printf 'export SEED_RPC_SMOKE_URL=%q\n' "http://${{ matrix.seed_private_ip }}:29100"
+            cat deployment/testnet/remote-enable-seed-mining-nginx.sh
+          } > "$remote_script_file"
           bash deployment/testnet/ssm-send-remote-script.sh \
             "${{ steps.seed.outputs.instance_id }}" \
             "Enable GPU mining nginx routes (${{ matrix.seed_name }})" \
