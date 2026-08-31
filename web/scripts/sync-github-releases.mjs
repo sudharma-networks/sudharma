@@ -6,6 +6,8 @@ const REPO = "sudharma-networks/sudharma";
 const OFFICIAL = `https://github.com/${REPO}`;
 const WALLET_PUBLIC_PATH = "/downloads/Sudharma-Wallet-latest.apk";
 const WALLET_CHECKSUM_PATH = `${WALLET_PUBLIC_PATH}.sha256`;
+const GPU_MINER_PUBLIC_PATH = "/downloads/Sudharma-GPU-Miner-Windows-latest.zip";
+const GPU_MINER_CHECKSUM_PATH = `${GPU_MINER_PUBLIC_PATH}.sha256`;
 
 function bytes(size) {
   if (!Number.isFinite(size)) return undefined;
@@ -90,11 +92,19 @@ export function normalizeReleases(releases) {
   return output;
 }
 
-export function withSameSiteWalletUrls(artifacts) {
-  return artifacts.map((artifact) => artifact.slot === "android-wallet"
-    ? { ...artifact, downloadUrl: WALLET_PUBLIC_PATH, checksumUrl: WALLET_CHECKSUM_PATH }
-    : artifact);
+export function withSameSitePublicUrls(artifacts) {
+  return artifacts.map((artifact) => {
+    if (artifact.slot === "android-wallet") {
+      return { ...artifact, downloadUrl: WALLET_PUBLIC_PATH, checksumUrl: WALLET_CHECKSUM_PATH };
+    }
+    if (artifact.slot === "windows-gpu-miner") {
+      return { ...artifact, downloadUrl: GPU_MINER_PUBLIC_PATH, checksumUrl: GPU_MINER_CHECKSUM_PATH };
+    }
+    return artifact;
+  });
 }
+
+export const withSameSiteWalletUrls = withSameSitePublicUrls;
 
 const RETRYABLE_STATUS = new Set([403, 429, 500, 502, 503, 504]);
 
@@ -149,7 +159,7 @@ export async function sync() {
   const releases = await githubJson(`/repos/${REPO}/releases?per_page=100`);
   const commits = await githubJson(`/repos/${REPO}/commits?sha=main&per_page=1`);
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-  await atomicJson(path.join(root, "public/data/github-releases.json"), { schemaVersion: 1, repository: REPO, artifacts: normalizeReleases(releases) });
+  await atomicJson(path.join(root, "public/data/github-releases.json"), { schemaVersion: 1, repository: REPO, artifacts: withSameSitePublicUrls(normalizeReleases(releases)) });
   await atomicJson(path.join(root, "public/data/project-status.json"), projectStatus(releases, commits));
 }
 

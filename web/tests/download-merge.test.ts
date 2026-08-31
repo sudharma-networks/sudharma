@@ -22,6 +22,8 @@ it("every public download has official provenance and unavailable items have no 
 
 it("current public wallet and miners are synchronized", () => {
   expect(DOWNLOADS.some((item) => item.kind === "wallet" && item.status === "available" && item.version.startsWith("wallet-testnet-"))).toBe(true);
-  expect(DOWNLOADS.filter((item) => item.kind === "miner" && item.status === "available")).toHaveLength(2);
-  expect(DOWNLOADS.some((item) => item.id === "windows-gpu-miner" && item.status === "in-development")).toBe(true);
+  expect(DOWNLOADS.filter((item) => item.kind === "miner" && item.status === "available").length).toBeGreaterThanOrEqual(3);
+  const oneClick = DOWNLOADS.find((item) => item.downloadUrl === "/downloads/Sudharma-GPU-Miner-Windows-latest.zip");
+  expect(oneClick?.status).toBe("available");
+  expect(oneClick?.name).toContain("One-Click");
 });

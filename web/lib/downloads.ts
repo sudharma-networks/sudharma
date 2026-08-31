@@ -59,8 +59,20 @@ const slotForFallback = (artifact: DownloadArtifact) => {
   return undefined;
 };
 
+const OFFICIAL_GITHUB_ASSET = "https://github.com/sudharma-networks/sudharma/releases/download/";
+
+export function isSameSiteDownload(url?: string) {
+  return Boolean(url?.startsWith("/downloads/") && !url.includes(".."));
+}
+
+export function isOfficialDownloadUrl(url?: string) {
+  if (!url) return false;
+  if (url.startsWith(OFFICIAL_GITHUB_ASSET)) return true;
+  return isSameSiteDownload(url);
+}
+
 export function mergeDownloads(generated: GeneratedDownloadArtifact[], fallback = FALLBACK_DOWNLOADS): DownloadArtifact[] {
-  const official = generated.filter((artifact) => artifact.status === "available" && artifact.downloadUrl?.startsWith("https://github.com/sudharma-networks/sudharma/releases/download/"));
+  const official = generated.filter((artifact) => artifact.status === "available" && isOfficialDownloadUrl(artifact.downloadUrl));
   const promoted = new Set(official.map((artifact) => artifact.slot));
   const remaining = fallback.filter((artifact) => {
     const slot = slotForFallback(artifact);

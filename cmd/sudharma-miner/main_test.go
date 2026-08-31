@@ -180,9 +180,9 @@ func TestRunAutoUsesSavedAddress(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"network": "sudharma", "height": 12})
 		default:
 			_ = json.NewEncoder(w).Encode(gpuminer.Work{
-				Algorithm: params.ProductionMiningAlgorithm,
-				Height:    3,
-				Target:    "0f",
+				Algorithm:    params.ProductionMiningAlgorithm,
+				Height:       3,
+				Target:       "0f",
 				HeaderPrefix: "aa",
 			})
 		}
