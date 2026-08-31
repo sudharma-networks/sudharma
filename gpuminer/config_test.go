@@ -25,6 +25,15 @@ func TestResolvePublicTestnetAndRejectsMainnet(t *testing.T) {
 	if cfg.RPCURL != params.PublicTestnetMiningRPC {
 		t.Fatalf("rpc = %q", cfg.RPCURL)
 	}
+	if len(cfg.RPCURLs) != 3 {
+		t.Fatalf("rpc urls = %#v", cfg.RPCURLs)
+	}
+	if cfg.RPCURLs[0] != params.PublicTestnetMiningRPC {
+		t.Fatalf("primary rpc = %q", cfg.RPCURLs[0])
+	}
+	if cfg.RPCURLs[1] != params.PublicTestnetSeed1RPC || cfg.RPCURLs[2] != params.PublicTestnetSeed2RPC {
+		t.Fatalf("seed rpcs = %#v", cfg.RPCURLs[1:])
+	}
 	if cfg.Backend != params.ProductionMiningBackend {
 		t.Fatalf("backend = %q", cfg.Backend)
 	}

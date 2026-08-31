@@ -63,6 +63,10 @@ func TestRunProbeConnectsWithoutCPUFallback(t *testing.T) {
 func TestRunPromptsForAddress(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/status" {
+			writeTestnetStatus(w)
+			return
+		}
 		_ = json.NewEncoder(w).Encode(gpuminer.Work{
 			Algorithm:    params.ProductionMiningAlgorithm,
 			Version:      2,
@@ -93,19 +97,22 @@ func TestRunOnceMinesWithGPUHasher(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path == "/v1/mining/submit" {
+		switch r.URL.Path {
+		case "/v1/status":
+			writeTestnetStatus(w)
+		case "/v1/mining/submit":
 			_ = json.NewEncoder(w).Encode(gpuminer.SubmitResult{Status: "accepted"})
-			return
+		default:
+			_ = json.NewEncoder(w).Encode(gpuminer.Work{
+				WorkID:        "work-1",
+				Algorithm:     params.ProductionMiningAlgorithm,
+				Version:       2,
+				Height:        4,
+				Target:        "0f",
+				HeaderPrefix:  "aa",
+				RewardAddress: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			})
 		}
-		_ = json.NewEncoder(w).Encode(gpuminer.Work{
-			WorkID:        "work-1",
-			Algorithm:     params.ProductionMiningAlgorithm,
-			Version:       2,
-			Height:        4,
-			Target:        "0f",
-			HeaderPrefix:  "aa",
-			RewardAddress: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		})
 	}))
 	t.Cleanup(server.Close)
 
@@ -133,17 +140,20 @@ func TestRunOnceMinesCandidateBlockWithoutHasher(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path == "/v1/mining/submit" {
+		switch r.URL.Path {
+		case "/v1/status":
+			writeTestnetStatus(w)
+		case "/v1/mining/submit":
 			_ = json.NewEncoder(w).Encode(gpuminer.SubmitResult{Status: "accepted", Accepted: true, RewardAddress: address, Balance: 1})
-			return
+		default:
+			_ = json.NewEncoder(w).Encode(gpuminer.Work{
+				Algorithm:     params.ProductionMiningAlgorithm,
+				Height:        previous.Height,
+				Difficulty:    previous.Difficulty,
+				RewardAddress: address,
+				Block:         previous,
+			})
 		}
-		_ = json.NewEncoder(w).Encode(gpuminer.Work{
-			Algorithm:     params.ProductionMiningAlgorithm,
-			Height:        previous.Height,
-			Difficulty:    previous.Difficulty,
-			RewardAddress: address,
-			Block:         previous,
-		})
 	}))
 	t.Cleanup(server.Close)
 
@@ -225,6 +235,10 @@ type discard struct{}
 func (discard) Write(p []byte) (int, error) { return len(p), nil }
 
 func ioDiscard() *discard { return &discard{} }
+
+func writeTestnetStatus(w http.ResponseWriter) {
+	_ = json.NewEncoder(w).Encode(map[string]any{"network": "sudharma", "height": 12})
+}
 
 func mustGenesisCandidate(t *testing.T, minerAddr string) *blockchain.Block {
 	t.Helper()

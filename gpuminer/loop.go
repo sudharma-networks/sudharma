@@ -16,7 +16,7 @@ type Backend interface {
 }
 
 type Loop struct {
-	Client  *Client
+	Client  RPCClient
 	Address string
 	Backend Backend
 	Once    bool

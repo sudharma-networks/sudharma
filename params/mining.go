@@ -25,6 +25,12 @@ const (
 
 	PublicTestnetMiningRPC = "https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com"
 
+	// PublicTestnetSeed1RPC and PublicTestnetSeed2RPC are the loopback-adjacent
+	// sudharma-rpcd endpoints that the public-testnet HTTPS proxy failovers
+	// between. They match deployment/testnet/public-rpc/lambda/index.mjs.
+	PublicTestnetSeed1RPC = "http://172.31.10.171:29100"
+	PublicTestnetSeed2RPC = "http://172.31.32.195:29100"
+
 	// MainnetMiningRPC is reserved for the authorized mainnet endpoint.
 	// Connecting still requires MainnetMiningAuthorized.
 	MainnetMiningRPC = "https://mainnet.rpc.sudharma.invalid"
@@ -52,16 +58,38 @@ func NormalizeMiningNetwork(network string) string {
 }
 
 func MiningRPCForNetwork(network string) (string, error) {
+	endpoints, err := MiningRPCEndpointsForNetwork(network)
+	if err != nil {
+		return "", err
+	}
+	if len(endpoints) == 0 {
+		return "", fmt.Errorf("no mining RPC endpoints configured for network %q", network)
+	}
+	return endpoints[0], nil
+}
+
+// PublicTestnetMiningSeedRPCs returns the ordered seed RPC endpoints used by the
+// public-testnet HTTPS proxy. GPU miners on trusted networks may connect to
+// these directly; public clients should use PublicTestnetMiningRPC instead.
+func PublicTestnetMiningSeedRPCs() []string {
+	return []string{PublicTestnetSeed1RPC, PublicTestnetSeed2RPC}
+}
+
+// MiningRPCEndpointsForNetwork returns the mining RPC endpoints for a network.
+// Public-testnet uses the same seed-1 then seed-2 path as the wallet, explorer,
+// and faucet public proxy. Internet clients should prefer the first HTTPS URL;
+// operators on the seed VPC may reach the private seed RPC URLs directly.
+func MiningRPCEndpointsForNetwork(network string) ([]string, error) {
 	switch NormalizeMiningNetwork(network) {
 	case NetworkPublicTestnet:
-		return PublicTestnetMiningRPC, nil
+		return append([]string{PublicTestnetMiningRPC}, PublicTestnetMiningSeedRPCs()...), nil
 	case NetworkMainnet:
 		if !MainnetMiningAuthorized {
-			return "", fmt.Errorf("mainnet mining is not authorized; Sudharma mainnet remains GPU-only and closed until launch")
+			return nil, fmt.Errorf("mainnet mining is not authorized; Sudharma mainnet remains GPU-only and closed until launch")
 		}
-		return MainnetMiningRPC, nil
+		return []string{MainnetMiningRPC}, nil
 	default:
-		return "", fmt.Errorf("unsupported mining network %q (use public-testnet or mainnet)", network)
+		return nil, fmt.Errorf("unsupported mining network %q (use public-testnet or mainnet)", network)
 	}
 }
 

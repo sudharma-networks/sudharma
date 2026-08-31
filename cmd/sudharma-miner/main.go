@@ -27,6 +27,7 @@ func run(args []string, in io.Reader, out, errOut io.Writer) error {
 	fs.SetOutput(errOut)
 	address := fs.String("address", "", "Sudharma wallet address that receives mining rewards")
 	auto := fs.Bool("auto", false, "use saved wallet address and start mining immediately")
+	configPath := fs.String("config", "", "optional GPU miner JSON config (deployment/testnet/gpu-miner*.example.json)")
 	network := fs.String("network", params.NetworkPublicTestnet, "mining network: public-testnet or mainnet")
 	rpcURL := fs.String("rpc", "", "optional mining RPC URL override for local testing")
 	backend := fs.String("backend", params.ProductionMiningBackend, "GPU backend: gpu-only, cuda, or opencl")
@@ -47,18 +48,12 @@ func run(args []string, in io.Reader, out, errOut io.Writer) error {
 		return err
 	}
 
-	cfg, err := gpuminer.Resolve(gpuminer.Config{
-		Address: reward,
-		Network: *network,
-		RPCURL:  *rpcURL,
-		Backend: *backend,
-		Device:  *device,
-	})
+	resolved, err := resolveMinerConfig(*configPath, reward, *network, *rpcURL, *backend, *device)
 	if err != nil {
 		return err
 	}
 
-	client, err := gpuminer.NewClient(cfg.RPCURL, 15*time.Second)
+	client, err := gpuminer.NewFailoverClient(resolved.RPCURLs, 15*time.Second)
 	if err != nil {
 		return err
 	}
@@ -71,19 +66,22 @@ func run(args []string, in io.Reader, out, errOut io.Writer) error {
 		defer probeCancel()
 	}
 
-	fmt.Fprintf(out, "Connecting to Sudharma %s …\n", cfg.Network)
+	fmt.Fprintf(out, "Connecting to Sudharma %s …\n", resolved.Network)
 	status, statusErr := client.NetworkStatus(ctx)
 	if statusErr == nil {
-		fmt.Fprintf(out, "Connected. Network height %d.\n", status.Height)
+		if err := gpuminer.ValidateNetworkStatus(status, resolved.ExpectedNetwork); err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "Connected via %s. Network height %d.\n", client.Endpoint(), status.Height)
 	} else {
-		fmt.Fprintf(out, "Connected to %s. Waiting for mining work …\n", cfg.RPCURL)
+		fmt.Fprintf(out, "Connecting via %s. Waiting for mining work …\n", client.Endpoint())
 	}
 
-	fmt.Fprintf(out, "Reward address: %s\n", cfg.Address)
+	fmt.Fprintf(out, "Reward address: %s\n", resolved.Address)
 	fmt.Fprintln(out, "")
 
 	if *probe {
-		work, err := client.GetWork(ctx, cfg.Address)
+		work, err := client.GetWork(ctx, resolved.Address)
 		if err != nil {
 			fmt.Fprintf(out, "Mining work is not live yet: %v\n", err)
 			fmt.Fprintln(out, "This miner keeps waiting. It will not switch to CPU or ASIC mining.")
@@ -93,14 +91,14 @@ func run(args []string, in io.Reader, out, errOut io.Writer) error {
 		return nil
 	}
 
-	if err := gpuminer.SaveAddress(cfg.Address); err != nil {
+	if err := gpuminer.SaveAddress(resolved.Address); err != nil {
 		fmt.Fprintf(out, "Note: could not remember wallet address for next time: %v\n", err)
 	}
 
 	var gpu gpuminer.Backend
 	hasher, err := gpuminer.DetectGPUHasher(*hasherDir)
 	if err == nil {
-		gpu = gpuminer.CommandBackend{Path: hasher, Device: cfg.Device}
+		gpu = gpuminer.CommandBackend{Path: hasher, Device: resolved.Device}
 	}
 
 	fmt.Fprintln(out, "Mining started. Block rewards go to your wallet address.")
@@ -109,7 +107,7 @@ func run(args []string, in io.Reader, out, errOut io.Writer) error {
 
 	loop := &gpuminer.Loop{
 		Client:  client,
-		Address: cfg.Address,
+		Address: resolved.Address,
 		Backend: gpu,
 		Once:    *once,
 		Log: func(format string, args ...any) {
@@ -175,6 +173,40 @@ func resolveRewardAddress(flagAddress string, auto bool, in io.Reader, out io.Wr
 		return "", err
 	}
 	return gpuminer.NormalizeRewardAddress(scanner.Text())
+}
+
+func resolveMinerConfig(configPath, reward, network, rpcURL, backend string, device int) (gpuminer.Config, error) {
+	if strings.TrimSpace(configPath) != "" {
+		fileCfg, err := gpuminer.LoadFileConfig(configPath)
+		if err != nil {
+			return gpuminer.Config{}, err
+		}
+		cfg, err := fileCfg.ToConfig()
+		if err != nil {
+			return gpuminer.Config{}, err
+		}
+		if strings.TrimSpace(reward) != "" {
+			address, err := gpuminer.NormalizeRewardAddress(reward)
+			if err != nil {
+				return gpuminer.Config{}, err
+			}
+			cfg.Address = address
+		}
+		if strings.TrimSpace(backend) != "" {
+			cfg.Backend = backend
+		}
+		if device != 0 {
+			cfg.Device = device
+		}
+		return gpuminer.Resolve(cfg)
+	}
+	return gpuminer.Resolve(gpuminer.Config{
+		Address: reward,
+		Network: network,
+		RPCURL:  rpcURL,
+		Backend: backend,
+		Device:  device,
+	})
 }
 
 func shortAddress(address string) string {

@@ -68,6 +68,20 @@ func TestMiningRPCForNetwork(t *testing.T) {
 		t.Fatalf("testnet rpc = %q", url)
 	}
 
+	endpoints, err := MiningRPCEndpointsForNetwork(NetworkPublicTestnet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(endpoints) != 3 {
+		t.Fatalf("endpoints = %#v", endpoints)
+	}
+	if endpoints[0] != PublicTestnetMiningRPC {
+		t.Fatalf("primary endpoint = %q", endpoints[0])
+	}
+	if endpoints[1] != PublicTestnetSeed1RPC || endpoints[2] != PublicTestnetSeed2RPC {
+		t.Fatalf("seed endpoints = %#v", endpoints[1:])
+	}
+
 	_, err = MiningRPCForNetwork(NetworkMainnet)
 	if err == nil {
 		t.Fatal("mainnet mining must be refused until authorized")

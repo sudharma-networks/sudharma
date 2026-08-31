@@ -5,7 +5,7 @@ One click to mine on Sudharma public-testnet.
 What you do
 1. Double-click "Start Mining.bat"
 2. First time only: paste your Sudharma wallet address (40 hex characters)
-3. Mining starts automatically and connects to Sudharma public-testnet
+3. Mining starts automatically and connects to Sudharma public-testnet (seed-1, seed-2 failover via the public RPC proxy)
 4. Block rewards go to that wallet address
 
 Next time you open the miner, it remembers your address and starts immediately.

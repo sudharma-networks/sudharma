@@ -1,0 +1,12 @@
+{
+  "environment": "public-testnet",
+  "public_rpc_url": "https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com",
+  "seed1_rpc_url": "http://172.31.10.171:29100",
+  "seed2_rpc_url": "http://172.31.32.195:29100",
+  "expected_network": "sudharma",
+  "expected_coin": "Sudharma",
+  "expected_symbol": "SUDH",
+  "reward_address": "9ccdc094489874bed888ffe4bdf9b8298f4c5131",
+  "backend": "gpu-only",
+  "device": 0
+}

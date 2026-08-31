@@ -13,11 +13,15 @@ import (
 var rewardAddressPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
 type Config struct {
-	Address string
-	Network string
-	RPCURL  string
-	Backend string
-	Device  int
+	Address         string
+	Network         string
+	RPCURL          string
+	RPCURLs         []string
+	Backend         string
+	Device          int
+	ExpectedNetwork string
+	ExpectedCoin    string
+	ExpectedSymbol  string
 }
 
 type Work struct {
@@ -86,27 +90,88 @@ func Resolve(cfg Config) (Config, error) {
 		return Config{}, err
 	}
 	network := params.NormalizeMiningNetwork(cfg.Network)
-	rpcURL := strings.TrimSpace(cfg.RPCURL)
-	if rpcURL == "" {
-		resolved, err := params.MiningRPCForNetwork(network)
-		if err != nil {
-			return Config{}, err
-		}
-		rpcURL = resolved
-	} else if network == params.NetworkMainnet && !params.MainnetMiningAuthorized {
-		return Config{}, fmt.Errorf("mainnet mining is not authorized; Sudharma mainnet remains GPU-only and closed until launch")
+	endpoints, err := resolveMiningEndpoints(network, cfg.RPCURL, cfg.RPCURLs)
+	if err != nil {
+		return Config{}, err
 	}
 	backend := strings.TrimSpace(cfg.Backend)
 	if backend == "" {
 		backend = params.ProductionMiningBackend
 	}
+	expectedNetwork := strings.TrimSpace(cfg.ExpectedNetwork)
+	if expectedNetwork == "" {
+		expectedNetwork = "sudharma"
+	}
+	expectedCoin := strings.TrimSpace(cfg.ExpectedCoin)
+	if expectedCoin == "" {
+		expectedCoin = "Sudharma"
+	}
+	expectedSymbol := strings.TrimSpace(cfg.ExpectedSymbol)
+	if expectedSymbol == "" {
+		expectedSymbol = "SUDH"
+	}
 	return Config{
-		Address: strings.ToLower(strings.TrimSpace(cfg.Address)),
-		Network: network,
-		RPCURL:  strings.TrimRight(rpcURL, "/"),
-		Backend: backend,
-		Device:  cfg.Device,
+		Address:         strings.ToLower(strings.TrimSpace(cfg.Address)),
+		Network:         network,
+		RPCURL:          endpoints[0],
+		RPCURLs:         endpoints,
+		Backend:         backend,
+		Device:          cfg.Device,
+		ExpectedNetwork: expectedNetwork,
+		ExpectedCoin:    expectedCoin,
+		ExpectedSymbol:  expectedSymbol,
 	}, nil
+}
+
+func resolveMiningEndpoints(network, rpcURL string, rpcURLs []string) ([]string, error) {
+	if override := strings.TrimRight(strings.TrimSpace(rpcURL), "/"); override != "" {
+		if network == params.NetworkMainnet && !params.MainnetMiningAuthorized {
+			return nil, fmt.Errorf("mainnet mining is not authorized; Sudharma mainnet remains GPU-only and closed until launch")
+		}
+		return []string{override}, nil
+	}
+	if len(rpcURLs) > 0 {
+		seen := make(map[string]struct{}, len(rpcURLs))
+		out := make([]string, 0, len(rpcURLs))
+		for _, endpoint := range rpcURLs {
+			trimmed := strings.TrimRight(strings.TrimSpace(endpoint), "/")
+			if trimmed == "" {
+				continue
+			}
+			if _, ok := seen[trimmed]; ok {
+				continue
+			}
+			seen[trimmed] = struct{}{}
+			out = append(out, trimmed)
+		}
+		if len(out) == 0 {
+			return nil, fmt.Errorf("at least one mining RPC endpoint is required")
+		}
+		if network == params.NetworkMainnet && !params.MainnetMiningAuthorized {
+			return nil, fmt.Errorf("mainnet mining is not authorized; Sudharma mainnet remains GPU-only and closed until launch")
+		}
+		return out, nil
+	}
+	endpoints, err := params.MiningRPCEndpointsForNetwork(network)
+	if err != nil {
+		return nil, err
+	}
+	return endpoints, nil
+}
+
+func ValidateNetworkStatus(status NetworkStatus, expectedNetwork string) error {
+	expected := strings.ToLower(strings.TrimSpace(expectedNetwork))
+	if expected == "" {
+		expected = "sudharma"
+	}
+	got := strings.ToLower(strings.TrimSpace(status.Network))
+	if got == "" {
+		return fmt.Errorf("mining RPC did not report a network identity")
+	}
+	if got != expected {
+		return fmt.Errorf("expected network %q, got %q", expected, status.Network)
+	}
+	return nil
 }
 
 func WorkFromJSON(raw []byte) (Work, error) {
