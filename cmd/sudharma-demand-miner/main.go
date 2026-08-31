@@ -7,10 +7,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -24,6 +26,25 @@ type statusClient interface {
 
 type rpcStatusSource struct {
 	client statusClient
+}
+
+type rpcRewardBalanceSource struct {
+	client  *rpc.Client
+	address string
+}
+
+func (s rpcRewardBalanceSource) RewardBalance(ctx context.Context) (uint64, error) {
+	if s.client == nil {
+		return 0, errors.New("RPC client is unavailable")
+	}
+	account, err := s.client.Account(ctx, s.address)
+	if err != nil {
+		return 0, err
+	}
+	if account == nil {
+		return 0, errors.New("RPC returned an empty account")
+	}
+	return account.Balance, nil
 }
 
 func (s rpcStatusSource) Status(ctx context.Context) (demandminer.Status, error) {
@@ -138,16 +159,53 @@ func run(ctx context.Context, args []string, logWriter io.Writer) error {
 		return fmt.Errorf("create RPC client: %w", err)
 	}
 
+	wakeSleeper := demandminer.NewWakeSleeper()
+	wakeServer, err := demandminer.NewWakeServer(cfg.WakeListenAddress(), wakeSleeper)
+	if err != nil {
+		return fmt.Errorf("create wake server: %w", err)
+	}
+
+	wakeErrors := make(chan error, 1)
+	go func() {
+		err := wakeServer.ListenAndServe()
+		if errors.Is(err, http.ErrServerClosed) {
+			err = nil
+		}
+		wakeErrors <- err
+	}()
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = wakeServer.Shutdown(shutdownCtx)
+	}()
+
 	logger := newJSONLogger(logWriter)
 	runner := demandminer.NewNativeRunner(cfg, nil)
 	supervisor := demandminer.NewSupervisor(
 		cfg,
 		rpcStatusSource{client: client},
 		runner,
-		demandminer.TimerSleeper{},
+		wakeSleeper,
 		logger,
+		rpcRewardBalanceSource{client: client, address: cfg.RewardAddress},
 	)
-	return supervisor.Run(ctx)
+
+	supervisorDone := make(chan error, 1)
+	go func() {
+		supervisorDone <- supervisor.Run(ctx)
+	}()
+
+	select {
+	case err := <-supervisorDone:
+		return err
+	case err := <-wakeErrors:
+		if err != nil {
+			return fmt.Errorf("wake server failed: %w", err)
+		}
+		return <-supervisorDone
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func main() {

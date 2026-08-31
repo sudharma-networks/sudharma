@@ -14,13 +14,17 @@ for file in \
   deployment/testnet/public-rpc/lambda/faucet-health-route.test.mjs \
   deployment/testnet/public-rpc/lambda/faucet-stale-prepared.test.mjs \
   deployment/testnet/public-rpc/lambda/faucet-funding.mjs \
-  deployment/testnet/public-rpc/lambda/miner-wake.mjs; do
+  deployment/testnet/public-rpc/lambda/miner-wake.mjs \
+  demandminer/faucet_funding.go \
+  demandminer/wake.go; do
   [ -f "$file" ] || fail "$file is missing"
 done
 
 require_literal "kind: 'faucetHealth'" deployment/testnet/public-rpc/lambda/router.mjs
 require_literal 'wakeDemandMinerInBackground' deployment/testnet/public-rpc/lambda/index.mjs
 require_literal 'waitForFaucetFunding' deployment/testnet/public-rpc/lambda/faucet.mjs
+require_literal 'mineFaucetFundingBlocks' demandminer/faucet_funding.go
+require_literal 'NewWakeServer' demandminer/wake.go
 require_literal 'checkFaucetReadiness' deployment/testnet/public-rpc/lambda/faucet-runtime.mjs
 require_literal 'faucet dependency timed out' deployment/testnet/public-rpc/lambda/faucet-runtime.mjs
 

@@ -28,10 +28,15 @@ type Config struct {
 	MinerBinary     string `json:"miner_binary"`
 	DataDirectory   string `json:"data_directory"`
 	LockFile        string `json:"lock_file"`
-	PollEvery       string `json:"poll_every"`
-	Cooldown        string `json:"cooldown"`
-	FailureBackoff  string `json:"failure_backoff"`
-	ChildTimeout    string `json:"child_timeout"`
+	PollEvery           string `json:"poll_every"`
+	Cooldown            string `json:"cooldown"`
+	FailureBackoff      string `json:"failure_backoff"`
+	ChildTimeout        string `json:"child_timeout"`
+	ScheduledSweepEvery string `json:"scheduled_sweep_every"`
+	MaxBlocksPerSweep   int    `json:"max_blocks_per_sweep"`
+	FaucetMinBalance    uint64 `json:"faucet_min_balance"`
+	FaucetFundingBlocks int    `json:"faucet_funding_blocks"`
+	WakeListen          string `json:"wake_listen"`
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -116,6 +121,19 @@ func (c Config) Validate() error {
 	if child < time.Second {
 		return errors.New("child_timeout must be at least 1s")
 	}
+	if c.ScheduledSweepEvery != "" {
+		if _, err := positiveDuration("scheduled_sweep_every", c.ScheduledSweepEvery); err != nil {
+			return err
+		}
+	}
+	if c.MaxBlocksPerSweep < 0 {
+		return errors.New("max_blocks_per_sweep must not be negative")
+	}
+	if c.WakeListen != "" {
+		if err := validateLoopbackHostPort(c.WakeListen); err != nil {
+			return fmt.Errorf("wake_listen: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -176,4 +194,31 @@ func (c Config) FailureBackoffDuration() time.Duration {
 func (c Config) ChildTimeoutDuration() time.Duration {
 	d, _ := time.ParseDuration(c.ChildTimeout)
 	return d
+}
+func (c Config) ScheduledSweepDuration() time.Duration {
+	if strings.TrimSpace(c.ScheduledSweepEvery) == "" {
+		return 30 * time.Minute
+	}
+	d, _ := time.ParseDuration(c.ScheduledSweepEvery)
+	return d
+}
+func (c Config) BlocksPerSweepLimit() int {
+	if c.MaxBlocksPerSweep <= 0 {
+		return 32
+	}
+	return c.MaxBlocksPerSweep
+}
+
+func (c Config) FaucetFundingBlocksLimit() int {
+	if c.FaucetFundingBlocks <= 0 {
+		return 2
+	}
+	return c.FaucetFundingBlocks
+}
+
+func (c Config) WakeListenAddress() string {
+	if strings.TrimSpace(c.WakeListen) == "" {
+		return DefaultWakeListen
+	}
+	return c.WakeListen
 }

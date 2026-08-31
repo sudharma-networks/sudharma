@@ -80,15 +80,40 @@ type fakeLogger struct{ errors int }
 
 func (l *fakeLogger) Error(string, error) { l.errors++ }
 
+type fakeClock struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+func (c *fakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.t
+}
+
+func (c *fakeClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	c.t = c.t.Add(d)
+	c.mu.Unlock()
+}
+
 func validStatus(mempool int) Status {
 	return Status{Network: "sudharma", Coin: "Sudharma", Symbol: "SUDH", Height: 10, IssuedSupply: 100, Mempool: mempool}
+}
+
+func newTestSupervisor(cfg Config, source *fakeStatusSource, miner *fakeMiner, sleeper Sleeper, logger *fakeLogger, clock *fakeClock, balances RewardBalanceSource) *Supervisor {
+	s := NewSupervisor(cfg, source, miner, sleeper, logger, balances)
+	if clock != nil {
+		s.now = clock.Now
+	}
+	return s
 }
 
 func TestSupervisorEmptyMempoolNeverMines(t *testing.T) {
 	source := &fakeStatusSource{results: []statusResult{{status: validStatus(0)}}}
 	miner := &fakeMiner{}
 	sleeper := &stopSleeper{stopAfter: 1}
-	s := NewSupervisor(validConfig(), source, miner, sleeper, &fakeLogger{})
+	s := newTestSupervisor(validConfig(), source, miner, sleeper, &fakeLogger{}, nil, nil)
 	if err := s.Run(context.Background()); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Run: %v", err)
 	}
@@ -100,15 +125,20 @@ func TestSupervisorEmptyMempoolNeverMines(t *testing.T) {
 	}
 }
 
-func TestSupervisorPositiveMempoolMinesOnceThenCooldown(t *testing.T) {
-	source := &fakeStatusSource{results: []statusResult{{status: validStatus(2)}}}
+func TestSupervisorPositiveMempoolClearsAllPendingThenCooldown(t *testing.T) {
+	source := &fakeStatusSource{results: []statusResult{
+		{status: validStatus(2)},
+		{status: validStatus(2)},
+		{status: validStatus(1)},
+		{status: validStatus(0)},
+	}}
 	miner := &fakeMiner{}
 	sleeper := &stopSleeper{stopAfter: 1}
-	s := NewSupervisor(validConfig(), source, miner, sleeper, &fakeLogger{})
+	s := newTestSupervisor(validConfig(), source, miner, sleeper, &fakeLogger{}, nil, nil)
 	if err := s.Run(context.Background()); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Run: %v", err)
 	}
-	if miner.calls != 1 {
+	if miner.calls != 2 {
 		t.Fatalf("MineOne calls = %d", miner.calls)
 	}
 	if got := sleeper.durations; len(got) != 1 || got[0] != 30*time.Second {
@@ -119,10 +149,75 @@ func TestSupervisorPositiveMempoolMinesOnceThenCooldown(t *testing.T) {
 func TestSupervisorRejectsWrongIdentity(t *testing.T) {
 	status := validStatus(1)
 	status.Network = "other"
-	s := NewSupervisor(validConfig(), &fakeStatusSource{results: []statusResult{{status: status}}}, &fakeMiner{}, &stopSleeper{}, &fakeLogger{})
+	s := newTestSupervisor(validConfig(), &fakeStatusSource{results: []statusResult{{status: status}}}, &fakeMiner{}, &stopSleeper{}, &fakeLogger{}, nil, nil)
 	err := s.Run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "identity") {
 		t.Fatalf("expected identity error, got %v", err)
+	}
+}
+
+func TestSupervisorStatusErrorUsesFailureBackoff(t *testing.T) {
+	logger := &fakeLogger{}
+	sleeper := &stopSleeper{stopAfter: 1}
+	s := newTestSupervisor(validConfig(), &fakeStatusSource{results: []statusResult{{err: errors.New("rpc down")}}}, &fakeMiner{}, sleeper, logger, nil, nil)
+	if err := s.Run(context.Background()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run: %v", err)
+	}
+	if logger.errors != 1 {
+		t.Fatalf("logger errors = %d", logger.errors)
+	}
+	if got := sleeper.durations; len(got) != 1 || got[0] != 30*time.Second {
+		t.Fatalf("sleep durations = %v", got)
+	}
+}
+
+func TestSupervisorMinerErrorUsesFailureBackoff(t *testing.T) {
+	logger := &fakeLogger{}
+	miner := &fakeMiner{err: errors.New("mine failed")}
+	sleeper := &stopSleeper{stopAfter: 1}
+	s := newTestSupervisor(validConfig(), &fakeStatusSource{results: []statusResult{{status: validStatus(1)}}}, miner, sleeper, logger, nil, nil)
+	if err := s.Run(context.Background()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run: %v", err)
+	}
+	if miner.calls != 1 || logger.errors != 1 {
+		t.Fatalf("calls=%d errors=%d", miner.calls, logger.errors)
+	}
+	if got := sleeper.durations; len(got) != 1 || got[0] != 30*time.Second {
+		t.Fatalf("sleep durations = %v", got)
+	}
+}
+
+type advanceClockSleeper struct {
+	clock   *fakeClock
+	advance time.Duration
+	inner   *stopSleeper
+}
+
+func (s *advanceClockSleeper) Sleep(ctx context.Context, d time.Duration) error {
+	s.clock.Advance(s.advance)
+	return s.inner.Sleep(ctx, d)
+}
+
+func TestSupervisorScheduledSweepRunsWithoutPendingTransactions(t *testing.T) {
+	clock := &fakeClock{t: time.Unix(0, 0)}
+	cfg := validConfig()
+	cfg.ScheduledSweepEvery = "30m"
+	source := &fakeStatusSource{results: []statusResult{
+		{status: validStatus(0)},
+		{status: validStatus(0)},
+	}}
+	miner := &fakeMiner{}
+	inner := &stopSleeper{stopAfter: 2}
+	sleeper := &advanceClockSleeper{clock: clock, advance: 31 * time.Minute, inner: inner}
+	s := newTestSupervisor(cfg, source, miner, sleeper, &fakeLogger{}, clock, nil)
+	if err := s.Run(context.Background()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run: %v", err)
+	}
+	if miner.calls != 1 {
+		t.Fatalf("MineOne calls = %d", miner.calls)
+	}
+	if got := inner.durations; len(got) != 2 || got[0] != 10*time.Second || got[1] != 30*time.Second {
+		t.Fatalf("sleep durations = %v", got)
 	}
 }
 
@@ -133,7 +228,7 @@ func TestSupervisorRejectsMainnetConfigBeforePolling(t *testing.T) {
 	status.Network = "mainnet"
 	source := &fakeStatusSource{results: []statusResult{{status: status}}}
 	miner := &fakeMiner{}
-	s := NewSupervisor(cfg, source, miner, &stopSleeper{stopAfter: 1}, &fakeLogger{})
+	s := newTestSupervisor(cfg, source, miner, &stopSleeper{stopAfter: 1}, &fakeLogger{}, nil, nil)
 
 	err := s.Run(context.Background())
 
@@ -152,7 +247,7 @@ func TestSupervisorNegativeMempoolUsesFailureBackoff(t *testing.T) {
 	logger := &fakeLogger{}
 	miner := &fakeMiner{}
 	sleeper := &stopSleeper{stopAfter: 1}
-	s := NewSupervisor(validConfig(), &fakeStatusSource{results: []statusResult{{status: validStatus(-1)}}}, miner, sleeper, logger)
+	s := newTestSupervisor(validConfig(), &fakeStatusSource{results: []statusResult{{status: validStatus(-1)}}}, miner, sleeper, logger, nil, nil)
 
 	if err := s.Run(context.Background()); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Run: %v", err)
@@ -165,55 +260,5 @@ func TestSupervisorNegativeMempoolUsesFailureBackoff(t *testing.T) {
 	}
 	if got := sleeper.durations; len(got) != 1 || got[0] != 30*time.Second {
 		t.Fatalf("sleep durations = %v, want failure backoff", got)
-	}
-}
-
-func TestSupervisorStatusErrorUsesFailureBackoff(t *testing.T) {
-	logger := &fakeLogger{}
-	sleeper := &stopSleeper{stopAfter: 1}
-	s := NewSupervisor(validConfig(), &fakeStatusSource{results: []statusResult{{err: errors.New("rpc down")}}}, &fakeMiner{}, sleeper, logger)
-	if err := s.Run(context.Background()); !errors.Is(err, context.Canceled) {
-		t.Fatalf("Run: %v", err)
-	}
-	if logger.errors != 1 {
-		t.Fatalf("logger errors = %d", logger.errors)
-	}
-	if got := sleeper.durations; len(got) != 1 || got[0] != 30*time.Second {
-		t.Fatalf("sleep durations = %v", got)
-	}
-}
-
-func TestSupervisorMinerErrorUsesFailureBackoff(t *testing.T) {
-	logger := &fakeLogger{}
-	miner := &fakeMiner{err: errors.New("mine failed")}
-	sleeper := &stopSleeper{stopAfter: 1}
-	s := NewSupervisor(validConfig(), &fakeStatusSource{results: []statusResult{{status: validStatus(1)}}}, miner, sleeper, logger)
-	if err := s.Run(context.Background()); !errors.Is(err, context.Canceled) {
-		t.Fatalf("Run: %v", err)
-	}
-	if miner.calls != 1 || logger.errors != 1 {
-		t.Fatalf("calls=%d errors=%d", miner.calls, logger.errors)
-	}
-	if got := sleeper.durations; len(got) != 1 || got[0] != 30*time.Second {
-		t.Fatalf("sleep durations = %v", got)
-	}
-}
-
-func TestSupervisorRemainingMempoolWaitsCooldownBeforeNextBlock(t *testing.T) {
-	source := &fakeStatusSource{results: []statusResult{{status: validStatus(2)}, {status: validStatus(1)}}}
-	miner := &fakeMiner{}
-	sleeper := &stopSleeper{stopAfter: 2}
-	s := NewSupervisor(validConfig(), source, miner, sleeper, &fakeLogger{})
-	if err := s.Run(context.Background()); !errors.Is(err, context.Canceled) {
-		t.Fatalf("Run: %v", err)
-	}
-	if miner.calls != 2 {
-		t.Fatalf("MineOne calls = %d", miner.calls)
-	}
-	if got := sleeper.durations; len(got) != 2 || got[0] != 30*time.Second || got[1] != 30*time.Second {
-		t.Fatalf("sleep durations = %v", got)
-	}
-	if miner.maxActive != 1 {
-		t.Fatalf("max active miners = %d", miner.maxActive)
 	}
 }
