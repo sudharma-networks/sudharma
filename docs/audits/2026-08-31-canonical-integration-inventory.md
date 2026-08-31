@@ -37,7 +37,9 @@ the recovery line's unique changes are integrated.
 3. Run Android, Go, race, Lambda, installer, workflow-contract, and
    secret-safety tests.
 4. Reconcile the recovery line's newer faucet, demand-miner, RPC, website, and
-   operational changes file by file, preserving manual-only workflows.
+   operational changes file by file, preserving manual-only workflows. Deep
+   health route and readiness checks are integrated; stale-prepared recovery
+   and shared explorer/visitor routes remain pending.
 5. Select the explorer API contract before integrating the website.
 6. Verify the complete testnet candidate at one exact commit.
 7. Keep GPU staging and Mainnet Tokenomics v1 on independent review lines.
