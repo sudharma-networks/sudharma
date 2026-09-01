@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -18,6 +20,36 @@ func TestMainRejectsUnauthorizedMainnetNetwork(t *testing.T) {
 	}
 	if _, err := params.ParseNetwork("mainnet"); err == nil {
 		t.Fatal("expected sudharmad -network mainnet to be rejected while launch is unauthorized")
+	}
+}
+
+func TestLoadChainForNetworkUsesExplicitIdentity(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mainnet-chain.json")
+	data, err := json.Marshal([]*blockchain.Block{*blockchain.NewMainnetGenesisBlock()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	chain, err := loadChainForNetwork(path, params.NetworkMainnet)
+	if err != nil {
+		t.Fatalf("mainnet candidate load failed: %v", err)
+	}
+	if chain.Network() != params.NetworkMainnet {
+		t.Fatalf("loaded network = %q, want %q", chain.Network(), params.NetworkMainnet)
+	}
+
+	if _, err := loadChainForNetwork(path, params.NetworkPublicTestnet); err == nil {
+		t.Fatal("mainnet chain file was accepted as public testnet")
+	}
+}
+
+func TestNewGenesisStateForPolicyUsesExplicitPolicy(t *testing.T) {
+	state := newGenesisStateForPolicy(params.MonetaryPolicyMainnet)
+	if state.MonetaryPolicy() != params.MonetaryPolicyMainnet {
+		t.Fatalf("genesis state policy = %d, want %d", state.MonetaryPolicy(), params.MonetaryPolicyMainnet)
 	}
 }
 
