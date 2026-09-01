@@ -50,7 +50,7 @@ func TestMinerRewardRequiresAddress(t *testing.T) {
 }
 
 func TestCreditMinerRewardForMainnetUsesMainnetSubsidyAndMinerFees(t *testing.T) {
-	state := NewState()
+	state := NewStateFor(params.MonetaryPolicyMainnet)
 	fees := uint64(12_345)
 	wantSubsidy, err := consensus.BlockSubsidyFor(params.MonetaryPolicyMainnet, 1)
 	if err != nil {
@@ -84,7 +84,7 @@ func TestCreditMinerRewardCompatibilityWrapperKeepsTestnetReward(t *testing.T) {
 }
 
 func TestCreditMinerRewardForFinalHeightAndPostCapFeeOnly(t *testing.T) {
-	state := NewState()
+	state := NewStateFor(params.MonetaryPolicyMainnet)
 
 	finalSubsidy, err := consensus.BlockSubsidyFor(
 		params.MonetaryPolicyMainnet,

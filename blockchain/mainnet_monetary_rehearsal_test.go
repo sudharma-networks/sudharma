@@ -11,7 +11,7 @@ import (
 // at the first subsidy block, the final subsidy block, and the first fee-only
 // block after the 51M cap is reached.
 func TestMainnetMonetaryRehearsalSample(t *testing.T) {
-	state := NewState()
+	state := NewStateFor(params.MonetaryPolicyMainnet)
 	miner := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	finalHeight := params.MainnetFinalSubsidyHeight
 

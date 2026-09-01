@@ -17,6 +17,8 @@ launch by itself.
 
 ## Human gates (required before any activation PR)
 
+See `docs/audits/2026-08-31-mainnet-merge-review-checklist.md` for merge order (#76 → #77).
+
 | Gate | Owner | Action |
 | --- | --- | --- |
 | Independent production security audit | External auditor | Record signed audit report in private evidence vault |

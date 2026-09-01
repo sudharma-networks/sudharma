@@ -26,8 +26,8 @@ Closes the remaining **engineering** gaps called out after Mainnet Tokenomics v1
 
 | Gate | Status |
 | --- | --- |
-| Merge/review Mainnet Tokenomics v1 (PR #76) | Open for review |
-| Merge/review Mainnet readiness freeze (PR #77) | Open for review |
+| Merge/review Mainnet Tokenomics v1 (PR #76) | Open for review — see `docs/audits/2026-08-31-mainnet-merge-review-checklist.md` |
+| Merge/review Mainnet readiness freeze (PR #77) | Open for review — stack #76 then #77 |
 | Independent production security audit | Not started |
 | Freeze mainnet genesis unix timestamp (replace `0`) | Not frozen |
 | Flip `MainnetLaunchAuthorized` in a dedicated activation PR | Forbidden here |

@@ -12,6 +12,7 @@ Operator templates for mainnet seed nodes and GPU miners. **Mainnet is not autho
 
 ## Files
 
+- `OPERATOR-CHECKLIST.md` — seed topology review checklist for operators
 - `seed1.node.example.json` / `seed2.node.example.json` — replace domain placeholders before deployment
 - `public-profile.example.json` — mainnet manifest input; fails preflight until real endpoints exist
 - `nginx-rpc.example.conf` — HTTPS reverse proxy starting point with mining routes

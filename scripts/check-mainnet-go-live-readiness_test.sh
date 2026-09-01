@@ -12,6 +12,7 @@ require_file() {
 
 for file in \
   deployment/mainnet/README.md \
+  deployment/mainnet/OPERATOR-CHECKLIST.md \
   deployment/mainnet/deployment-evidence.template.json \
   deployment/mainnet/gpu-miner.example.json \
   deployment/mainnet/gpu-miner-pool.example.json \
@@ -25,7 +26,10 @@ for file in \
   deployment/mainnet/docker-compose.example.yml \
   deployment/mainnet/sudharma-mainnet.service \
   deployment/testnet/install-pool-operator.sh \
+  deployment/testnet/pool-operator-runbook.md \
   deployment/testnet/remote-install-sudharma-pool-from-url.sh \
+  docs/audits/2026-08-31-mainnet-merge-review-checklist.md \
+  docs/audits/2026-08-31-mainnet-genesis-freeze-template.md \
   docs/audits/2026-08-31-mainnet-launch-operator-runbook.md \
   docs/audits/2026-08-31-mainnet-gpu-mining-architecture.md \
   docs/audits/2026-08-31-pool-mining-architecture.md; do
@@ -50,11 +54,19 @@ grep -Fq 'NewChainFor' blockchain/chain.go \
 grep -Fq 'SetLocalNetworkID' p2p/network.go \
   || fail 'network-aware P2P handshake selection must exist in p2p/network.go'
 
+grep -Fq 'NewStateFor' blockchain/state.go \
+  || fail 'policy-bound state constructor must exist in blockchain/state.go'
+
+grep -Fq 'EnsureMonetaryPolicy' blockchain/state.go \
+  || fail 'ProcessBlockFor must validate monetary policy against state'
+
 grep -Fq 'ProcessBlockFor' cmd/sudharmad/main.go \
   || fail 'sudharmad must replay blocks with ProcessBlockFor'
 
-go test ./blockchain -run 'TestNewChainFor|TestValidateChainGenesis' -count=1 >/dev/null \
-  || fail 'network-aware chain tests must pass'
+require_file scripts/probe-testnet-mining-rpc.sh
+
+go test ./blockchain -run 'TestNewChainFor|TestValidateChainGenesis|TestMintSupplyForMainnetEnforcesMainnetCap' -count=1 >/dev/null \
+  || fail 'network-aware chain and monetary policy tests must pass'
 
 go test ./p2p -run 'TestSetLocalNetworkID' -count=1 >/dev/null \
   || fail 'network-aware P2P tests must pass'

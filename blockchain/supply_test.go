@@ -113,7 +113,7 @@ func TestBalanceOverflowRejected(t *testing.T) {
 }
 
 func TestMintSupplyForMainnetEnforcesMainnetCap(t *testing.T) {
-	state := NewState()
+	state := NewStateFor(params.MonetaryPolicyMainnet)
 
 	if err := state.MintSupplyFor(params.MonetaryPolicyMainnet, params.MainnetMaxSupply); err != nil {
 		t.Fatal(err)
@@ -129,12 +129,15 @@ func TestMintSupplyForMainnetEnforcesMainnetCap(t *testing.T) {
 		t.Fatalf("issued supply changed after rejected mainnet mint: %d", state.IssuedSupply())
 	}
 
-	// Public-testnet MintSupply still uses the 51B ceiling.
-	if err := state.MintSupply(1); err != nil {
-		t.Fatalf("testnet mint under 51B should succeed: %v", err)
+	if err := state.MintSupply(1); err == nil {
+		t.Fatal("MintSupply must stay on the mainnet cap once state is mainnet-bound")
 	}
-	if state.IssuedSupply() != params.MainnetMaxSupply+1 {
-		t.Fatalf("expected issued supply %d, got %d", params.MainnetMaxSupply+1, state.IssuedSupply())
+	if state.IssuedSupply() != params.MainnetMaxSupply {
+		t.Fatalf("issued supply changed after rejected MintSupply: %d", state.IssuedSupply())
+	}
+
+	if err := state.MintSupplyFor(params.MonetaryPolicyPublicTestnet, 1); err == nil {
+		t.Fatal("cross-policy mint on mainnet state was accepted")
 	}
 }
 
@@ -158,8 +161,22 @@ func TestMintSupplyForRejectsUnknownPolicy(t *testing.T) {
 	}
 }
 
-func TestCreditMinerRewardForStopsAtMainnetCap(t *testing.T) {
+func TestNewStateForDefaultsPublicTestnetPolicy(t *testing.T) {
 	state := NewState()
+	if state.MonetaryPolicy() != params.MonetaryPolicyPublicTestnet {
+		t.Fatalf("expected public-testnet policy, got %d", state.MonetaryPolicy())
+	}
+}
+
+func TestMintSupplyForRejectsCrossPolicyOnMainnetState(t *testing.T) {
+	state := NewStateFor(params.MonetaryPolicyMainnet)
+	if err := state.MintSupplyFor(params.MonetaryPolicyPublicTestnet, 1); err == nil {
+		t.Fatal("expected cross-policy mint rejection")
+	}
+}
+
+func TestCreditMinerRewardForStopsAtMainnetCap(t *testing.T) {
+	state := NewStateFor(params.MonetaryPolicyMainnet)
 	remaining := uint64(1)
 	alreadyIssued := params.MainnetMaxSupply - remaining
 	if err := state.MintSupplyFor(params.MonetaryPolicyMainnet, alreadyIssued); err != nil {

@@ -214,7 +214,7 @@ go run ./cmd/sudharma-miner \
 
 Workers use login `wallet.worker` over Stratum. See `docs/audits/2026-08-31-pool-mining-architecture.md`.
 
-Install the reference pool operator (disabled by default):
+Install the reference pool operator (disabled by default). Full steps: `pool-operator-runbook.md`.
 
 ```bash
 go build -trimpath -o ./sudharma-pool ./cmd/sudharma-pool

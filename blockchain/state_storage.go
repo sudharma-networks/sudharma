@@ -16,6 +16,7 @@ import (
 // State contains a mutex which must never be serialized.
 type stateDiskData struct {
 	Version            uint32            `json:"version"`
+	MonetaryPolicy     uint8             `json:"monetary_policy,omitempty"`
 	Balances           map[string]uint64 `json:"balances"`
 	ProcessedTx        map[string]bool   `json:"processed_transactions"`
 	AccountNonces      map[string]uint64 `json:"account_nonces"`
@@ -36,7 +37,8 @@ func (s *State) SaveToFile(path string) error {
 	s.mu.RLock()
 
 	data := stateDiskData{
-		Version:            1,
+		Version:            2,
+		MonetaryPolicy:     uint8(s.monetaryPolicy),
 		Balances:           make(map[string]uint64, len(s.balances)),
 		ProcessedTx:        make(map[string]bool, len(s.processedTx)),
 		AccountNonces:      make(map[string]uint64, len(s.accountNonces)),
@@ -155,11 +157,19 @@ func LoadStateFromFile(path string) (*State, error) {
 		)
 	}
 
-	if data.Version != 1 {
+	if data.Version != 1 && data.Version != 2 {
 		return nil, fmt.Errorf(
 			"unsupported state version: %d",
 			data.Version,
 		)
+	}
+
+	policy := params.MonetaryPolicyPublicTestnet
+	if data.Version >= 2 {
+		policy = params.MonetaryPolicy(data.MonetaryPolicy)
+		if err := params.ValidateMonetaryPolicy(policy); err != nil {
+			return nil, fmt.Errorf("invalid monetary policy in state file: %w", err)
+		}
 	}
 
 	// The treasury address is a consensus rule.
@@ -173,9 +183,10 @@ func LoadStateFromFile(path string) (*State, error) {
 		)
 	}
 
-	if data.IssuedSupply > params.MaxSupply {
+	maxSupply := params.MaxSupplyFor(policy)
+	if data.IssuedSupply > maxSupply {
 		return nil, fmt.Errorf(
-			"state issued supply exceeds Sudharma Network maximum supply",
+			"state issued supply exceeds monetary policy maximum supply",
 		)
 	}
 
@@ -200,6 +211,7 @@ func LoadStateFromFile(path string) (*State, error) {
 		accountNonces:      data.AccountNonces,
 		developmentAddress: params.DevelopmentTreasuryAddress,
 		issuedSupply:       data.IssuedSupply,
+		monetaryPolicy:     policy,
 	}
 
 	return state, nil
