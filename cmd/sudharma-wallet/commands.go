@@ -151,6 +151,7 @@ func showNodeStatus() {
 		fmt.Println("RPC status failed:", err)
 		return
 	}
+	fmt.Printf("Network:  %s\n", status.NetworkID)
 	fmt.Printf("Node ID:  %s\n", status.NodeID)
 	fmt.Printf("Height:   %d\n", status.Height)
 	fmt.Printf("Tip:      %s\n", status.TipHash)
@@ -215,6 +216,18 @@ func sendTransaction() {
 		return
 	}
 	defer cancel()
+
+	status, err := client.Status(ctx)
+	if err != nil {
+		fmt.Println("Failed to query RPC network identity:", err)
+		return
+	}
+	network, err := signingNetworkFromStatus(status)
+	if err != nil {
+		fmt.Println("Refusing to sign transaction:", err)
+		return
+	}
+
 	account, err := client.Account(ctx, w.Address)
 	if err != nil {
 		fmt.Println("Failed to query sender account:", err)
@@ -233,7 +246,7 @@ func sendTransaction() {
 		return
 	}
 	tx := transactions.NewTransaction(w.Address, to, amount, account.NextNonce)
-	if err := tx.Sign(w); err != nil {
+	if err := tx.SignForNetwork(w, network); err != nil {
 		fmt.Println("Failed to sign transaction:", err)
 		return
 	}

@@ -23,6 +23,7 @@ type Client struct {
 
 type NodeStatus struct {
 	Network      string `json:"network"`
+	NetworkID    string `json:"network_id"`
 	Coin         string `json:"coin"`
 	Symbol       string `json:"symbol"`
 	NodeID       string `json:"node_id"`
