@@ -129,8 +129,9 @@ func main() {
 	var chain *blockchain.Chain
 
 	loadedChain, err :=
-		blockchain.LoadChainFromFile(
+		loadChainForNetwork(
 			chainPath,
+			network,
 		)
 
 	if err == nil {
@@ -204,7 +205,7 @@ func main() {
 
 		if chain.Height() == 0 {
 			nodeState =
-				blockchain.NewState()
+				newGenesisStateForPolicy(monetaryPolicy)
 
 			fmt.Println(
 				"No existing blockchain state found.",
@@ -1404,7 +1405,7 @@ func rebuildStateFromChain(
 	}
 
 	state :=
-		blockchain.NewState()
+		newGenesisStateForPolicy(policy)
 
 	for height := uint64(1); height <= chain.Height(); height++ {
 

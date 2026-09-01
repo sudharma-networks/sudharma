@@ -32,6 +32,14 @@ func MineNextBlock(
 		return emptyResult, 0, fmt.Errorf("max mining attempts must be greater than zero")
 	}
 
+	policy, err := chain.MonetaryPolicy()
+	if err != nil {
+		return emptyResult, 0, fmt.Errorf("invalid chain network identity: %w", err)
+	}
+	if err := state.EnsureMonetaryPolicy(policy); err != nil {
+		return emptyResult, 0, fmt.Errorf("chain/state monetary policy mismatch: %w", err)
+	}
+
 	previous := chain.Tip()
 	if previous == nil {
 		return emptyResult, 0, fmt.Errorf("chain tip cannot be nil")
@@ -64,7 +72,7 @@ func MineNextBlock(
 	}
 
 	workingState := state.Clone()
-	minerReward, err := blockchain.ProcessBlock(workingState, block, block.MinerAddress)
+	minerReward, err := blockchain.ProcessBlockFor(workingState, policy, block, block.MinerAddress)
 	if err != nil {
 		return result, 0, fmt.Errorf("failed to process mined block: %w", err)
 	}
