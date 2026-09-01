@@ -66,7 +66,16 @@ cp deployment/testnet/pool.example.json pool.local.json
 go run ./cmd/sudharma-pool -config pool.local.json
 ```
 
-Point GPU miners at `stratum+tcp://YOUR_HOST:3333` with login `YOUR_WALLET.worker`.
+Point GPU miners at the pool with Stratum:
+
+```bash
+./sudharma-miner \
+  -address YOUR_WALLET \
+  -stratum stratum+tcp://YOUR_HOST:3333 \
+  -worker rig1
+```
+
+Or copy `deployment/testnet/gpu-miner-pool.example.json` and run `./sudharma-miner -config gpu-miner-pool.local.json -auto`.
 
 CLI flags (without config file):
 

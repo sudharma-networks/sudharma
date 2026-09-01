@@ -18,6 +18,8 @@ Operator templates for mainnet seed nodes and GPU miners. **Mainnet is not autho
 - `docker-compose.example.yml` — one-node container with loopback-only raw RPC
 - `sudharma-mainnet.service` — hardened systemd unit for native seed installs
 - `gpu-miner*.example.json` — GPU miner configs (placeholder RPC URLs until topology publish)
+- `gpu-miner-pool.example.json` — Stratum pool worker config for mainnet rigs
+- `pool.example.json` — reference mainnet pool operator config (`cmd/sudharma-pool`)
 - `deployment-evidence.template.json` — private operator evidence schema (no secrets in git)
 
 ## Preflight

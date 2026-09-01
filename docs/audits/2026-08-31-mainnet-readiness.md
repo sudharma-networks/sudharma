@@ -33,7 +33,7 @@ Closes the remaining **engineering** gaps called out after Mainnet Tokenomics v1
 | Flip `MainnetLaunchAuthorized` in a dedicated activation PR | Forbidden here |
 | Publish mainnet seed topology and operator runbook | Draft scaffold at `deployment/mainnet/` + `docs/audits/2026-08-31-mainnet-launch-operator-runbook.md` |
 | DEX wrapped-asset / CEX integration pack | Deferred (native coin; Uniswap-style DEX needs a wrap/bridge after launch) |
-| GPU Windows + HiveOS miner packages | Testnet **live** (PR #79 merged; `/v1/mining/work` returns candidate blocks). Mainnet uses same API shape; design at `docs/audits/2026-08-31-mainnet-gpu-mining-architecture.md` |
+| GPU Windows + HiveOS miner packages | Testnet **live** solo miner (PR #79). Pool **Stratum client** in `gpuminer/stratum` + reference pool server `cmd/sudharma-pool`. HiveOS pack at `packaging/hiveos-gpu-miner/`. Mainnet gated until launch. |
 
 ## Operator check
 
@@ -44,4 +44,5 @@ go run ./cmd/sudharma-mainnet-genesis-info
 bash ./scripts/mainnet-monetary-rehearsal.sh
 bash ./scripts/check-mainnet-readiness-contract_test.sh
 bash ./scripts/check-mainnet-go-live-readiness_test.sh
+bash ./scripts/check-pool-mining-contract_test.sh
 ```

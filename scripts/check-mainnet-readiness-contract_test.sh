@@ -18,6 +18,7 @@ for path in \
   docs/audits/2026-08-31-mainnet-readiness.md \
   docs/audits/2026-08-31-mainnet-launch-operator-runbook.md \
   docs/audits/2026-08-31-mainnet-gpu-mining-architecture.md \
+  docs/audits/2026-08-31-pool-mining-architecture.md \
   cmd/sudharma-mainnet-readiness/main.go \
   cmd/sudharma-mainnet-genesis-info/main.go; do
   require_file "$path"

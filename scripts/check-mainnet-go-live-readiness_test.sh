@@ -14,6 +14,8 @@ for file in \
   deployment/mainnet/README.md \
   deployment/mainnet/deployment-evidence.template.json \
   deployment/mainnet/gpu-miner.example.json \
+  deployment/mainnet/gpu-miner-pool.example.json \
+  deployment/mainnet/pool.example.json \
   deployment/mainnet/gpu-miner.seed1-live.example.json \
   deployment/mainnet/gpu-miner.seed2-live.example.json \
   deployment/mainnet/seed1.node.example.json \

@@ -27,6 +27,20 @@ require_literal 'stratum.NewServer' cmd/sudharma-pool/main.go
 require_literal 'payout_scheme' deployment/testnet/pool.example.json
 require_literal 'stratum_listen' deployment/testnet/pool.example.json
 
+require_literal 'ParsePoolURL' gpuminer/stratum/client.go
+require_literal 'ParseNotify' gpuminer/stratum/job.go
+require_literal 'LoadPoolFileConfig' gpuminer/poolfileconfig.go
+require_file() {
+  [ -f "$1" ] || fail "$1 is missing"
+}
+
+require_file 'deployment/testnet/gpu-miner-pool.example.json'
+require_file 'deployment/mainnet/pool.example.json'
+require_file 'deployment/mainnet/gpu-miner-pool.example.json'
+
+go test ./gpuminer/stratum/... -count=1 >/dev/null \
+  || fail 'stratum miner client tests must pass'
+
 go test ./pool/... ./cmd/sudharma-pool/... -count=1 >/dev/null \
   || fail 'pool mining tests must pass'
 
