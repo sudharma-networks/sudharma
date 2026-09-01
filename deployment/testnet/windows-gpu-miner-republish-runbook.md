@@ -19,7 +19,7 @@ Republish the one-click Windows GPU miner zip so miners receive solo + pool laun
 1. Open GitHub → Actions → **Windows GPU Miner Publish**
 2. Click **Run workflow**
 3. Set inputs:
-   - `tag`: bump semver, e.g. `windows-gpu-miner-v0.1.1`
+   - `tag`: bump semver — **must be a new tag** (e.g. `windows-gpu-miner-v0.1.1`; `v0.1.0` already exists)
    - `confirm`: `PUBLISH` (required gate; workflow input `confirm=PUBLISH`)
 4. Wait for workflow completion
 5. Verify release assets:
