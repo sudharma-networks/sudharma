@@ -36,7 +36,11 @@ require_file() {
 
 require_file 'deployment/testnet/gpu-miner-pool.example.json'
 require_file 'deployment/mainnet/pool.example.json'
-require_file 'deployment/mainnet/gpu-miner-pool.example.json'
+require_literal 'NewShareMiner' gpuminer/stratum/hasher.go
+require_literal 'WorkFromCandidateBlock' gpuminer/blockwork.go
+require_file 'scripts/publish-sudharma-pool-binary.sh'
+require_file 'deployment/testnet/sudharma-pool.service'
+require_file 'packaging/windows-gpu-miner/gpu-miner-pool.example.json'
 
 go test ./pool -run TestStratumPoolRoundTripCreditsWorkerShare -count=1 >/dev/null \
   || fail 'pool stratum round-trip integration test must pass'

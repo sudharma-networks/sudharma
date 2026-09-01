@@ -48,7 +48,7 @@ jobs:
           cache: true
 
       - name: Test GPU miner packages
-        run: go test ./params ./gpuminer ./cmd/sudharma-miner ./rpc -count=1
+        run: go test ./params ./gpuminer ./gpuminer/stratum ./pool ./cmd/sudharma-miner ./cmd/sudharma-pool ./rpc -count=1
 
       - name: Cross-compile Windows GPU miner
         shell: bash
@@ -57,8 +57,10 @@ jobs:
           mkdir -p dist/windows-gpu-miner
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -o dist/windows-gpu-miner/sudharma-miner.exe ./cmd/sudharma-miner
           cp "packaging/windows-gpu-miner/Start Mining.bat" dist/windows-gpu-miner/
+          cp "packaging/windows-gpu-miner/Start Pool Mining.bat" dist/windows-gpu-miner/
           cp packaging/windows-gpu-miner/README.txt dist/windows-gpu-miner/
           cp packaging/windows-gpu-miner/SudharmaMiner.ps1 dist/windows-gpu-miner/
+          cp packaging/windows-gpu-miner/gpu-miner-pool.example.json dist/windows-gpu-miner/
           (
             cd dist
             zip -r sudharma-gpu-miner-windows.zip windows-gpu-miner
@@ -81,6 +83,9 @@ jobs:
 
           Paste a 40-character wallet address once. The miner connects to Sudharma
           public-testnet automatically and remembers your address for one-click restarts.
+
+          Pool mining: use "Start Pool Mining.bat" or gpu-miner-pool.example.json with
+          sudharma-miner --stratum stratum+tcp://YOUR_POOL:3333 --worker rig1
 
           Default network: public-testnet
           RPC: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com

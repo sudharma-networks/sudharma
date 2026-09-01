@@ -62,7 +62,7 @@ func run(args []string, in io.Reader, out, errOut io.Writer) error {
 			ctx, onceCancel = context.WithTimeout(ctx, 30*time.Second)
 			defer onceCancel()
 		}
-		return runPoolMiner(ctx, out, poolCfg, *once)
+		return runPoolMiner(ctx, out, poolCfg, *once, *hasherDir, *device)
 	}
 
 	resolved, err := resolveMinerConfig(*configPath, reward, *network, *rpcURL, *backend, *device)
@@ -293,7 +293,7 @@ func resolvePoolConfig(configPath, stratumURL, workerName, password, reward stri
 	}, true, nil
 }
 
-func runPoolMiner(ctx context.Context, out io.Writer, cfg poolMinerConfig, once bool) error {
+func runPoolMiner(ctx context.Context, out io.Writer, cfg poolMinerConfig, once bool, hasherDir string, device int) error {
 	fmt.Fprintf(out, "Connecting to pool %s as %s …\n", cfg.StratumURL, cfg.Login)
 	fmt.Fprintln(out, "Pool shares accumulate through the operator payout scheme (PPS/PPLNS/etc.).")
 	fmt.Fprintln(out, "Press Ctrl+C to stop.")
@@ -303,10 +303,19 @@ func runPoolMiner(ctx context.Context, out io.Writer, cfg poolMinerConfig, once 
 		fmt.Fprintf(out, "Note: could not remember wallet address for next time: %v\n", err)
 	}
 
+	var miner stratum.ShareMiner = stratum.ReferenceShareMiner{}
+	if hasher, err := gpuminer.DetectGPUHasher(hasherDir); err == nil {
+		miner = stratum.NewShareMiner(gpuminer.CommandBackend{Path: hasher, Device: device})
+		fmt.Fprintf(out, "Using GPU hasher %s for pool shares.\n", hasher)
+	} else {
+		fmt.Fprintln(out, "No Khushi GPU hasher found; using reference share search for pool jobs.")
+	}
+
 	loop := &stratum.Loop{
 		PoolURL:  cfg.StratumURL,
 		Login:    cfg.Login,
 		Password: cfg.Password,
+		Miner:    miner,
 		Once:     once,
 		Log: func(format string, args ...any) {
 			fmt.Fprintf(out, format+"\n", args...)

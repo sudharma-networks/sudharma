@@ -1,0 +1,21 @@
+[Unit]
+Description=Sudharma Stratum pool operator (reference)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sudharma-pool
+Group=sudharma-pool
+EnvironmentFile=-/etc/sudharma/pool.env
+ExecStart=/usr/local/bin/sudharma-pool -config /etc/sudharma/pool.json
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/sudharma-pool
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

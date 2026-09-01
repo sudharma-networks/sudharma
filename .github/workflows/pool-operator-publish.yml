@@ -1,0 +1,46 @@
+name: Pool Operator Publish
+
+# Manual-only publisher for the Sudharma Stratum pool operator binary.
+# Operators install sudharma-pool on their own hosts; this does not deploy to seeds.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type PUBLISH to upload sudharma-pool to the testnet operator bucket
+        required: true
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: pool-operator-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event.inputs.confirm == 'PUBLISH'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      TESTNET_DEMAND_MINER_BUCKET: ${{ vars.TESTNET_DEMAND_MINER_BUCKET }}
+      AWS_REGION: ap-south-1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test pool packages
+        run: |
+          go test ./pool/... ./gpuminer/stratum/... ./cmd/sudharma-pool/... -count=1
+          bash ./scripts/pool-mining-smoke_test.sh
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+      - name: Publish sudharma-pool binary to S3
+        run: bash ./scripts/publish-sudharma-pool-binary.sh
