@@ -20,8 +20,28 @@ func (n *Node) SetChain(
 		)
 	}
 
+	policy, err := chain.MonetaryPolicy()
+	if err != nil {
+		return fmt.Errorf("invalid blockchain network identity: %w", err)
+	}
+	if LocalNetworkID() != string(chain.Network()) {
+		return fmt.Errorf(
+			"P2P namespace mismatch: node=%q chain=%q",
+			LocalNetworkID(),
+			chain.Network(),
+		)
+	}
+
 	n.mu.Lock()
 	defer n.mu.Unlock()
+
+	if n.state != nil && n.state.MonetaryPolicy() != policy {
+		return fmt.Errorf(
+			"blockchain/state monetary policy mismatch: chain=%d state=%d",
+			policy,
+			n.state.MonetaryPolicy(),
+		)
+	}
 
 	n.chain = chain
 

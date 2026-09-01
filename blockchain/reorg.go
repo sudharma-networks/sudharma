@@ -6,7 +6,7 @@ import (
 )
 
 // CloneChain creates an independent Chain structure containing
-// the same block sequence and cumulative work.
+// the same block sequence, immutable network identity and cumulative work.
 //
 // Blocks are treated as immutable consensus objects once accepted.
 func CloneChain(source *Chain) (*Chain, error) {
@@ -25,6 +25,7 @@ func CloneChain(source *Chain) (*Chain, error) {
 	copy(blocks, source.blocks)
 
 	return &Chain{
+		network:   source.network,
 		blocks:    blocks,
 		totalWork: new(big.Int).Set(source.totalWork),
 	}, nil
@@ -42,6 +43,13 @@ func (c *Chain) ReplaceWith(candidate *Chain) error {
 	if c == candidate {
 		return nil
 	}
+	if c.Network() != candidate.Network() {
+		return fmt.Errorf(
+			"candidate network mismatch: current=%q candidate=%q",
+			c.Network(),
+			candidate.Network(),
+		)
+	}
 
 	candidate.mu.RLock()
 	if len(candidate.blocks) == 0 {
@@ -53,19 +61,14 @@ func (c *Chain) ReplaceWith(candidate *Chain) error {
 	copy(newBlocks, candidate.blocks)
 	candidate.mu.RUnlock()
 
-	// Candidate must contain the canonical Sudharma Network genesis.
-	expectedGenesis := NewGenesisBlock()
 	if newBlocks[0] == nil {
 		return fmt.Errorf("candidate genesis block is nil")
 	}
-	if newBlocks[0].Hash() != expectedGenesis.Hash() {
-		return fmt.Errorf("candidate has wrong genesis block")
-	}
 
-	// Rebuild a fresh validation chain from canonical genesis. This ensures
-	// every candidate block obeys the same history-derived difficulty rules
-	// used by normal block admission and recomputes cumulative work locally.
-	validated := NewChain()
+	validated, err := newChainFromGenesisForNetwork(c.Network(), newBlocks[0])
+	if err != nil {
+		return fmt.Errorf("candidate has wrong genesis block: %w", err)
+	}
 	for i := 1; i < len(newBlocks); i++ {
 		block := newBlocks[i]
 		if block == nil {
@@ -87,7 +90,8 @@ func (c *Chain) ReplaceWith(candidate *Chain) error {
 }
 
 // BuildStateFromChain deterministically recreates the complete
-// confirmed account state by replaying every non-genesis block.
+// confirmed account state by replaying every non-genesis block under the
+// monetary policy implied by the chain's immutable network identity.
 //
 // This is used during chain reorganization so state always matches
 // the selected blockchain history.
@@ -96,7 +100,11 @@ func BuildStateFromChain(chain *Chain) (*State, error) {
 		return nil, fmt.Errorf("chain cannot be nil")
 	}
 
-	state := NewState()
+	policy, err := chain.MonetaryPolicy()
+	if err != nil {
+		return nil, err
+	}
+	state := NewStateFor(policy)
 	height := chain.Height()
 
 	for blockHeight := uint64(1); blockHeight <= height; blockHeight++ {
@@ -111,7 +119,7 @@ func BuildStateFromChain(chain *Chain) (*State, error) {
 			return nil, fmt.Errorf("block %d has no miner address", blockHeight)
 		}
 
-		if _, err := ProcessBlock(state, block, block.MinerAddress); err != nil {
+		if _, err := ProcessBlockFor(state, policy, block, block.MinerAddress); err != nil {
 			return nil, fmt.Errorf("failed replaying block %d: %w", blockHeight, err)
 		}
 	}
@@ -132,6 +140,14 @@ func ReorganizeToCandidate(current *Chain, currentState *State, candidate *Chain
 	}
 	if candidate == nil {
 		return false, fmt.Errorf("candidate chain cannot be nil")
+	}
+
+	policy, err := current.MonetaryPolicy()
+	if err != nil {
+		return false, err
+	}
+	if err := currentState.EnsureMonetaryPolicy(policy); err != nil {
+		return false, fmt.Errorf("current chain/state policy mismatch: %w", err)
 	}
 
 	// Never trust a candidate chain's cached cumulative-work value for fork
