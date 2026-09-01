@@ -73,6 +73,9 @@ grep -Fq 'ProcessBlockFor' cmd/sudharmad/main.go \
 require_file scripts/probe-testnet-mining-rpc.sh
 require_file scripts/verify-mainnet-merge-readiness.sh
 require_file scripts/check-mainnet-merge-review-contract_test.sh
+require_file scripts/pre-audit-engineering-selfcheck.sh
+require_file docs/audits/2026-09-01-pre-audit-engineering-selfcheck.md
+require_file docs/audits/2026-09-01-genesis-freeze-prep-checklist.md
 
 go test ./blockchain -run 'TestNewChainFor|TestValidateChainGenesis|TestMintSupplyForMainnetEnforcesMainnetCap' -count=1 >/dev/null \
   || fail 'network-aware chain and monetary policy tests must pass'

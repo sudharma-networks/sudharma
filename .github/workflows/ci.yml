@@ -84,6 +84,9 @@ jobs:
       - name: Run mainnet monetary rehearsal
         run: bash ./scripts/mainnet-monetary-rehearsal.sh
 
+      - name: Verify pre-audit engineering selfcheck
+        run: bash ./scripts/check-pre-audit-selfcheck-contract_test.sh
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
