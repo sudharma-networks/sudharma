@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	"github.com/sudharma-networks/sudharma/params"
 	"github.com/sudharma-networks/sudharma/wallet"
 )
 
@@ -107,8 +108,17 @@ func (tx *Transaction) calculateID() string {
 	return hex.EncodeToString(hash[:])
 }
 
-// Sign signs the transaction and attaches the sender public key.
+// Sign signs the transaction for the default public-testnet network using the
+// current network-bound signature domain.
 func (tx *Transaction) Sign(w *wallet.Wallet) error {
+	return tx.SignForNetwork(w, params.DefaultNetwork)
+}
+
+// SignForNetwork signs the transaction using the network-bound signature domain.
+func (tx *Transaction) SignForNetwork(
+	w *wallet.Wallet,
+	network params.NetworkID,
+) error {
 	if w == nil {
 		return fmt.Errorf("wallet cannot be nil")
 	}
@@ -124,7 +134,16 @@ func (tx *Transaction) Sign(w *wallet.Wallet) error {
 		w.PublicKey...,
 	)
 
-	signature, err := w.Sign([]byte(tx.ID))
+	message, err := SigningMessage(
+		SignatureDomainNetworkBound,
+		network,
+		tx.ID,
+	)
+	if err != nil {
+		return err
+	}
+
+	signature, err := w.Sign(message)
 	if err != nil {
 		return err
 	}
@@ -134,8 +153,17 @@ func (tx *Transaction) Sign(w *wallet.Wallet) error {
 	return nil
 }
 
-// Verify independently verifies the transaction.
+// Verify independently verifies the transaction on the default network.
 func (tx *Transaction) Verify() bool {
+	return tx.VerifyForNetwork(params.DefaultNetwork)
+}
+
+// VerifyForNetwork verifies the transaction signature for an active network.
+//
+// Public testnet accepts both the current network-bound domain and the legacy
+// transaction-ID-only domain so already-signed transactions are not silently
+// reinterpreted. Mainnet and other networks require the network-bound domain.
+func (tx *Transaction) VerifyForNetwork(network params.NetworkID) bool {
 	if len(tx.PublicKey) == 0 {
 		return false
 	}
@@ -151,16 +179,27 @@ func (tx *Transaction) Verify() bool {
 		return false
 	}
 
-	// Recalculate ID including the nonce.
 	expectedID := tx.calculateID()
 
 	if expectedID != tx.ID {
 		return false
 	}
 
-	return wallet.VerifySignature(
-		tx.PublicKey,
-		[]byte(tx.ID),
-		tx.Signature,
-	)
+	if verifySignatureDomain(
+		tx,
+		network,
+		SignatureDomainNetworkBound,
+	) {
+		return true
+	}
+
+	if network == params.NetworkPublicTestnet {
+		return verifySignatureDomain(
+			tx,
+			network,
+			SignatureDomainLegacy,
+		)
+	}
+
+	return false
 }

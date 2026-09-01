@@ -30,21 +30,45 @@ data class SudharmaTransaction(
         private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }
 
-    fun signed(privateScalar: java.math.BigInteger): SudharmaTransaction {
+    fun signed(
+        privateScalar: java.math.BigInteger,
+        network: String = SudharmaSignatureDomain.DEFAULT_NETWORK,
+    ): SudharmaTransaction {
         val key = SudharmaCrypto.keyFromPrivateScalar(privateScalar)
         require(SudharmaCrypto.addressFromPublicKey(key.publicKey) == from) { "key does not match sender" }
+        val message = SudharmaSignatureDomain.signingMessage(
+            SudharmaSignatureDomain.NETWORK_BOUND,
+            network,
+            id,
+        )
         return copy(
             publicKey = key.publicKey,
-            signature = SudharmaCrypto.sign(privateScalar, id.toByteArray()),
+            signature = SudharmaCrypto.sign(privateScalar, message),
         )
     }
 
-    fun verify(): Boolean {
+    fun verify(network: String = SudharmaSignatureDomain.DEFAULT_NETWORK): Boolean {
         val pub = publicKey ?: return false
         val sig = signature ?: return false
         if (SudharmaCrypto.addressFromPublicKey(pub) != from) return false
         val expected = create(from, to, amount, nonce)
         if (expected.id != id || expected.fee != fee) return false
-        return SudharmaCrypto.verify(pub, id.toByteArray(), sig)
+        val boundMessage = SudharmaSignatureDomain.signingMessage(
+            SudharmaSignatureDomain.NETWORK_BOUND,
+            network,
+            id,
+        )
+        if (SudharmaCrypto.verify(pub, boundMessage, sig)) {
+            return true
+        }
+        if (network == SudharmaSignatureDomain.DEFAULT_NETWORK) {
+            val legacyMessage = SudharmaSignatureDomain.signingMessage(
+                SudharmaSignatureDomain.LEGACY,
+                network,
+                id,
+            )
+            return SudharmaCrypto.verify(pub, legacyMessage, sig)
+        }
+        return false
     }
 }

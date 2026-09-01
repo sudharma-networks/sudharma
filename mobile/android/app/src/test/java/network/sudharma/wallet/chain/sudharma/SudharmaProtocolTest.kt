@@ -54,7 +54,15 @@ class SudharmaProtocolTest {
         assertEquals(vector.transactionId, tx.id)
         val signature = vector.signatureHex.hexToBytes()
         assertEquals(64, signature.size)
-        assertTrue(SudharmaCrypto.verify(key.publicKey, tx.id.toByteArray(), signature))
+        assertTrue(SudharmaCrypto.verify(
+            key.publicKey,
+            SudharmaSignatureDomain.signingMessage(
+                SudharmaSignatureDomain.LEGACY,
+                SudharmaSignatureDomain.DEFAULT_NETWORK,
+                vector.transactionId,
+            ),
+            signature,
+        ))
     }
 
     @Test
@@ -66,9 +74,9 @@ class SudharmaProtocolTest {
             amount = 500_000_000L,
             nonce = 1L,
         )
-        val signature = SudharmaCrypto.sign(key.privateScalar, tx.id.toByteArray())
+        val signature = tx.signed(key.privateScalar).signature!!
         assertEquals(64, signature.size)
-        assertTrue(SudharmaCrypto.verify(key.publicKey, tx.id.toByteArray(), signature))
+        assertTrue(tx.signed(key.privateScalar).verify())
     }
 
     private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it.toInt() and 0xff) }

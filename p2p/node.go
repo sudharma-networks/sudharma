@@ -410,7 +410,12 @@ func (n *Node) readLoop(peer *PeerConnection) {
 				continue
 			}
 			pending := n.mempool.AllTransactions()
-			if err := blockchain.ValidateMempoolTransaction(state, pending, tx); err != nil {
+			if err := blockchain.ValidateMempoolTransactionFor(
+				state,
+				pending,
+				tx,
+				n.ActiveNetwork(),
+			); err != nil {
 				fmt.Printf("[TX] Rejected %s from %s: %v\n", tx.ID, peer.Info.NodeID, err)
 				if n.punishPeer(peer, PeerPenaltyInvalidData, "invalid transaction") {
 					return
@@ -562,7 +567,7 @@ func (n *Node) BroadcastTransaction(tx *transactions.Transaction) error {
 	if tx == nil {
 		return fmt.Errorf("transaction cannot be nil")
 	}
-	if !tx.Verify() {
+	if !tx.VerifyForNetwork(n.ActiveNetwork()) {
 		return fmt.Errorf("cannot broadcast invalid transaction")
 	}
 	data, err := NewTransactionMessage(tx)

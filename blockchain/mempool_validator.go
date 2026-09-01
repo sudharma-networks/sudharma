@@ -4,22 +4,32 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/sudharma-networks/sudharma/params"
 	"github.com/sudharma-networks/sudharma/transactions"
 )
 
-// ValidateMempoolTransaction checks whether a transaction
-// can safely enter the mempool.
-//
-// It validates against:
-//
-//   - current confirmed blockchain state
-//   - transactions already waiting in the mempool
-//
-// The real blockchain state is never modified.
+// ValidateMempoolTransaction checks whether a transaction can safely enter the
+// mempool on the default public-testnet network.
 func ValidateMempoolTransaction(
 	state *State,
 	pending []*transactions.Transaction,
 	candidate *transactions.Transaction,
+) error {
+	return ValidateMempoolTransactionFor(
+		state,
+		pending,
+		candidate,
+		params.DefaultNetwork,
+	)
+}
+
+// ValidateMempoolTransactionFor checks whether a transaction can safely enter
+// the mempool for an explicit network identity.
+func ValidateMempoolTransactionFor(
+	state *State,
+	pending []*transactions.Transaction,
+	candidate *transactions.Transaction,
+	network params.NetworkID,
 ) error {
 
 	if state == nil {
@@ -91,9 +101,10 @@ func ValidateMempoolTransaction(
 
 	// Apply already-pending transactions to temporary state.
 	for _, tx := range ordered {
-		if _, err := ApplyTransaction(
+		if _, err := ApplyTransactionFor(
 			workingState,
 			tx,
+			network,
 		); err != nil {
 
 			return fmt.Errorf(
@@ -105,9 +116,10 @@ func ValidateMempoolTransaction(
 	}
 
 	// Candidate must be valid after all pending transactions.
-	if _, err := ApplyTransaction(
+	if _, err := ApplyTransactionFor(
 		workingState,
 		candidate,
+		network,
 	); err != nil {
 
 		return fmt.Errorf(

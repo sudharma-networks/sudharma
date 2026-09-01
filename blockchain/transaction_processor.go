@@ -3,23 +3,34 @@ package blockchain
 import (
 	"fmt"
 
+	"github.com/sudharma-networks/sudharma/params"
 	"github.com/sudharma-networks/sudharma/transactions"
 )
 
-// ApplyTransaction validates and applies one transaction atomically. All
-// mutations are performed against a private state clone first. The caller's
-// state is replaced only after every debit, credit, nonce and replay marker
-// operation succeeds.
+// ApplyTransaction validates and applies one transaction atomically under the
+// default public-testnet network signature domain.
 func ApplyTransaction(
 	state *State,
 	tx *transactions.Transaction,
+) (uint64, error) {
+	return ApplyTransactionFor(state, tx, params.DefaultNetwork)
+}
+
+// ApplyTransactionFor validates and applies one transaction atomically for an
+// explicit network identity. All mutations are performed against a private
+// state clone first. The caller's state is replaced only after every debit,
+// credit, nonce and replay marker operation succeeds.
+func ApplyTransactionFor(
+	state *State,
+	tx *transactions.Transaction,
+	network params.NetworkID,
 ) (uint64, error) {
 	if state == nil {
 		return 0, fmt.Errorf("state cannot be nil")
 	}
 
 	workingState := state.Clone()
-	minerFee, err := applyTransactionMutating(workingState, tx)
+	minerFee, err := applyTransactionMutating(workingState, tx, network)
 	if err != nil {
 		return 0, err
 	}
@@ -38,6 +49,7 @@ func ApplyTransaction(
 func applyTransactionMutating(
 	state *State,
 	tx *transactions.Transaction,
+	network params.NetworkID,
 ) (uint64, error) {
 	if state == nil {
 		return 0, fmt.Errorf("state cannot be nil")
@@ -80,7 +92,7 @@ func applyTransactionMutating(
 		)
 	}
 
-	if !tx.Verify() {
+	if !tx.VerifyForNetwork(network) {
 		return 0, fmt.Errorf(
 			"invalid transaction signature",
 		)
