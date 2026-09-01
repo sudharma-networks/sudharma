@@ -18,10 +18,8 @@ func transactionAdmissionLock(node *Node) *sync.Mutex {
 	return lock.(*sync.Mutex)
 }
 
-// admitTransaction is the single state-aware mempool admission path for both
-// local RPC and peer-originated transfers. Cheap resource/capacity checks happen
-// before signature/state work, and state replay is limited to the candidate
-// sender's bounded pending queue.
+// admitTransaction is the local/untrusted admission entry point. Cheap
+// resource/index checks happen before signature verification.
 func (n *Node) admitTransaction(tx *transactions.Transaction) error {
 	if n == nil {
 		return fmt.Errorf("node is unavailable")
@@ -38,6 +36,24 @@ func (n *Node) admitTransaction(tx *transactions.Transaction) error {
 	if !tx.VerifyForNetwork(n.ActiveNetwork()) {
 		return fmt.Errorf("transaction signature or identity is invalid")
 	}
+	return n.admitVerifiedTransaction(tx)
+}
+
+// admitVerifiedTransaction commits a transaction whose signature has already
+// been verified for n.ActiveNetwork(). Peer decoding uses this after explicit
+// network-domain verification to avoid performing the same crypto operation
+// twice. All mutable state/index checks are still repeated under the admission
+// lock.
+func (n *Node) admitVerifiedTransaction(tx *transactions.Transaction) error {
+	if n == nil {
+		return fmt.Errorf("node is unavailable")
+	}
+	if tx == nil {
+		return fmt.Errorf("transaction cannot be nil")
+	}
+	if err := transactions.ValidateResourceBounds(tx); err != nil {
+		return fmt.Errorf("transaction rejected by resource policy: %w", err)
+	}
 
 	admissionLock := transactionAdmissionLock(n)
 	admissionLock.Lock()
@@ -50,12 +66,10 @@ func (n *Node) admitTransaction(tx *transactions.Transaction) error {
 	if state.IsTransactionProcessed(tx.ID) {
 		return fmt.Errorf("transaction already confirmed: %s", tx.ID)
 	}
-
-	// Repeat index-backed checks inside the serialized admission section so a
-	// concurrent accepted transaction cannot invalidate the earlier preflight.
 	if err := n.mempool.CheckAdmission(tx); err != nil {
 		return fmt.Errorf("transaction rejected by mempool capacity/index policy: %w", err)
 	}
+
 	pending := n.mempool.TransactionsForSender(tx.From)
 	if err := blockchain.ValidateMempoolTransactionFor(
 		state,
