@@ -28,7 +28,7 @@ func (n *Node) SubmitTransaction(tx *transactions.Transaction) (int, error) {
 	if tx == nil {
 		return 0, fmt.Errorf("transaction cannot be nil")
 	}
-	if !tx.Verify() {
+	if !tx.VerifyForNetwork(n.ActiveNetwork()) {
 		return 0, fmt.Errorf("transaction signature or identity is invalid")
 	}
 
@@ -50,7 +50,12 @@ func (n *Node) SubmitTransaction(tx *transactions.Transaction) (int, error) {
 	}
 
 	pending := n.mempool.AllTransactions()
-	if err := blockchain.ValidateMempoolTransaction(state, pending, tx); err != nil {
+	if err := blockchain.ValidateMempoolTransactionFor(
+		state,
+		pending,
+		tx,
+		n.ActiveNetwork(),
+	); err != nil {
 		admissionLock.Unlock()
 		return 0, fmt.Errorf("transaction rejected by mempool validation: %w", err)
 	}

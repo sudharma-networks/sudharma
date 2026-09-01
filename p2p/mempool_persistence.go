@@ -353,16 +353,17 @@ func (n *Node) LoadMempoolFromFile(
 			continue
 		}
 
-		if !tx.Verify() {
+		if !tx.VerifyForNetwork(n.ActiveNetwork()) {
 			rejected++
 			continue
 		}
 
 		if err :=
-			blockchain.ValidateMempoolTransaction(
+			blockchain.ValidateMempoolTransactionFor(
 				state,
 				valid,
 				tx,
+				n.ActiveNetwork(),
 			); err != nil {
 
 			rejected++

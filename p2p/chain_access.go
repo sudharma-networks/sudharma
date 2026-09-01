@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/sudharma-networks/sudharma/blockchain"
+	"github.com/sudharma-networks/sudharma/params"
 )
 
 // SetChain attaches the active Sudharma Network blockchain
@@ -65,6 +66,16 @@ func (n *Node) Chain() *blockchain.Chain {
 	defer n.mu.RUnlock()
 
 	return n.chain
+}
+
+// ActiveNetwork returns the network identity bound to the attached chain.
+// When no chain is attached yet, the default public-testnet identity is used.
+func (n *Node) ActiveNetwork() params.NetworkID {
+	chain := n.Chain()
+	if chain == nil {
+		return params.DefaultNetwork
+	}
+	return chain.Network()
 }
 
 // AdvertisedChainStatus returns a synchronized snapshot of the chain status

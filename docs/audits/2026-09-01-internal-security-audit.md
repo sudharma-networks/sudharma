@@ -21,7 +21,11 @@ Tracking PR: #99
 
 **Mainnet: NO-GO.** Mainnet must remain fail-closed until the evidence gates in this report are complete.
 
+<<<<<<< HEAD
 This pass has confirmed four High-severity findings. IS-001 has been fixed on the audit branch with regression coverage and passing CI. IS-005 has been fixed on PR #105 with network-aware chain validation, reorg replay and cross-network fork rejection. IS-004 and IS-009 remain open High pre-mainnet blockers covering cross-network transaction replay and mempool/transaction resource economics. Two Medium implementation findings, IS-002 and IS-006, have been fixed with RED/GREEN or regression evidence and passing CI. IS-003 remains an open consensus-source-of-truth decision.
+=======
+This pass has confirmed four High-severity findings. IS-001 has been fixed on the audit branch with regression coverage and passing CI. IS-004 and IS-005 have fixes on stacked PRs with regression coverage and passing CI. IS-009 remains an open High pre-mainnet blocker covering mempool/transaction resource economics. Two Medium implementation findings, IS-002 and IS-006, have been fixed with RED/GREEN or regression evidence and passing CI. IS-003 remains an open consensus-source-of-truth decision.
+>>>>>>> origin/cursor/security-network-signatures-8441
 
 No claim is made that absence of additional findings proves absence of vulnerabilities.
 
@@ -102,20 +106,22 @@ No confirmed mint-cap bypass was identified in this pass, but this is consensus-
 
 ### IS-004 — HIGH — Transaction signatures are not domain-separated by network/chain
 
-**Status: OPEN — GitHub #102 — MAINNET BLOCKER.**
+**Status: FIXED ON PR pending merge; GitHub #102 — awaiting merge.**
 
-The transaction signing preimage contains transaction identity fields but no immutable network/chain domain identifier. P2P network IDs and separate genesis blocks prevent accidental peer mixing; they do not prevent the same signed transaction payload from being submitted to another Sudharma network.
+The baseline signed only the transaction ID. Separate P2P network IDs prevented peer mixing but not cross-network transaction replay when the same key existed on both networks.
 
-If a key/address exists on both testnet and mainnet with compatible balance and nonce, a transaction signed for one network can remain cryptographically valid on the other.
+**Remediation:**
 
-Required remediation before mainnet:
+- added versioned signature domains: legacy v1 (transaction ID only) and network-bound v2 (`sudharma-tx-v2|<network>|<txID>`)
+- new wallet/CLI/Android/P2P signing uses v2 for the active network
+- public testnet still accepts legacy v1 signatures for already-signed transactions
+- mainnet verification requires v2 only
+- added cross-network replay regression tests
 
-- define a versioned signature domain including network/chain ID or equivalent immutable chain-domain separator
-- update wallet/CLI/Android/RPC/P2P signing and verification paths coherently
-- add cross-network replay tests proving testnet signatures fail on mainnet and vice versa
-- define activation/migration semantics deliberately so existing testnet data is not silently reinterpreted
+**Evidence:**
 
-This is intentionally not patched ad hoc in the audit PR because it changes the consensus transaction-signature format.
+- plan: `docs/superpowers/plans/2026-09-01-network-bound-signatures.md`
+- branch: `cursor/security-network-signatures-8441`
 
 ### IS-005 — HIGH — Generic block/reorg/miner paths still route through public-testnet monetary processing
 

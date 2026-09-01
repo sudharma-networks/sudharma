@@ -197,10 +197,11 @@ func (n *Node) ReorganizeWithMempoolRecovery(
 			n.mempool.AllTransactions()
 
 		if err :=
-			blockchain.ValidateMempoolTransaction(
+			blockchain.ValidateMempoolTransactionFor(
 				state,
 				pending,
 				tx,
+				n.ActiveNetwork(),
 			); err != nil {
 
 			fmt.Printf(
