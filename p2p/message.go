@@ -16,6 +16,11 @@ const (
 	MainnetNetworkID = "sudharma-mainnet-1"
 
 	MaxPeersPerMessage = 128
+
+	// MaxHandshakeTotalWorkDigits bounds unauthenticated decimal big.Int input.
+	// 128 decimal digits is far beyond any practical cumulative chain-work value
+	// while preventing peers from forcing multi-megabyte integer parsing/storage.
+	MaxHandshakeTotalWorkDigits = 128
 )
 
 type MessageType string
@@ -97,6 +102,9 @@ func NewHandshakeMessage(nodeID string, listenAddress string, height uint64, tip
 	}
 	if totalWork == "" {
 		return nil, fmt.Errorf("total work cannot be empty")
+	}
+	if len(totalWork) > MaxHandshakeTotalWorkDigits {
+		return nil, fmt.Errorf("total work exceeds maximum encoded length")
 	}
 	work, ok := new(big.Int).SetString(totalWork, 10)
 	if !ok {
@@ -274,6 +282,9 @@ func DecodeHandshake(message *Message) (*Handshake, error) {
 	}
 	if handshake.TotalWork == "" {
 		return nil, fmt.Errorf("remote total work cannot be empty")
+	}
+	if len(handshake.TotalWork) > MaxHandshakeTotalWorkDigits {
+		return nil, fmt.Errorf("remote total work exceeds maximum encoded length")
 	}
 	work, ok := new(big.Int).SetString(handshake.TotalWork, 10)
 	if !ok {
