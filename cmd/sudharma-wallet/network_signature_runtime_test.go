@@ -22,8 +22,8 @@ func TestSendTransactionUsesRPCNetworkForSignature(t *testing.T) {
 	if !bytes.Contains(body, []byte("client.Status(ctx)")) {
 		t.Fatal("sendTransaction must resolve the RPC node network before signing")
 	}
-	if !bytes.Contains(body, []byte("params.ParseNetwork(status.Network)")) {
-		t.Fatal("sendTransaction must validate the reported RPC network through params.ParseNetwork")
+	if !bytes.Contains(body, []byte("signingNetworkFromStatus(status)")) {
+		t.Fatal("sendTransaction must validate canonical RPC network identity before signing")
 	}
 	if bytes.Contains(body, []byte("tx.Sign(w)")) {
 		t.Fatal("sendTransaction must not use the default-network signer")
