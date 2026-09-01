@@ -1,49 +1,45 @@
 package mempool
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/sudharma-networks/sudharma/params"
 	"github.com/sudharma-networks/sudharma/transactions"
-	"github.com/sudharma-networks/sudharma/wallet"
 )
 
 func TestMempoolRejectsAtTransactionCapacity(t *testing.T) {
 	pool := NewMempool()
-	sender, err := wallet.NewWallet()
-	if err != nil {
-		t.Fatal(err)
-	}
-	receiver, err := wallet.NewWallet()
-	if err != nil {
-		t.Fatal(err)
-	}
+	receiver := "ffffffffffffffffffffffffffffffffffffffff"
 
-	for i := 0; i < params.MaxMempoolTransactions; i++ {
-		tx := transactions.NewTransaction(
-			sender.Address,
-			receiver.Address,
-			params.MinTransferAmount,
-			uint64(i),
-		)
-		if err := tx.Sign(sender); err != nil {
-			t.Fatal(err)
-		}
-		if err := pool.AddTransaction(tx); err != nil {
-			t.Fatalf("seed transaction %d rejected: %v", i, err)
+	added := 0
+	for senderIndex := 0; added < params.MaxMempoolTransactions; senderIndex++ {
+		sender := fmt.Sprintf("%040x", senderIndex+1)
+		for nonce := uint64(1);
+			nonce <= uint64(params.MaxMempoolTransactionsPerSender) && added < params.MaxMempoolTransactions;
+			nonce++ {
+			tx := transactions.NewTransaction(
+				sender,
+				receiver,
+				params.MinTransferAmount,
+				nonce,
+			)
+			if err := pool.AddTransaction(tx); err != nil {
+				t.Fatalf("seed transaction %d rejected: %v", added, err)
+			}
+			added++
 		}
 	}
 
+	// Use a fresh sender so the global count limit, not the per-sender policy,
+	// is what rejects the next transaction.
 	overflow := transactions.NewTransaction(
-		sender.Address,
-		receiver.Address,
+		"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+		receiver,
 		params.MinTransferAmount,
-		uint64(params.MaxMempoolTransactions),
+		1,
 	)
-	if err := overflow.Sign(sender); err != nil {
-		t.Fatal(err)
-	}
 	if err := pool.AddTransaction(overflow); err == nil {
-		t.Fatal("transaction beyond capacity was accepted")
+		t.Fatal("transaction beyond global capacity was accepted")
 	}
 }
