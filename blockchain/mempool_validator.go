@@ -50,6 +50,30 @@ func ValidateMempoolTransactionFor(
 		)
 	}
 
+	if err := transactions.ValidateResourceBounds(candidate); err != nil {
+		return fmt.Errorf(
+			"transaction rejected by mempool: %w",
+			err,
+		)
+	}
+
+	if len(pending) >= params.MaxMempoolTransactions {
+		return fmt.Errorf("mempool transaction capacity reached")
+	}
+
+	pendingBytes := 0
+	for _, tx := range pending {
+		if tx == nil {
+			return fmt.Errorf(
+				"mempool contains nil transaction",
+			)
+		}
+		pendingBytes += tx.EstimatedSerializedSize()
+	}
+	if pendingBytes+candidate.EstimatedSerializedSize() > params.MaxMempoolBytes {
+		return fmt.Errorf("mempool byte capacity reached")
+	}
+
 	// Reject duplicate transaction already in mempool.
 	for _, tx := range pending {
 		if tx == nil {

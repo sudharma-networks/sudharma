@@ -36,6 +36,9 @@ func validateBlockCore(block *Block, previous *Block) error {
 	if block.MerkleRoot != block.CalculateMerkleRoot() {
 		return fmt.Errorf("invalid merkle root")
 	}
+	if err := validateBlockTransactions(block); err != nil {
+		return err
+	}
 	if !validBlockProofOfWorkCore(block) {
 		return fmt.Errorf("invalid proof of work")
 	}

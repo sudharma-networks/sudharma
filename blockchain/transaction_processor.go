@@ -92,6 +92,10 @@ func applyTransactionMutating(
 		)
 	}
 
+	if err := transactions.ValidateResourceBounds(tx); err != nil {
+		return 0, err
+	}
+
 	if !tx.VerifyForNetwork(network) {
 		return 0, fmt.Errorf(
 			"invalid transaction signature",
