@@ -87,9 +87,21 @@ func (n *Node) SetState(state *blockchain.State) error {
 	if state == nil {
 		return fmt.Errorf("blockchain state cannot be nil")
 	}
+
 	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	if n.chain != nil {
+		policy, err := n.chain.MonetaryPolicy()
+		if err != nil {
+			return fmt.Errorf("invalid blockchain network identity: %w", err)
+		}
+		if err := state.EnsureMonetaryPolicy(policy); err != nil {
+			return fmt.Errorf("blockchain/state policy mismatch: %w", err)
+		}
+	}
+
 	n.state = state
-	n.mu.Unlock()
 	return nil
 }
 
