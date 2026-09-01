@@ -1,16 +1,20 @@
 # Security audit kickoff — owner checklist
 
-**Owner:** Kk  
-**Status:** Kickoff package ready — **external audit not yet commissioned**  
-**Repository commit for audit:** `a63fe384a75a8857f02a78b612be5b9b0a233cb8` (main after #89)  
+**Owner:** Kk · vkw143download@gmail.com  
+**Status:** **Outreach sent** (2026-09-01) — awaiting auditor / university replies  
+**Repository commit for audit:** latest `main` (use `git rev-parse HEAD` when auditor responds)  
 **Gate:** `independent-security-audit` stays `ready: false` until signed report is recorded
 
 Engineering merges (#76, #77, #89) are complete. Mainnet launch remains blocked until this gate closes.
+
+**Tight budget path:** `docs/audits/2026-09-01-security-audit-budget-outreach-kk.md`  
+**Engineering baseline for auditors:** `bash ./scripts/pre-audit-engineering-selfcheck.sh`
 
 ---
 
 ## Step 1 — Choose auditor (you)
 
+- [x] Outreach emails sent (Trail of Bits / firms / university) — 2026-09-01
 - [ ] Select an **independent** firm or researcher (not the primary implementer)
 - [ ] Confirm scope matches `docs/audits/2026-09-01-security-audit-scope.md`
 - [ ] Agree timeline, deliverable format, and remediation process
@@ -38,7 +42,8 @@ Auditor verification commands:
 ```bash
 git clone https://github.com/sudharma-networks/sudharma.git
 cd sudharma
-git checkout a63fe384a75a8857f02a78b612be5b9b0a233cb8
+git checkout $(git rev-parse HEAD)
+bash ./scripts/pre-audit-engineering-selfcheck.sh
 bash ./scripts/verify-mainnet-merge-readiness.sh pr77
 bash ./scripts/mainnet-monetary-rehearsal.sh
 go test ./... -count=1

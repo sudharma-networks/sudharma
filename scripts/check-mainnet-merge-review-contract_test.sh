@@ -20,6 +20,8 @@ for path in \
   docs/audits/2026-09-01-security-audit-kickoff-checklist.md \
   docs/audits/2026-09-01-security-audit-brief.md \
   docs/audits/2026-09-01-security-audit-scope.md \
+  docs/audits/2026-09-01-pre-audit-engineering-selfcheck.md \
+  docs/audits/2026-09-01-genesis-freeze-prep-checklist.md \
   docs/audits/2026-09-01-security-audit-kickoff-record.template.json \
   deployment/mainnet/OPERATOR-CHECKLIST.md \
   deployment/testnet/pool-operator-runbook.md \
