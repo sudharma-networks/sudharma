@@ -78,6 +78,14 @@ export function matchRoute(methodInput, pathInput) {
     if (method !== 'POST') reject('method not allowed', 405);
     return { kind: 'minerWake', method, path };
   }
+  if (path === '/v1/mining/work') {
+    if (method !== 'GET' && method !== 'POST') reject('method not allowed', 405);
+    return { kind: method === 'GET' ? 'miningWorkGet' : 'miningWorkPost', method, path };
+  }
+  if (path === '/v1/mining/submit') {
+    if (method !== 'POST') reject('method not allowed', 405);
+    return { kind: 'miningSubmit', method, path };
+  }
   if (path === '/v1/faucet/info') {
     if (method !== 'GET') reject('method not allowed', 405);
     return { kind: 'faucetInfo', method, path };
@@ -168,6 +176,13 @@ export function matchRoute(methodInput, pathInput) {
   reject();
 }
 
+function miningQueryRules(kind) {
+  if (kind === 'miningWorkGet') {
+    return new Map([['address', validAccountAddress]]);
+  }
+  return null;
+}
+
 function explorerQueryRules(kind) {
   switch (kind) {
     case 'explorerBlocks':
@@ -195,7 +210,7 @@ function explorerQueryRules(kind) {
 }
 
 function normalizeExplorerQuery(route, rawInput) {
-  const rules = explorerQueryRules(route.kind);
+  const rules = explorerQueryRules(route.kind) || miningQueryRules(route.kind);
   if (rules === null) return '';
   if (rawInput == null || rawInput === '') {
     if (route.kind === 'explorerSearch') reject('search query is required', 400);
@@ -252,7 +267,9 @@ export function normalizeEvent(event) {
   const bodyAllowed = route.kind === 'submitTransaction'
     || route.kind === 'faucetInitial'
     || route.kind === 'faucetChallenge'
-    || route.kind === 'websiteVisitorsRecord';
+    || route.kind === 'websiteVisitorsRecord'
+    || route.kind === 'miningWorkPost'
+    || route.kind === 'miningSubmit';
   if (!bodyAllowed && body.length !== 0) {
     throw new RequestError(400, 'request body not allowed');
   }

@@ -1,0 +1,17 @@
+{
+  "network": "mainnet",
+  "rpc_url": "https://mainnet.rpc.REPLACE_WITH_REAL_DOMAIN",
+  "rpc_urls": [
+    "http://REPLACE_WITH_SEED1_PRIVATE_IP:29100",
+    "http://REPLACE_WITH_SEED2_PRIVATE_IP:29100",
+    "https://mainnet.rpc.REPLACE_WITH_REAL_DOMAIN"
+  ],
+  "payout_address": "9ccdc094489874bed888ffe4bdf9b8298f4c5131",
+  "payout_scheme": "pplns",
+  "pool_difficulty": 1,
+  "pool_fee_bps": 100,
+  "pplns_window": 10000,
+  "stratum_listen": ":3333",
+  "work_poll_seconds": 5,
+  "expected_network": "sudharma-mainnet-1"
+}

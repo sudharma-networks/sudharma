@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/sudharma-networks/sudharma/consensus"
+	"github.com/sudharma-networks/sudharma/params"
 )
 
 type Chain struct {
@@ -15,14 +16,44 @@ type Chain struct {
 }
 
 func NewChain() *Chain {
-	genesis := NewGenesisBlock()
+	chain, err := NewChainFor(params.NetworkPublicTestnet)
+	if err != nil {
+		panic(err)
+	}
+	return chain
+}
 
+// NewChainFor creates a chain whose genesis matches the requested network.
+func NewChainFor(network params.NetworkID) (*Chain, error) {
+	genesis, err := GenesisFor(network)
+	if err != nil {
+		return nil, err
+	}
 	return &Chain{
 		blocks: []*Block{
 			genesis,
 		},
 		totalWork: blockWork(genesis.Difficulty),
+	}, nil
+}
+
+// ValidateChainGenesis ensures an on-disk chain belongs to the active network.
+func ValidateChainGenesis(chain *Chain, network params.NetworkID) error {
+	if chain == nil {
+		return fmt.Errorf("chain cannot be nil")
 	}
+	genesis, ok := chain.BlockByHeight(0)
+	if !ok || genesis == nil {
+		return fmt.Errorf("chain missing genesis block")
+	}
+	expected, err := GenesisFor(network)
+	if err != nil {
+		return err
+	}
+	if genesis.Hash() != expected.Hash() {
+		return fmt.Errorf("chain genesis does not match network %q", network)
+	}
+	return nil
 }
 
 func (c *Chain) Height() uint64 {

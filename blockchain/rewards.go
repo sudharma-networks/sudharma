@@ -68,7 +68,7 @@ func CreditMinerRewardFor(
 			subsidy = remaining
 		}
 
-		if err := state.MintSupply(subsidy); err != nil {
+		if err := state.MintSupplyFor(policy, subsidy); err != nil {
 			return 0, err
 		}
 	}

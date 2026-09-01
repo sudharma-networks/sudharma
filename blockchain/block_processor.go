@@ -56,6 +56,10 @@ func ProcessBlockFor(
 		return 0, err
 	}
 
+	if err := state.EnsureMonetaryPolicy(policy); err != nil {
+		return 0, err
+	}
+
 	// Create temporary state.
 	// Nothing touches the real state until the entire block succeeds.
 	workingState := state.Clone()

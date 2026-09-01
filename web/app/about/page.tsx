@@ -41,7 +41,7 @@ export default function AboutPage() {
         <article className="info-card">
           <p className="eyebrow">MINE</p>
           <h2>Mine Sudharma</h2>
-          <p>Miners should be able to contribute computing power with practical GPU hardware, verify performance openly and help us improve mining compatibility across NVIDIA, AMD and other OpenCL-capable devices.</p>
+          <p>Miners contribute GPU power with practical NVIDIA CUDA or AMD/OpenCL hardware. Sudharma is GPU-only: CPU mining and ASIC mining are not supported on public testnet or mainnet.</p>
           <Link className="text-link" href="/mining">Explore mining →</Link>
         </article>
         <article className="info-card">

@@ -3,7 +3,7 @@ import { StatusChip } from "@/components/status-chip";
 
 const phases = [
   ["Protocol + public testnet foundation", "Completed", "Core node, networking, RPC and initial public test infrastructure."],
-  ["GPU-PoW mining", "In Development", "CUDA/OpenCL mining, validation and pool compatibility."],
+  ["GPU-PoW mining", "Experimental", "Solo + pool mining on public-testnet. Khushi GPU-PoW only; PPS/PPLNS/SOLO/FPPS via Stratum."],
   ["Wallet + public web experience", "In Development", "Android wallet hardening, website, downloads and safe public integrations."],
   ["Explorer + faucet web integration", "Testnet", "Read-only explorer and public faucet request flow are live against the testnet wallet proxy."],
   ["Developer platform", "Planned", "Stable public APIs, SDKs and higher-level application capabilities."],

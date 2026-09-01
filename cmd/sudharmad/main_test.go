@@ -12,6 +12,15 @@ import (
 	"github.com/sudharma-networks/sudharma/wallet"
 )
 
+func TestMainRejectsUnauthorizedMainnetNetwork(t *testing.T) {
+	if params.MainnetLaunchAuthorized {
+		t.Fatal("test requires MainnetLaunchAuthorized to remain false")
+	}
+	if _, err := params.ParseNetwork("mainnet"); err == nil {
+		t.Fatal("expected sudharmad -network mainnet to be rejected while launch is unauthorized")
+	}
+}
+
 func TestRunBlockMiningModeExitsAfterBoundedMining(t *testing.T) {
 	calls := 0
 	exitNodeLoop, err := runBlockMiningMode(1, func() error {

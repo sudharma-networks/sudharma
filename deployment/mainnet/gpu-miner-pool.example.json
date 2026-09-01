@@ -1,0 +1,9 @@
+{
+  "environment": "mainnet",
+  "stratum_url": "stratum+tcp://pool.REPLACE_WITH_REAL_DOMAIN:3333",
+  "reward_address": "9ccdc094489874bed888ffe4bdf9b8298f4c5131",
+  "worker_name": "rig1",
+  "password": "x",
+  "backend": "gpu-only",
+  "device": 0
+}

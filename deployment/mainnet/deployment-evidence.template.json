@@ -1,0 +1,38 @@
+{
+  "kind": "sudharma-mainnet-deployment-evidence",
+  "recorded_at": "2026-08-31T00:00:00Z",
+  "activation_commit": "REPLACE_WITH_ACTIVATION_GIT_COMMIT_SHA",
+  "components": {
+    "seed1": {
+      "commit_or_artifact_sha256": "REPLACE_WITH_SEED1_ARTIFACT_SHA256",
+      "service_unit": "sudharma.service",
+      "observed_height": 0
+    },
+    "seed2": {
+      "commit_or_artifact_sha256": "REPLACE_WITH_SEED2_ARTIFACT_SHA256",
+      "service_unit": "sudharma.service",
+      "observed_height": 0
+    },
+    "public_rpc_lambda": {
+      "function_name": "Sudharma-Mainnet-Wallet-Proxy",
+      "code_sha256": "REPLACE_WITH_LAMBDA_CODE_SHA256",
+      "deferred": true,
+      "notes": "Manual workflow_dispatch only until launch decision"
+    },
+    "gpu_mining": {
+      "authorized": false,
+      "notes": "Requires MainnetMiningAuthorized in activation PR"
+    }
+  },
+  "public_rpc_smoke": {
+    "rpc_base_url": "https://mainnet.rpc.REPLACE_WITH_REAL_DOMAIN",
+    "collected_at": "2026-08-31T00:00:00Z",
+    "ready": {},
+    "status": {},
+    "mining_work": {}
+  },
+  "operator_signoff": {
+    "reviewed_by": "REPLACE_WITH_OPERATOR_IDENTITY",
+    "notes": "Mainnet deploy workflows must remain workflow_dispatch only."
+  }
+}

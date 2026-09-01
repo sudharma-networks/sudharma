@@ -72,7 +72,7 @@ wallet formats, and network parameters may still change before mainnet.
 
 | Line | Status |
 | --- | --- |
-| GPU / Khushi (`feature/gpu-pow-v1`) | Isolated; do not activate via testnet go-live |
+| GPU / Khushi (`feature/gpu-pow-v1`) | Live on public-testnet: solo `/v1/mining/*`, Windows one-click miner (PR #79), pool Stratum stack (PR #77). Mainnet mining gated by `MainnetMiningAuthorized` |
 | Mainnet Tokenomics v1 (`feature/mainnet-tokenomics-v1`) | Separate consensus review; inventory notes failing rewards test |
 
 ## 6. Pending to project / mainnet completion
@@ -90,7 +90,7 @@ wallet formats, and network parameters may still change before mainnet.
 - Android wallet hardening and downloads provenance.
 - Explorer polish beyond v1 read-only surfaces.
 - Demand-miner operational hardening.
-- GPU mining remains experimental / separate review.
+- GPU mining: testnet solo + pool reference stack engineering-ready (PR #77/#79); mainnet activation still gated.
 
 ### Pre-mainnet blockers
 
@@ -108,7 +108,7 @@ wallet formats, and network parameters may still change before mainnet.
 
 ## 8. Explicit non-goals (still isolated)
 
-- GPU / Khushi consensus activation
+- GPU / Khushi consensus activation on **mainnet** (testnet solo + pool paths are live)
 - Mainnet Tokenomics / mainnet launch
 - Automated (non–`workflow_dispatch`) AWS mutation
 - Committing private evidence digests into git

@@ -1,0 +1,244 @@
+name: GPU Mining Live Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/gpu-mining-live-deploy.yml'
+      - 'deployment/testnet/public-rpc/lambda/**'
+      - 'rpc/gpu_mining.go'
+      - 'rpc/gpu_mining_test.go'
+      - 'rpc/server.go'
+      - 'scripts/publish-sudharma-rpcd-binary.sh'
+      - 'deployment/testnet/remote-install-sudharma-rpcd-from-url.sh'
+      - 'deployment/testnet/remote-enable-seed-mining-nginx.sh'
+      - 'deployment/testnet/ssm-send-remote-script.sh'
+      - 'deployment/testnet/resolve-seed-instance-id.sh'
+
+permissions:
+  contents: read
+
+env:
+  RPC_BASE_URL: https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com
+  AWS_REGION: ap-south-1
+  LAMBDA_NAME: Sudharma-Testnet-Wallet-Proxy
+  TESTNET_DEMAND_MINER_BUCKET: ${{ vars.TESTNET_DEMAND_MINER_BUCKET }}
+
+jobs:
+  publish-rpcd:
+    runs-on: ubuntu-24.04
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      rpcd_bucket: ${{ steps.publish.outputs.rpcd_bucket }}
+      rpcd_prefix: ${{ steps.publish.outputs.rpcd_prefix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: Publish sudharma-rpcd binary to S3
+        id: publish
+        run: |
+          set -euo pipefail
+          bash ./scripts/publish-sudharma-rpcd-binary.sh > /tmp/rpcd-publish.json
+          echo "rpcd_bucket=$(jq -r '.bucket' /tmp/rpcd-publish.json)" >> "$GITHUB_OUTPUT"
+          echo "rpcd_prefix=$(jq -r '.prefix' /tmp/rpcd-publish.json)" >> "$GITHUB_OUTPUT"
+
+  deploy-seeds:
+    needs: publish-rpcd
+    runs-on: ubuntu-24.04
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - seed_name: seed1
+            seed_private_ip: 172.31.10.171
+            seed_instance_id: ${{ vars.TESTNET_SEED1_INSTANCE_ID }}
+            seed_fallback_instance_id: i-06e7ddb174e4941de
+          - seed_name: seed2
+            seed_private_ip: 172.31.32.195
+            seed_instance_id: ${{ vars.TESTNET_SEED2_INSTANCE_ID }}
+            seed_fallback_instance_id: ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+      - name: Resolve seed instance id
+        id: seed
+        run: |
+          set -euo pipefail
+          instance_id="$(bash deployment/testnet/resolve-seed-instance-id.sh \
+            "${{ matrix.seed_private_ip }}" \
+            "${{ matrix.seed_instance_id }}" \
+            "${{ matrix.seed_fallback_instance_id }}" 2>/dev/null || true)"
+          if [ -z "$instance_id" ]; then
+            echo "seed_instance_found=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Skipping ${{ matrix.seed_name }} RPC upgrade — instance id unavailable"
+            exit 0
+          fi
+          echo "seed_instance_found=true" >> "$GITHUB_OUTPUT"
+          echo "instance_id=$instance_id" >> "$GITHUB_OUTPUT"
+      - name: Upgrade sudharma-rpcd on seed
+        if: steps.seed.outputs.seed_instance_found == 'true'
+        run: |
+          set -euo pipefail
+          bucket="${{ needs.publish-rpcd.outputs.rpcd_bucket }}"
+          prefix="${{ needs.publish-rpcd.outputs.rpcd_prefix }}"
+          rpcd_url="$(aws s3 presign "s3://${bucket}/${prefix}/sudharma-rpcd" --expires-in 900 --region "$AWS_REGION")"
+          install_b64="$(base64 -w0 deployment/testnet/remote-install-sudharma-rpcd-from-url.sh)"
+          remote_script_file="$(mktemp)"
+          {
+            echo 'set -euo pipefail'
+            printf 'export SUDHARMA_RPCD_BIN_URL=%q\n' "$rpcd_url"
+            printf 'echo %q | base64 -d > /tmp/remote-install-sudharma-rpcd-from-url.sh\n' "$install_b64"
+            echo 'chmod +x /tmp/remote-install-sudharma-rpcd-from-url.sh'
+            echo 'bash /tmp/remote-install-sudharma-rpcd-from-url.sh'
+            echo 'rm -f /tmp/remote-install-sudharma-rpcd-from-url.sh'
+          } > "$remote_script_file"
+          bash deployment/testnet/ssm-send-remote-script.sh \
+            "${{ steps.seed.outputs.instance_id }}" \
+            "GPU mining seed RPC upgrade (${{ matrix.seed_name }})" \
+            "$remote_script_file" \
+            'sudharma_rpcd_install'
+          rm -f "$remote_script_file"
+
+  enable-seed-mining-nginx:
+    needs: deploy-seeds
+    runs-on: ubuntu-24.04
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - seed_name: seed1
+            seed_private_ip: 172.31.10.171
+            seed_instance_id: ${{ vars.TESTNET_SEED1_INSTANCE_ID }}
+            seed_fallback_instance_id: i-06e7ddb174e4941de
+          - seed_name: seed2
+            seed_private_ip: 172.31.32.195
+            seed_instance_id: ${{ vars.TESTNET_SEED2_INSTANCE_ID }}
+            seed_fallback_instance_id: ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+      - name: Resolve seed instance id
+        id: seed
+        run: |
+          set -euo pipefail
+          instance_id="$(bash deployment/testnet/resolve-seed-instance-id.sh \
+            "${{ matrix.seed_private_ip }}" \
+            "${{ matrix.seed_instance_id }}" \
+            "${{ matrix.seed_fallback_instance_id }}" 2>/dev/null || true)"
+          if [ -z "$instance_id" ]; then
+            echo "seed_instance_found=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Skipping ${{ matrix.seed_name }} nginx mining enablement — instance id unavailable"
+            exit 0
+          fi
+          echo "seed_instance_found=true" >> "$GITHUB_OUTPUT"
+          echo "instance_id=$instance_id" >> "$GITHUB_OUTPUT"
+      - name: Enable /v1/mining routes on seed nginx
+        if: steps.seed.outputs.seed_instance_found == 'true'
+        run: |
+          set -euo pipefail
+          remote_script_file="$(mktemp)"
+          {
+            echo 'set -euo pipefail'
+            printf 'export SEED_PRIVATE_IP=%q\n' "${{ matrix.seed_private_ip }}"
+            printf 'export SEED_RPC_SMOKE_URL=%q\n' "http://${{ matrix.seed_private_ip }}:29100"
+            cat deployment/testnet/remote-enable-seed-mining-nginx.sh
+          } > "$remote_script_file"
+          bash deployment/testnet/ssm-send-remote-script.sh \
+            "${{ steps.seed.outputs.instance_id }}" \
+            "Enable GPU mining nginx routes (${{ matrix.seed_name }})" \
+            "$remote_script_file" \
+            'seed_mining_nginx'
+          rm -f "$remote_script_file"
+
+  deploy-lambda:
+    runs-on: ubuntu-24.04
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Test and package Lambda
+        working-directory: deployment/testnet/public-rpc/lambda
+        run: |
+          npm install --ignore-scripts --no-audit --no-fund
+          npm test
+          mkdir -p "$GITHUB_WORKSPACE/build/public-rpc"
+          zip -q -9 -r "$GITHUB_WORKSPACE/build/public-rpc/sudharma-testnet-wallet-proxy.zip" \
+            index.mjs router.mjs upstream.mjs faucet.mjs faucet-funding.mjs faucet-runtime.mjs miner-wake.mjs visitor-runtime.mjs package.json node_modules
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::981626123397:role/Sudharma-GitHub-Actions-Testnet
+          aws-region: ap-south-1
+      - name: Deploy Lambda while preserving environment
+        run: |
+          set -euo pipefail
+          aws lambda get-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --query 'Environment.Variables' \
+            --output json > /tmp/lambda-environment-base.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const base = JSON.parse(fs.readFileSync('/tmp/lambda-environment-base.json', 'utf8')) ?? {};
+          fs.writeFileSync('/tmp/lambda-environment-preserve.json', JSON.stringify({ Variables: base }));
+          NODE
+          aws lambda update-function-code \
+            --function-name "$LAMBDA_NAME" \
+            --zip-file fileb://build/public-rpc/sudharma-testnet-wallet-proxy.zip \
+            --no-cli-pager >/dev/null
+          aws lambda wait function-updated --function-name "$LAMBDA_NAME"
+          aws lambda update-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --environment file:///tmp/lambda-environment-preserve.json \
+            --no-cli-pager >/dev/null
+          aws lambda wait function-updated --function-name "$LAMBDA_NAME"
+
+  verify-mining:
+    needs: [enable-seed-mining-nginx, deploy-lambda]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Verify public GPU mining routes
+        run: |
+          set -euo pipefail
+          address='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+          for attempt in $(seq 1 18); do
+            status_code="$(curl -sS -o /tmp/mining-work.json -w '%{http_code}' \
+              -X POST "$RPC_BASE_URL/v1/mining/work" \
+              -H 'content-type: application/json' \
+              --data "{\"address\":\"$address\"}")"
+            if [ "$status_code" = '200' ]; then
+              jq -e '.algorithm and (.block or (.header_prefix and .target))' /tmp/mining-work.json >/dev/null
+              cat /tmp/mining-work.json
+              echo '{"gpu_mining_live_deploy":"ok"}'
+              exit 0
+            fi
+            echo "attempt $attempt: mining work HTTP $status_code"
+            cat /tmp/mining-work.json || true
+            sleep 10
+          done
+          echo "GPU mining work did not become live on $RPC_BASE_URL" >&2
+          exit 1

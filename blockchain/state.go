@@ -14,15 +14,53 @@ type State struct {
 	accountNonces      map[string]uint64
 	developmentAddress string
 	issuedSupply       uint64
+	monetaryPolicy     params.MonetaryPolicy
 }
 
 func NewState() *State {
+	return NewStateFor(params.MonetaryPolicyPublicTestnet)
+}
+
+// NewStateFor creates chain state bound to one monetary policy for minting.
+func NewStateFor(policy params.MonetaryPolicy) *State {
+	if err := params.ValidateMonetaryPolicy(policy); err != nil {
+		panic(err)
+	}
 	return &State{
 		balances:           make(map[string]uint64),
 		processedTx:        make(map[string]bool),
 		accountNonces:      make(map[string]uint64),
 		developmentAddress: params.DevelopmentTreasuryAddress,
+		monetaryPolicy:     policy,
 	}
+}
+
+// MonetaryPolicy returns the hard-cap policy bound to this state.
+func (s *State) MonetaryPolicy() params.MonetaryPolicy {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.monetaryPolicy
+}
+
+// EnsureMonetaryPolicy rejects block processing when policy does not match.
+func (s *State) EnsureMonetaryPolicy(policy params.MonetaryPolicy) error {
+	if err := params.ValidateMonetaryPolicy(policy); err != nil {
+		return err
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.monetaryPolicy != policy {
+		return fmt.Errorf(
+			"monetary policy mismatch: state=%d block=%d",
+			s.monetaryPolicy,
+			policy,
+		)
+	}
+
+	return nil
 }
 
 func (s *State) SetDevelopmentAddress(address string) {
@@ -195,20 +233,45 @@ func (s *State) IssuedSupply() uint64 {
 	return s.issuedSupply
 }
 
-// MintSupply increases issued supply while enforcing MaxSupply.
+// MintSupply increases issued supply while enforcing this state's monetary
+// policy hard cap.
 func (s *State) MintSupply(amount uint64) error {
+	s.mu.RLock()
+	policy := s.monetaryPolicy
+	s.mu.RUnlock()
+
+	return s.MintSupplyFor(policy, amount)
+}
+
+// MintSupplyFor increases issued supply while enforcing the selected
+// monetary policy's hard cap. The policy must match the state's bound policy.
+func (s *State) MintSupplyFor(policy params.MonetaryPolicy, amount uint64) error {
+	if err := params.ValidateMonetaryPolicy(policy); err != nil {
+		return err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.monetaryPolicy != policy {
+		return fmt.Errorf(
+			"monetary policy mismatch: state=%d mint=%d",
+			s.monetaryPolicy,
+			policy,
+		)
+	}
 
 	if amount == 0 {
 		return nil
 	}
 
-	if s.issuedSupply > params.MaxSupply {
+	maxSupply := params.MaxSupplyFor(policy)
+
+	if s.issuedSupply > maxSupply {
 		return fmt.Errorf("issued supply already exceeds max supply")
 	}
 
-	remaining := params.MaxSupply - s.issuedSupply
+	remaining := maxSupply - s.issuedSupply
 
 	if amount > remaining {
 		return fmt.Errorf(
@@ -231,6 +294,7 @@ func (s *State) Clone() *State {
 		accountNonces:      make(map[string]uint64, len(s.accountNonces)),
 		developmentAddress: s.developmentAddress,
 		issuedSupply:       s.issuedSupply,
+		monetaryPolicy:     s.monetaryPolicy,
 	}
 
 	for address, balance := range s.balances {
@@ -284,6 +348,7 @@ func (s *State) ReplaceWith(other *State) error {
 
 	newDevelopmentAddress := other.developmentAddress
 	newIssuedSupply := other.issuedSupply
+	newMonetaryPolicy := other.monetaryPolicy
 
 	other.mu.RUnlock()
 
@@ -295,6 +360,7 @@ func (s *State) ReplaceWith(other *State) error {
 	s.accountNonces = newAccountNonces
 	s.developmentAddress = newDevelopmentAddress
 	s.issuedSupply = newIssuedSupply
+	s.monetaryPolicy = newMonetaryPolicy
 
 	return nil
 }

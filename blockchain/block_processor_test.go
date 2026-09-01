@@ -204,7 +204,7 @@ func TestProcessBlock(t *testing.T) {
 }
 
 func TestProcessBlockForMainnetCreditsMainnetSubsidy(t *testing.T) {
-	state := NewState()
+	state := NewStateFor(params.MonetaryPolicyMainnet)
 	block := &Block{Height: 1}
 	want, err := consensus.BlockSubsidyFor(params.MonetaryPolicyMainnet, 1)
 	if err != nil {

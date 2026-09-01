@@ -8,6 +8,7 @@ on:
   pull_request:
     branches:
       - main
+      - cursor/mainnet-tokenomics-v1-8441
 
 permissions:
   contents: read
@@ -53,11 +54,35 @@ jobs:
       - name: Verify explorer API contract
         run: bash ./scripts/check-explorer-api-contract_test.sh
 
+      - name: Verify GPU mining API contract
+        run: bash ./scripts/check-mining-api-contract_test.sh
+
+      - name: Verify pool mining contract
+        run: bash ./scripts/check-pool-mining-contract_test.sh
+
+      - name: Verify mining readiness contract
+        run: bash ./scripts/check-mining-readiness-contract_test.sh
+
+      - name: Run pool mining smoke tests
+        run: bash ./scripts/pool-mining-smoke_test.sh
+
       - name: Verify testnet RC readiness contract
         run: bash ./scripts/check-testnet-rc-readiness_test.sh
 
       - name: Verify testnet go-live operator toolkit
         run: bash ./scripts/check-testnet-go-live-readiness_test.sh
+
+      - name: Verify mainnet readiness contract
+        run: bash ./scripts/check-mainnet-readiness-contract_test.sh
+
+      - name: Verify mainnet go-live operator toolkit
+        run: bash ./scripts/check-mainnet-go-live-readiness_test.sh
+
+      - name: Verify mainnet merge review contract
+        run: bash ./scripts/check-mainnet-merge-review-contract_test.sh
+
+      - name: Run mainnet monetary rehearsal
+        run: bash ./scripts/mainnet-monetary-rehearsal.sh
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -90,6 +115,10 @@ jobs:
           set -euo pipefail
           go build -trimpath -o "$RUNNER_TEMP/sudharma-demand-miner" ./cmd/sudharma-demand-miner
           go build -trimpath -o "$RUNNER_TEMP/sudharmad" ./cmd/sudharmad
+          go build -trimpath -o "$RUNNER_TEMP/sudharma-mainnet-readiness" ./cmd/sudharma-mainnet-readiness
+          go build -trimpath -o "$RUNNER_TEMP/sudharma-mainnet-genesis-info" ./cmd/sudharma-mainnet-genesis-info
+          go build -trimpath -o "$RUNNER_TEMP/sudharma-miner" ./cmd/sudharma-miner
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -o "$RUNNER_TEMP/sudharma-miner.exe" ./cmd/sudharma-miner
 
       - name: Run demand-miner installer safety test
         run: bash deployment/testnet/install-demand-miner_test.sh

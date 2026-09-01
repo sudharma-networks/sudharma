@@ -10,7 +10,8 @@ const TOPICS = {
   wallets: { title: "Wallet Integration", text: "Wallet integrations should isolate signing material from public services, validate destinations and never transmit seed phrases or private keys to website infrastructure." },
   payments: { title: "Payment Integration", text: "Payment applications should create and track transactions through documented public interfaces and clearly distinguish testnet state from future mainnet state." },
   contributing: { title: "Contributing", text: "Use focused changes, tests and review. Security-sensitive reports belong in the repository security process rather than public issue content when disclosure could create risk." },
-  protocol: { title: "Protocol", text: "The protocol combines Proof of Work, block and transaction validation, cumulative-work chain selection, peer synchronization, mempool handling and deterministic state transitions." }
+  protocol: { title: "Protocol", text: "The protocol combines Proof of Work, block and transaction validation, cumulative-work chain selection, peer synchronization, mempool handling and deterministic state transitions." },
+  mining: { title: "GPU Mining Integration", text: "Sudharma GPU mining uses POST /v1/mining/work and /v1/mining/submit for solo mining, or Stratum v1 through pool operators (PPS, PPLNS, SOLO, FPPS). CPU and ASIC backends are rejected. Mainnet mining stays gated until MainnetMiningAuthorized." }
 } as const;
 type Topic = keyof typeof TOPICS;
 export function generateStaticParams() { return Object.keys(TOPICS).map((topic) => ({ topic })); }

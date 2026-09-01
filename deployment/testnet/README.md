@@ -17,9 +17,14 @@ The container runs as an unprivileged `sudharma` user, drops Linux capabilities 
 - `sudharma-testnet.service`: hardened systemd alternative for a native binary installation.
 - `nginx-rpc.example.conf`: HTTPS/rate-limited RPC reverse-proxy starting point.
 - `demand-miner.example.json`: non-secret, testnet-only demand-miner configuration.
+- `gpu-miner.example.json`: non-secret GPU miner configuration using the same public-testnet seed-1/seed-2 RPC path as the wallet and explorer proxy.
+- `sudharma-pool.service`: disabled-by-default reference pool operator unit (Stratum on `:3333`).
+- `pool.example.json`: reference pool operator JSON config for PPS/PPLNS/SOLO/FPPS modes.
+- `gpu-miner.seed1-live.example.json` / `gpu-miner.seed2-live.example.json`: live-testnet GPU miner templates aligned with the demand-miner seed host naming.
 - `sudharma-demand-miner.service`: disabled-by-default hardened supervisor service.
 - `install-demand-miner.sh`: idempotent installer with optional explicit activation.
-- `install-demand-miner_test.sh`: staged installer and hardening safety checks.
+- `install-pool-operator.sh`: idempotent pool operator installer (disabled by default).
+- `install-pool-operator_test.sh`: installer safety checks for pool operator assets.
 
 ## Preflight
 
@@ -161,3 +166,58 @@ sudo bash deployment/testnet/install-demand-miner.sh --rollback
 ```
 
 The configured reward address is public and contains no key material, wallet password, seed phrase, or other credential. Do not add private wallet material to the configuration or service environment.
+
+## GPU miner (parallel to demand miner)
+
+The GPU miner is separate from the demand miner. It uses the same public-testnet seed-1 and seed-2 RPC path as the wallet, explorer, and faucet:
+
+- `seed1_rpc_url`: `http://172.31.10.171:29100`
+- `seed2_rpc_url`: `http://172.31.32.195:29100`
+- `public_rpc_url`: `https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com`
+
+Windows one-click builds connect through the public proxy first and fail over to the seed RPC endpoints when reachable. Operator configs live beside the demand-miner templates:
+
+- `gpu-miner.example.json`
+- `gpu-miner.seed1-live.example.json`
+- `gpu-miner.seed2-live.example.json`
+
+Run with an explicit config when testing from a seed host or staging environment:
+
+```bash
+go run ./cmd/sudharma-miner --config ./deployment/testnet/gpu-miner.example.json --address YOUR_WALLET_ADDRESS --probe
+```
+
+Block rewards always go to the configured wallet address. This service never uses the demand-miner reward address or mining APIs.
+
+## Pool mining (Stratum v1)
+
+Reference pool operator stack for PPS/PPLNS/SOLO/FPPS payout modes:
+
+- `pool.example.json` — operator config for `cmd/sudharma-pool`
+- `gpu-miner-pool.example.json` — worker config for Stratum clients
+
+Operator smoke:
+
+```bash
+go run ./cmd/sudharma-pool -config ./deployment/testnet/pool.example.json
+bash ./scripts/pool-mining-smoke_test.sh
+```
+
+Worker (solo machine or rig):
+
+```bash
+go run ./cmd/sudharma-miner \
+  -config ./deployment/testnet/gpu-miner-pool.example.json \
+  -address YOUR_WALLET_ADDRESS \
+  -auto
+```
+
+Workers use login `wallet.worker` over Stratum. See `docs/audits/2026-08-31-pool-mining-architecture.md`.
+
+Install the reference pool operator (disabled by default). Full steps: `pool-operator-runbook.md`.
+
+```bash
+go build -trimpath -o ./sudharma-pool ./cmd/sudharma-pool
+sudo useradd --system --home /nonexistent --shell /usr/sbin/nologin sudharma-pool 2>/dev/null || true
+sudo SUDHARMA_POOL_BIN="$PWD/sudharma-pool" bash ./deployment/testnet/install-pool-operator.sh
+```

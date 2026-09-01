@@ -78,7 +78,25 @@ func main() {
 		"create one valid funded pending transaction and leave it in the mempool",
 	)
 
+	networkName := flag.String(
+		"network",
+		"public-testnet",
+		"network to join: public-testnet (default). mainnet is refused until launch is authorized",
+	)
+
 	flag.Parse()
+
+	network, err := params.ParseNetwork(*networkName)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	monetaryPolicy, err := params.MonetaryPolicyFor(network)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	p2p.SetLocalNetworkID(network)
 
 	fmt.Println("===================================")
 	fmt.Println("          Sudharma Network Node")
@@ -116,14 +134,21 @@ func main() {
 		)
 
 	if err == nil {
+		if err := blockchain.ValidateChainGenesis(loadedChain, network); err != nil {
+			fmt.Println("Refusing to load blockchain for network mismatch:", err)
+			return
+		}
 		chain = loadedChain
 
 		fmt.Println(
 			"Existing blockchain loaded.",
 		)
 	} else {
-		chain =
-			blockchain.NewChain()
+		chain, err = blockchain.NewChainFor(network)
+		if err != nil {
+			fmt.Println("Failed to create genesis chain:", err)
+			return
+		}
 
 		fmt.Println(
 			"No existing blockchain found.",
@@ -201,6 +226,7 @@ func main() {
 			rebuiltState, err :=
 				rebuildStateFromChain(
 					chain,
+					monetaryPolicy,
 				)
 
 			if err != nil {
@@ -268,6 +294,11 @@ func main() {
 	// =================================================
 
 	fmt.Println()
+
+	fmt.Printf(
+		"Network:    %s\n",
+		network,
+	)
 
 	fmt.Printf(
 		"Coin:       %s (%s)\n",
@@ -1362,6 +1393,7 @@ func rememberKnownPeer(
 // from every non-genesis block in the blockchain.
 func rebuildStateFromChain(
 	chain *blockchain.Chain,
+	policy params.MonetaryPolicy,
 ) (*blockchain.State, error) {
 
 	if chain == nil {
@@ -1398,8 +1430,9 @@ func rebuildStateFromChain(
 		}
 
 		if _, err :=
-			blockchain.ProcessBlock(
+			blockchain.ProcessBlockFor(
 				state,
+				policy,
 				block,
 				block.MinerAddress,
 			); err != nil {

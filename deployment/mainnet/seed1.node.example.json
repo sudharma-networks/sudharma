@@ -1,0 +1,10 @@
+{
+  "node_id": "mainnet-seed-1",
+  "p2p_address": "0.0.0.0:28444",
+  "rpc_address": "0.0.0.0:28545",
+  "peers": ["seed2.REPLACE_WITH_REAL_DOMAIN:28444"],
+  "data_directory": "/var/lib/sudharma",
+  "log_json": true,
+  "metrics": true,
+  "persist_every": "30s"
+}
