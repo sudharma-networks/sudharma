@@ -72,6 +72,35 @@ func TestMempoolCachedBytesTrackAddRemoveAndClear(t *testing.T) {
 	}
 }
 
+func TestMempoolRemovalUsesInsertionMetadataAfterPointerMutation(t *testing.T) {
+	pool := NewMempool()
+	sender, err := wallet.NewWallet()
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiver, err := wallet.NewWallet()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tx := signedPendingTransaction(t, sender, receiver.Address, 1)
+	if err := pool.AddTransaction(tx); err != nil {
+		t.Fatal(err)
+	}
+
+	originalSender := tx.From
+	tx.From = receiver.Address
+	tx.Signature = nil
+	pool.RemoveTransaction(tx.ID)
+
+	if got := pool.TotalEstimatedBytes(); got != 0 {
+		t.Fatalf("cached bytes after mutated-pointer removal = %d, want 0", got)
+	}
+	if got := pool.CountForSender(originalSender); got != 0 {
+		t.Fatalf("original sender index retained %d entries after removal", got)
+	}
+}
+
 func TestTransactionsForSenderIsIsolatedAndNonceOrdered(t *testing.T) {
 	pool := NewMempool()
 	senderA, err := wallet.NewWallet()
