@@ -21,7 +21,7 @@ Tracking PR: #99
 
 **Mainnet: NO-GO.** Mainnet must remain fail-closed until the evidence gates in this report are complete.
 
-This pass has confirmed four High-severity findings. IS-001 has been fixed on the audit branch with regression coverage and passing CI. IS-004 and IS-005 have fixes on stacked PRs with regression coverage and passing CI. IS-009 remains an open High pre-mainnet blocker covering mempool/transaction resource economics. Two Medium implementation findings, IS-002 and IS-006, have been fixed with RED/GREEN or regression evidence and passing CI. IS-003 remains an open consensus-source-of-truth decision.
+This pass has confirmed four High-severity findings. IS-001, IS-004, IS-005 and IS-009 have fixes on stacked PRs with regression coverage and passing CI. Two Medium implementation findings, IS-002 and IS-006, have been fixed with RED/GREEN or regression evidence and passing CI. IS-003 is resolved with an owner-approved source-of-truth document.
 
 No claim is made that absence of additional findings proves absence of vulnerabilities.
 
@@ -94,15 +94,18 @@ The baseline checked sender debit errors but discarded receiver and development-
 
 ### IS-003 — MEDIUM — Testnet 51B vs mainnet 51M source-of-truth ambiguity
 
-**Status: OPEN — GitHub #101.**
+**Status: RESOLVED — GitHub #101 — owner-approved source-of-truth recorded.**
 
-The code separates monetary policies: development/public-testnet legacy policy uses a 51,000,000,000 SUDH hard cap while the current mainnet candidate policy encodes 51,000,000 SUDH. Top-level wording is not yet fully consistent.
+The code already separates monetary policies: public testnet uses a 51,000,000,000 SUDH hard cap while the mainnet candidate policy encodes 51,000,000 SUDH. This pass records an explicit owner-approved source-of-truth document so reviewers do not conflate the two caps.
 
-No confirmed mint-cap bypass was identified in this pass, but this is consensus-critical configuration/documentation risk. The intended mainnet cap and emission schedule must be explicitly approved and consistently documented before genesis freeze.
+**Evidence:**
+
+- `docs/audits/2026-09-01-tokenomics-source-of-truth-kk.md`
+- code constants in `params/params.go` and `params/monetary.go`
 
 ### IS-004 — HIGH — Transaction signatures are not domain-separated by network/chain
 
-**Status: FIXED ON PR pending merge; GitHub #102 — awaiting merge.**
+**Status: FIXED ON PR #106; GitHub #102 — awaiting merge.**
 
 The baseline signed only the transaction ID. Separate P2P network IDs prevented peer mixing but not cross-network transaction replay when the same key existed on both networks.
 
@@ -117,7 +120,7 @@ The baseline signed only the transaction ID. Separate P2P network IDs prevented 
 **Evidence:**
 
 - plan: `docs/superpowers/plans/2026-09-01-network-bound-signatures.md`
-- branch: `cursor/security-network-signatures-8441`
+- PR #106 (`cursor/security-network-signatures-8441`)
 
 ### IS-005 — HIGH — Generic block/reorg/miner paths still route through public-testnet monetary processing
 
@@ -169,23 +172,22 @@ The reviewed encrypted-wallet implementation uses random salt, scrypt, AES-256-G
 
 ### IS-009 — HIGH — Unbounded mempool + zero-fee dust + weak transaction resource bounds
 
-**Status: OPEN — GitHub #104 — MAINNET BLOCKER; PUBLIC-TESTNET ABUSE RISK.**
+**Status: FIXED ON PR pending merge; GitHub #104 — awaiting merge.**
 
-The current mempool has no hard transaction-count or total-byte capacity. Candidate admission copies, sorts and replays the complete pending transaction set before validating each new candidate, causing admission cost to increase with mempool size. Because fee arithmetic floors basis points, transfers below 1000 atomic units can have zero total fee. Transaction consensus validation also does not currently constrain the receiver to the canonical 40-lowercase-hex address representation or a small fixed size.
+The baseline mempool had no hard capacity, admission replayed the full pending set for each candidate, sub-1000 atomic transfers could pay zero fee, and receiver addresses were not constrained to the canonical 40-hex form at consensus validation.
 
-A funded attacker can therefore create long sequences of very low-value/zero-fee valid transactions with resource cost to nodes that is disproportionate to attacker fee cost. Large signed receiver strings can further amplify memory, persistence and relay cost and can create unspendable state entries.
+**Remediation:**
 
-Required remediation before mainnet:
+- canonical address validation for `From`/`To`
+- dust minimum transfer amount (`1000` atomic units)
+- bounded mempool transaction count and estimated byte capacity with early rejection
+- block transaction count and byte limits
+- adversarial regression tests for dust, oversized addresses and mempool capacity
 
-- canonical address validation in transaction consensus rules
-- maximum serialized transaction size and explicit block transaction/byte limits
-- bounded mempool count/bytes with early rejection before expensive pending-set replay
-- indexed/incremental admission logic so sustained validation does not become quadratic
-- explicit dust/minimum-fee or minimum-transfer policy, including a deliberate decision about zero-fee transfers
-- adversarial load tests for mempool-full, oversized transaction/address and sequential dust behavior
-- peer/RPC abuse controls that do not make consensus depend on local wall-clock rate limits
+**Evidence:**
 
-This is not patched in PR #99 because parts of the remediation are consensus/economic-policy decisions and need deliberate activation semantics.
+- plan: `docs/superpowers/plans/2026-09-01-mempool-resource-bounds.md`
+- branch: `cursor/security-mempool-bounds-8441`
 
 ## CI / engineering evidence
 
@@ -214,7 +216,7 @@ The final PR head/workflow IDs must be recorded again immediately before merge.
 `MainnetSecurityReviewEvidenceComplete` must remain `false` until all of the following are satisfied:
 
 - [ ] No open Critical findings.
-- [ ] No open High findings, including #102, #103 and #104.
+- [ ] No open High findings, including #102, #103 and #104 (fixes landed on stacked PRs; merge pending).
 - [ ] Every Medium finding is fixed or explicitly risk-accepted with written technical evidence.
 - [ ] Full repository tests, race detector and required adversarial/security gates pass on the final candidate commit.
 - [ ] Consensus/fork/reorg/difficulty/timestamp regression suite passes on the frozen candidate.

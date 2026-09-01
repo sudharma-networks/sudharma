@@ -144,7 +144,7 @@ func TestExplorerRecentBlocksAndLookupByHeightOrHash(t *testing.T) {
 
 func TestExplorerConfirmedAndPendingTransactionStatus(t *testing.T) {
 	server, node, chain, state := newTestServer(t)
-	confirmed := transactions.NewTransaction("1111111111111111111111111111111111111111", "2222222222222222222222222222222222222222", 25, 1)
+	confirmed := transactions.NewTransaction("1111111111111111111111111111111111111111", "2222222222222222222222222222222222222222", params.MinTransferAmount, 1)
 	block := addExplorerRPCBlock(t, chain, confirmed)
 
 	confirmedResponse := request(t, server, http.MethodGet, "/v1/explorer/transactions/"+confirmed.ID, nil, "")
@@ -199,8 +199,8 @@ func TestExplorerAddressDetailsAndHistory(t *testing.T) {
 	if err := state.SetAccountNonce(address, 3); err != nil {
 		t.Fatal(err)
 	}
-	incoming := transactions.NewTransaction("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", address, 50, 1)
-	outgoing := transactions.NewTransaction(address, "cccccccccccccccccccccccccccccccccccccccc", 20, 4)
+	incoming := transactions.NewTransaction("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", address, params.MinTransferAmount, 1)
+	outgoing := transactions.NewTransaction(address, "cccccccccccccccccccccccccccccccccccccccc", params.MinTransferAmount, 4)
 	addExplorerRPCBlock(t, chain, incoming, outgoing)
 
 	response := request(t, server, http.MethodGet, "/v1/explorer/addresses/"+address+"?limit=10", nil, "")
@@ -225,7 +225,7 @@ func TestExplorerAddressDetailsAndHistory(t *testing.T) {
 func TestExplorerSearchResolvesBlockTransactionAndAddress(t *testing.T) {
 	server, _, chain, _ := newTestServer(t)
 	address := "dddddddddddddddddddddddddddddddddddddddd"
-	tx := transactions.NewTransaction(address, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", 5, 1)
+	tx := transactions.NewTransaction(address, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", params.MinTransferAmount, 1)
 	block := addExplorerRPCBlock(t, chain, tx)
 
 	cases := []struct {
