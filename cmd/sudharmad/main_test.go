@@ -25,7 +25,7 @@ func TestMainRejectsUnauthorizedMainnetNetwork(t *testing.T) {
 
 func TestLoadChainForNetworkUsesExplicitIdentity(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mainnet-chain.json")
-	data, err := json.Marshal([]*blockchain.Block{*blockchain.NewMainnetGenesisBlock()})
+	data, err := json.Marshal([]*blockchain.Block{blockchain.NewMainnetGenesisBlock()})
 	if err != nil {
 		t.Fatal(err)
 	}
