@@ -55,6 +55,7 @@ type errorResponse struct {
 }
 type statusResponse struct {
 	Network      string `json:"network"`
+	NetworkID    string `json:"network_id"`
 	Coin         string `json:"coin"`
 	Symbol       string `json:"symbol"`
 	NodeID       string `json:"node_id"`
@@ -197,7 +198,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	height, tip := s.node.AdvertisedChainStatus()
-	writeJSON(w, http.StatusOK, statusResponse{Network: "sudharma", Coin: params.CoinName, Symbol: params.CoinSymbol, NodeID: s.node.NodeID, P2PAddress: s.node.ListenAddress, Height: height, TipHash: tip, TotalWork: s.chain.TotalWork().String(), Peers: s.node.PeerCount(), Mempool: s.node.MempoolCount(), IssuedSupply: s.state.IssuedSupply()})
+	writeJSON(w, http.StatusOK, statusResponse{Network: "sudharma", NetworkID: string(s.chain.Network()), Coin: params.CoinName, Symbol: params.CoinSymbol, NodeID: s.node.NodeID, P2PAddress: s.node.ListenAddress, Height: height, TipHash: tip, TotalWork: s.chain.TotalWork().String(), Peers: s.node.PeerCount(), Mempool: s.node.MempoolCount(), IssuedSupply: s.state.IssuedSupply()})
 }
 func (s *Server) handleBlock(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
