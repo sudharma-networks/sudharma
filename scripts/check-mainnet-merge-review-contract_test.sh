@@ -14,6 +14,7 @@ for path in \
   docs/audits/2026-08-31-mainnet-merge-review-checklist.md \
   docs/audits/2026-08-31-pr76-reviewer-summary.md \
   docs/audits/2026-08-31-pr77-reviewer-summary.md \
+  docs/audits/2026-08-31-owner-signoff-templates.md \
   docs/audits/2026-08-31-mainnet-genesis-freeze-template.md \
   docs/audits/2026-08-31-security-audit-evidence-template.md \
   deployment/mainnet/OPERATOR-CHECKLIST.md \
