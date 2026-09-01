@@ -24,8 +24,11 @@ for file in \
   deployment/mainnet/nginx-rpc.example.conf \
   deployment/mainnet/docker-compose.example.yml \
   deployment/mainnet/sudharma-mainnet.service \
+  deployment/testnet/install-pool-operator.sh \
+  deployment/testnet/remote-install-sudharma-pool-from-url.sh \
   docs/audits/2026-08-31-mainnet-launch-operator-runbook.md \
-  docs/audits/2026-08-31-mainnet-gpu-mining-architecture.md; do
+  docs/audits/2026-08-31-mainnet-gpu-mining-architecture.md \
+  docs/audits/2026-08-31-pool-mining-architecture.md; do
   require_file "$file"
 done
 

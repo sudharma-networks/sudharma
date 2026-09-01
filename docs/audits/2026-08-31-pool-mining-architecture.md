@@ -77,6 +77,21 @@ Point GPU miners at the pool with Stratum:
 
 Or copy `deployment/testnet/gpu-miner-pool.example.json` and run `./sudharma-miner -config gpu-miner-pool.local.json -auto`.
 
+go run ./cmd/sudharma-pool -config deployment/testnet/pool.example.json -probe
+```
+
+Upgrade an installed pool binary from a presigned S3 URL:
+
+```bash
+sudo SUDHARMA_POOL_BIN_URL="$PRESIGNED_URL" bash deployment/testnet/remote-install-sudharma-pool-from-url.sh
+```
+
+Mining stack readiness:
+
+```bash
+go run ./cmd/sudharma-mining-readiness
+```
+
 CLI flags (without config file):
 
 ```bash

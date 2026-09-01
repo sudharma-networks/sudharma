@@ -13,6 +13,7 @@ require_file() {
 for path in \
   params/network.go \
   params/readiness.go \
+  params/mining_readiness.go \
   params/monetary.go \
   params/mainnet_emission.go \
   docs/audits/2026-08-31-mainnet-readiness.md \
@@ -51,5 +52,11 @@ fi
 if grep -R --line-number 'MainnetLaunchAuthorized = true' params cmd blockchain 2>/dev/null; then
   fail 'mainnet launch must not be authorized in this freeze branch'
 fi
+
+grep -Fq 'func MiningReadiness()' params/mining_readiness.go \
+  || fail 'mining readiness gates must be encoded in params/mining_readiness.go'
+
+grep -Fq 'MiningStackReady' cmd/sudharma-mining-readiness/main.go \
+  || fail 'sudharma-mining-readiness command must exist'
 
 printf 'PASS: mainnet readiness contract is present\n'

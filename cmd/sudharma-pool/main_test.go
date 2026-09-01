@@ -33,3 +33,14 @@ func TestResolvePoolConfigRequiresRPC(t *testing.T) {
 		t.Fatal("expected rpc requirement error")
 	}
 }
+
+func TestProbeModeUsesEngine(t *testing.T) {
+	if err := run([]string{
+		"-network", "public-testnet",
+		"-rpc", "http://127.0.0.1:1",
+		"-payout-address", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"-probe",
+	}); err == nil {
+		t.Fatal("expected probe failure against unreachable RPC")
+	}
+}

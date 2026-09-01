@@ -45,4 +45,6 @@ bash ./scripts/mainnet-monetary-rehearsal.sh
 bash ./scripts/check-mainnet-readiness-contract_test.sh
 bash ./scripts/check-mainnet-go-live-readiness_test.sh
 bash ./scripts/check-pool-mining-contract_test.sh
+bash ./scripts/check-mining-readiness-contract_test.sh
+go run ./cmd/sudharma-mining-readiness
 ```

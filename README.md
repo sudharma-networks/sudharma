@@ -108,8 +108,14 @@ transactions/   Transaction structures and validation
 wallet/         Wallet and key-management code
 
 cmd/
-  sudharmad/        Sudharma Network node
-  sudharma-wallet/  Sudharma wallet CLI
+  sudharmad/                 Sudharma Network node
+  sudharma-wallet/           Sudharma wallet CLI
+  sudharma-miner/            GPU miner (solo + Stratum pool worker)
+  sudharma-pool/             Reference Stratum pool operator
+  sudharma-mining-readiness/ Mining stack readiness report
+
+gpuminer/       GPU miner client library and Stratum worker
+pool/           Pool share validation and payout ledgers (PPS/PPLNS/SOLO/FPPS)
 
 assets/         Official project assets
 ```
@@ -161,6 +167,24 @@ go run ./cmd/sudharmad -nodeid node-b -listen 127.0.0.1:18701 -peer 127.0.0.1:18
 ```
 
 Runtime blockchain data and private wallet files should never be committed to source control.
+
+## GPU Mining (public-testnet)
+
+Sudharma GPU mining is **GPU-only** (`sudharma-gpupow-v1`). CPU and ASIC mining are rejected.
+
+| Mode | Command |
+| --- | --- |
+| Solo | `go run ./cmd/sudharma-miner --address YOUR_WALLET` |
+| Pool worker | `go run ./cmd/sudharma-miner -stratum stratum+tcp://POOL:3333 -worker rig1` |
+| Pool operator | `go run ./cmd/sudharma-pool -config deployment/testnet/pool.example.json` |
+
+Readiness report:
+
+```bash
+go run ./cmd/sudharma-mining-readiness
+```
+
+Mainnet mining stays closed until launch. See `docs/audits/2026-08-31-pool-mining-architecture.md`.
 
 ## Wallet
 
