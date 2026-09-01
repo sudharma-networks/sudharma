@@ -2,7 +2,9 @@
 
 **Important:** Sudharma cannot close the `independent-security-audit` gate without a **signed report from an independent third party**. An automated agent cannot hire firms, send email from your account, or substitute for that review.
 
-This pack gives you **copy-paste emails** and **contact links** so you can reach auditors in about 10 minutes from your own email (`kk@…` or project email).
+This pack gives you **copy-paste emails** and **contact links** so you can reach auditors in about 10 minutes from your own email.
+
+**Tight budget?** Use `docs/audits/2026-09-01-security-audit-budget-outreach-kk.md` (phased quotes, university path, free office hours).
 
 ---
 
