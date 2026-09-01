@@ -1,0 +1,31 @@
+name: Step 3 Apply Transaction Admission Patch
+
+on:
+  push:
+    branches:
+      - security/mempool-admission-bounds
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: security/mempool-admission-bounds
+          fetch-depth: 0
+      - name: Apply exact patches
+        run: python3 scripts/step3_patch_transaction_admission.py
+      - name: Verify focused diff and remove temporary patch machinery
+        run: |
+          git diff --check
+          git diff -- p2p/node.go p2p/reorg_mempool.go
+          git rm scripts/step3_patch_transaction_admission.py .github/workflows/step3-apply-transaction-admission.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add p2p/node.go p2p/reorg_mempool.go
+          git commit -m "security: route peer and reorg admission through bounded paths"
+          git push origin HEAD:security/mempool-admission-bounds
