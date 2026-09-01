@@ -9,12 +9,19 @@ import (
 	"github.com/sudharma-networks/sudharma/transactions"
 )
 
+type entryMetadata struct {
+	sender string
+	nonce  uint64
+	size   int
+}
+
 // Mempool stores pending Sudharma Network transactions that have not yet been
 // included in a block. Resource accounting and sender/nonce indexes are kept
 // alongside the ID map so admission checks do not rescan the full pool.
 type Mempool struct {
 	mu                  sync.RWMutex
 	transactions        map[string]*transactions.Transaction
+	metadata            map[string]entryMetadata
 	totalEstimatedBytes int
 	senderNonces        map[string]map[uint64]string
 }
@@ -23,6 +30,7 @@ type Mempool struct {
 func NewMempool() *Mempool {
 	return &Mempool{
 		transactions: make(map[string]*transactions.Transaction),
+		metadata:     make(map[string]entryMetadata),
 		senderNonces: make(map[string]map[uint64]string),
 	}
 }
@@ -67,6 +75,9 @@ func (m *Mempool) AddTransaction(tx *transactions.Transaction) error {
 	if m.transactions == nil {
 		m.transactions = make(map[string]*transactions.Transaction)
 	}
+	if m.metadata == nil {
+		m.metadata = make(map[string]entryMetadata)
+	}
 	if m.senderNonces == nil {
 		m.senderNonces = make(map[string]map[uint64]string)
 	}
@@ -74,9 +85,15 @@ func (m *Mempool) AddTransaction(tx *transactions.Transaction) error {
 		m.senderNonces[tx.From] = make(map[uint64]string)
 	}
 
+	meta := entryMetadata{
+		sender: tx.From,
+		nonce:  tx.Nonce,
+		size:   tx.EstimatedSerializedSize(),
+	}
 	m.transactions[tx.ID] = tx
-	m.senderNonces[tx.From][tx.Nonce] = tx.ID
-	m.totalEstimatedBytes += tx.EstimatedSerializedSize()
+	m.metadata[tx.ID] = meta
+	m.senderNonces[meta.sender][meta.nonce] = tx.ID
+	m.totalEstimatedBytes += meta.size
 	return nil
 }
 
@@ -141,31 +158,37 @@ func (m *Mempool) TransactionsForSender(sender string) []*transactions.Transacti
 }
 
 // RemoveTransaction removes a transaction from the mempool and updates the
-// cached resource/sender indexes atomically.
+// cached resource/sender indexes atomically. Metadata captured at insertion is
+// used so an accidentally mutated transaction pointer cannot corrupt accounting.
 func (m *Mempool) RemoveTransaction(id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	tx, exists := m.transactions[id]
-	if !exists {
+	if _, exists := m.transactions[id]; !exists {
 		return
 	}
 	delete(m.transactions, id)
 
-	if tx != nil {
-		size := tx.EstimatedSerializedSize()
-		if size >= m.totalEstimatedBytes {
-			m.totalEstimatedBytes = 0
-		} else {
-			m.totalEstimatedBytes -= size
+	meta, ok := m.metadata[id]
+	if !ok {
+		// Every supported insertion path records metadata. If an impossible
+		// inconsistent zero-value/manual state is observed, fail closed by
+		// removing the ID while leaving accounting untouched rather than guessing.
+		return
+	}
+	delete(m.metadata, id)
+
+	if meta.size >= m.totalEstimatedBytes {
+		m.totalEstimatedBytes = 0
+	} else {
+		m.totalEstimatedBytes -= meta.size
+	}
+	if nonces := m.senderNonces[meta.sender]; nonces != nil {
+		if indexedID, exists := nonces[meta.nonce]; exists && indexedID == id {
+			delete(nonces, meta.nonce)
 		}
-		if nonces := m.senderNonces[tx.From]; nonces != nil {
-			if indexedID, ok := nonces[tx.Nonce]; ok && indexedID == id {
-				delete(nonces, tx.Nonce)
-			}
-			if len(nonces) == 0 {
-				delete(m.senderNonces, tx.From)
-			}
+		if len(nonces) == 0 {
+			delete(m.senderNonces, meta.sender)
 		}
 	}
 }
@@ -218,6 +241,7 @@ func (m *Mempool) Clear() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.transactions = make(map[string]*transactions.Transaction)
+	m.metadata = make(map[string]entryMetadata)
 	m.senderNonces = make(map[string]map[uint64]string)
 	m.totalEstimatedBytes = 0
 }
