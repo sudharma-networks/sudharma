@@ -30,9 +30,33 @@ func NewChainFor(network params.NetworkID) (*Chain, error) {
 	if err != nil {
 		return nil, err
 	}
+	return newChainFromGenesisForNetwork(network, genesis)
+}
+
+// newChainFromGenesisForNetwork builds a validation-only chain from the
+// canonical genesis for network. Unlike NewChainFor, it does not authorize
+// runtime mainnet launch; callers must already possess the expected genesis.
+func newChainFromGenesisForNetwork(network params.NetworkID, genesis *Block) (*Chain, error) {
+	if genesis == nil {
+		return nil, fmt.Errorf("genesis block cannot be nil")
+	}
 	if _, err := params.MonetaryPolicyFor(network); err != nil {
 		return nil, err
 	}
+
+	var expected *Block
+	switch network {
+	case params.NetworkPublicTestnet:
+		expected = NewGenesisBlock()
+	case params.NetworkMainnet:
+		expected = NewMainnetGenesisBlock()
+	default:
+		return nil, fmt.Errorf("unknown network %q", network)
+	}
+	if genesis.Hash() != expected.Hash() {
+		return nil, fmt.Errorf("genesis block does not match network %q", network)
+	}
+
 	return &Chain{
 		network: network,
 		blocks: []*Block{
@@ -70,9 +94,15 @@ func ValidateChainGenesis(chain *Chain, network params.NetworkID) error {
 	if !ok || genesis == nil {
 		return fmt.Errorf("chain missing genesis block")
 	}
-	expected, err := GenesisFor(network)
-	if err != nil {
-		return err
+
+	var expected *Block
+	switch network {
+	case params.NetworkPublicTestnet:
+		expected = NewGenesisBlock()
+	case params.NetworkMainnet:
+		expected = NewMainnetGenesisBlock()
+	default:
+		return fmt.Errorf("unknown network %q", network)
 	}
 	if genesis.Hash() != expected.Hash() {
 		return fmt.Errorf("chain genesis does not match network %q", network)
