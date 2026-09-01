@@ -2,10 +2,10 @@ package blockchain
 
 import "fmt"
 
-// ValidateAndCloneChain rebuilds a chain from canonical genesis and validates
-// every non-genesis block through the normal history-aware admission path.
-// The returned chain has cumulative work recomputed locally from validated
-// blocks, so callers do not need to trust cached work stored on the source.
+// ValidateAndCloneChain rebuilds a chain from its network's canonical genesis
+// and validates every non-genesis block through the normal history-aware
+// admission path. The returned chain preserves the source network identity and
+// recomputes cumulative work locally from validated blocks.
 func ValidateAndCloneChain(source *Chain) (*Chain, error) {
 	if source == nil {
 		return nil, fmt.Errorf("source chain cannot be nil")
@@ -18,17 +18,17 @@ func ValidateAndCloneChain(source *Chain) (*Chain, error) {
 	}
 	blocks := make([]*Block, len(source.blocks))
 	copy(blocks, source.blocks)
+	network := source.network
 	source.mu.RUnlock()
 
-	expectedGenesis := NewGenesisBlock()
 	if blocks[0] == nil {
 		return nil, fmt.Errorf("source genesis block is nil")
 	}
-	if blocks[0].Hash() != expectedGenesis.Hash() {
-		return nil, fmt.Errorf("source has wrong genesis block")
+	validated, err := newChainFromGenesisForNetwork(network, blocks[0])
+	if err != nil {
+		return nil, fmt.Errorf("source has wrong genesis block: %w", err)
 	}
 
-	validated := NewChain()
 	for i := 1; i < len(blocks); i++ {
 		block := blocks[i]
 		if block == nil {

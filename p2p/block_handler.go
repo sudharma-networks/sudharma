@@ -24,12 +24,20 @@ func (n *Node) AcceptBlock(block *blockchain.Block) error {
 		return fmt.Errorf("blockchain state is not attached")
 	}
 
+	policy, err := chain.MonetaryPolicy()
+	if err != nil {
+		return fmt.Errorf("invalid blockchain network identity: %w", err)
+	}
+	if err := state.EnsureMonetaryPolicy(policy); err != nil {
+		return fmt.Errorf("blockchain/state policy mismatch: %w", err)
+	}
+
 	if err := blockchain.ValidateBlockAgainstChain(chain, block); err != nil {
 		return fmt.Errorf("block validation failed: %w", err)
 	}
 
 	workingState := state.Clone()
-	if _, err := blockchain.ProcessBlock(workingState, block, block.MinerAddress); err != nil {
+	if _, err := blockchain.ProcessBlockFor(workingState, policy, block, block.MinerAddress); err != nil {
 		return fmt.Errorf("block state processing failed: %w", err)
 	}
 

@@ -21,7 +21,7 @@ Tracking PR: #99
 
 **Mainnet: NO-GO.** Mainnet must remain fail-closed until the evidence gates in this report are complete.
 
-This pass has confirmed four High-severity findings. IS-001 has been fixed on the audit branch with regression coverage and passing CI. IS-004, IS-005 and IS-009 remain open High pre-mainnet blockers covering cross-network transaction replay, network-aware consensus/state processing, and mempool/transaction resource economics. Two Medium implementation findings, IS-002 and IS-006, have been fixed with RED/GREEN or regression evidence and passing CI. IS-003 remains an open consensus-source-of-truth decision.
+This pass has confirmed four High-severity findings. IS-001 has been fixed on the audit branch with regression coverage and passing CI. IS-005 has been fixed on PR #105 with network-aware chain validation, reorg replay and cross-network fork rejection. IS-004 and IS-009 remain open High pre-mainnet blockers covering cross-network transaction replay and mempool/transaction resource economics. Two Medium implementation findings, IS-002 and IS-006, have been fixed with RED/GREEN or regression evidence and passing CI. IS-003 remains an open consensus-source-of-truth decision.
 
 No claim is made that absence of additional findings proves absence of vulnerabilities.
 
@@ -119,19 +119,22 @@ This is intentionally not patched ad hoc in the audit PR because it changes the 
 
 ### IS-005 — HIGH — Generic block/reorg/miner paths still route through public-testnet monetary processing
 
-**Status: OPEN — GitHub #103 — MAINNET BLOCKER.**
+**Status: FIXED ON PR #105; GitHub #103 — awaiting merge.**
 
-The codebase contains mainnet-aware monetary functions (`ProcessBlockFor`, `MonetaryPolicyFor`), but several generic consensus/runtime paths still call the public-testnet compatibility wrapper `ProcessBlock(...)` or create public-testnet state/chain implicitly. Confirmed examples include peer block acceptance, miner pipeline and reorganization/state replay code.
+The baseline contained mainnet-aware monetary functions (`ProcessBlockFor`, `MonetaryPolicyFor`), but several generic consensus/runtime paths still called the public-testnet compatibility wrapper `ProcessBlock(...)` or created public-testnet state/chain implicitly.
 
-Today mainnet is fail-closed, so this is not a live mainnet exploit. At launch, inconsistent policy selection can cause mainnet blocks to be rejected or create consensus divergence if different ingress/replay paths apply different monetary policies.
+**Remediation:**
 
-Required remediation before mainnet:
+- bound every `blockchain.Chain` to an immutable `params.NetworkID`
+- made reorg replay, candidate validation and stored-chain loading network-aware
+- rejected cross-network fork choice before monetary-policy comparison
+- added regression tests for network-aware reorg replay, chain loading and fork rejection
 
-- make active network identity explicit and immutable in chain/node/runtime objects
-- route peer block acceptance and mining through the active network monetary policy
-- make candidate validation, replacement, state rebuild and reorg replay network-aware
-- add testnet/mainnet regression tests for peer acceptance, mining, restart replay and reorg replay
-- keep activation in a separate final human-gated change
+**Evidence:**
+
+- tracking PR: #105 (`fix/security-network-aware-consensus`)
+- plan: `docs/superpowers/plans/2026-09-01-network-aware-consensus.md`
+- CI passed on PR #105 head
 
 ### IS-006 — MEDIUM — Unauthenticated handshake `total_work` allowed oversized decimal big integers
 
