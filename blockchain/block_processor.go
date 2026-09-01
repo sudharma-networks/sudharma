@@ -56,6 +56,11 @@ func ProcessBlockFor(
 		return 0, err
 	}
 
+	network, err := params.NetworkForMonetaryPolicy(policy)
+	if err != nil {
+		return 0, err
+	}
+
 	if err := state.EnsureMonetaryPolicy(policy); err != nil {
 		return 0, err
 	}
@@ -72,7 +77,7 @@ func ProcessBlockFor(
 		}
 
 		// Apply transaction only to temporary state.
-		minerFee, err := ApplyTransaction(workingState, tx)
+		minerFee, err := ApplyTransactionFor(workingState, tx, network)
 		if err != nil {
 			return 0, fmt.Errorf(
 				"transaction %s failed: %w",

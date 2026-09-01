@@ -87,9 +87,21 @@ func (n *Node) SetState(state *blockchain.State) error {
 	if state == nil {
 		return fmt.Errorf("blockchain state cannot be nil")
 	}
+
 	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	if n.chain != nil {
+		policy, err := n.chain.MonetaryPolicy()
+		if err != nil {
+			return fmt.Errorf("invalid blockchain network identity: %w", err)
+		}
+		if err := state.EnsureMonetaryPolicy(policy); err != nil {
+			return fmt.Errorf("blockchain/state policy mismatch: %w", err)
+		}
+	}
+
 	n.state = state
-	n.mu.Unlock()
 	return nil
 }
 
@@ -410,7 +422,12 @@ func (n *Node) readLoop(peer *PeerConnection) {
 				continue
 			}
 			pending := n.mempool.AllTransactions()
-			if err := blockchain.ValidateMempoolTransaction(state, pending, tx); err != nil {
+			if err := blockchain.ValidateMempoolTransactionFor(
+				state,
+				pending,
+				tx,
+				n.ActiveNetwork(),
+			); err != nil {
 				fmt.Printf("[TX] Rejected %s from %s: %v\n", tx.ID, peer.Info.NodeID, err)
 				if n.punishPeer(peer, PeerPenaltyInvalidData, "invalid transaction") {
 					return
@@ -562,7 +579,7 @@ func (n *Node) BroadcastTransaction(tx *transactions.Transaction) error {
 	if tx == nil {
 		return fmt.Errorf("transaction cannot be nil")
 	}
-	if !tx.Verify() {
+	if !tx.VerifyForNetwork(n.ActiveNetwork()) {
 		return fmt.Errorf("cannot broadcast invalid transaction")
 	}
 	data, err := NewTransactionMessage(tx)

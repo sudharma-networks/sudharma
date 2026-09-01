@@ -5,9 +5,10 @@ import "fmt"
 // BetterChain returns the chain that should be preferred.
 //
 // Sudharma Network fork-choice rule:
-// 1. Prefer greater cumulative Proof-of-Work.
-// 2. If total work is equal, prefer greater height.
-// 3. If both are equal, keep the current chain.
+// 1. Chains from different networks are never comparable.
+// 2. Prefer greater cumulative Proof-of-Work.
+// 3. If total work is equal, prefer greater height.
+// 4. If both are equal, keep the current chain.
 func BetterChain(
 	current *Chain,
 	candidate *Chain,
@@ -22,6 +23,14 @@ func BetterChain(
 	if candidate == nil {
 		return nil, fmt.Errorf(
 			"candidate chain cannot be nil",
+		)
+	}
+
+	if current.Network() != candidate.Network() {
+		return nil, fmt.Errorf(
+			"cross-network fork choice rejected: current=%q candidate=%q",
+			current.Network(),
+			candidate.Network(),
 		)
 	}
 

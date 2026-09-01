@@ -15,11 +15,13 @@ type gateJSON struct {
 }
 
 type output struct {
-	LaunchAuthorized bool       `json:"launch_authorized"`
-	LaunchReady      bool       `json:"launch_ready"`
-	Gates            []gateJSON `json:"gates"`
-	MiningStackReady bool       `json:"mining_stack_ready"`
-	MiningGates      []gateJSON `json:"mining_gates"`
+	LaunchAuthorized       bool       `json:"launch_authorized"`
+	LaunchReady            bool       `json:"launch_ready"`
+	Gates                  []gateJSON `json:"gates"`
+	SecurityReviewGates    []gateJSON `json:"security_review_gates"`
+	SecurityReviewComplete bool       `json:"security_review_complete"`
+	MiningStackReady       bool       `json:"mining_stack_ready"`
+	MiningGates            []gateJSON `json:"mining_gates"`
 }
 
 func gatesToJSON(gates []params.ReadinessGate) []gateJSON {
@@ -48,11 +50,13 @@ func miningGatesToJSON(gates []params.MiningReadinessGate) []gateJSON {
 
 func buildOutput() output {
 	return output{
-		LaunchAuthorized: params.MainnetLaunchAuthorized,
-		LaunchReady:      params.MainnetLaunchReady(),
-		Gates:            gatesToJSON(params.MainnetReadiness()),
-		MiningStackReady: params.MiningStackReady(),
-		MiningGates:      miningGatesToJSON(params.MiningReadiness()),
+		LaunchAuthorized:       params.MainnetLaunchAuthorized,
+		LaunchReady:            params.MainnetLaunchReady(),
+		Gates:                  gatesToJSON(params.MainnetReadiness()),
+		SecurityReviewGates:    gatesToJSON(params.SecurityReviewEvidenceGates()),
+		SecurityReviewComplete: params.MainnetSecurityReviewEvidenceComplete(),
+		MiningStackReady:       params.MiningStackReady(),
+		MiningGates:            miningGatesToJSON(params.MiningReadiness()),
 	}
 }
 

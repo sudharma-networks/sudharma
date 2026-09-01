@@ -6,14 +6,15 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/sudharma-networks/sudharma/params"
 	"github.com/sudharma-networks/sudharma/transactions"
 )
 
 func TestExplorerTransactionCursorDoesNotSkipRemainderOfBlock(t *testing.T) {
 	server, _, chain, _ := newTestServer(t)
-	tx1 := transactions.NewTransaction("1111111111111111111111111111111111111111", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 1, 1)
-	tx2 := transactions.NewTransaction("2222222222222222222222222222222222222222", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 2, 1)
-	tx3 := transactions.NewTransaction("3333333333333333333333333333333333333333", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 3, 1)
+	tx1 := transactions.NewTransaction("1111111111111111111111111111111111111111", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", params.MinTransferAmount, 1)
+	tx2 := transactions.NewTransaction("2222222222222222222222222222222222222222", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", params.MinTransferAmount*2, 1)
+	tx3 := transactions.NewTransaction("3333333333333333333333333333333333333333", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", params.MinTransferAmount*3, 1)
 	addExplorerRPCBlock(t, chain, tx1, tx2, tx3)
 
 	first := request(t, server, http.MethodGet, "/v1/explorer/transactions?limit=2", nil, "")
@@ -50,9 +51,9 @@ func TestExplorerTransactionCursorDoesNotSkipRemainderOfBlock(t *testing.T) {
 func TestExplorerAddressCursorDoesNotSkipRemainderOfBlock(t *testing.T) {
 	server, _, chain, _ := newTestServer(t)
 	address := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	tx1 := transactions.NewTransaction(address, "1111111111111111111111111111111111111111", 1, 1)
-	tx2 := transactions.NewTransaction("2222222222222222222222222222222222222222", address, 2, 1)
-	tx3 := transactions.NewTransaction(address, "3333333333333333333333333333333333333333", 3, 2)
+	tx1 := transactions.NewTransaction(address, "1111111111111111111111111111111111111111", params.MinTransferAmount, 1)
+	tx2 := transactions.NewTransaction("2222222222222222222222222222222222222222", address, params.MinTransferAmount*2, 1)
+	tx3 := transactions.NewTransaction(address, "3333333333333333333333333333333333333333", params.MinTransferAmount*3, 2)
 	addExplorerRPCBlock(t, chain, tx1, tx2, tx3)
 
 	firstPath := "/v1/explorer/addresses/" + address + "?limit=2"

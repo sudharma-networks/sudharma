@@ -39,7 +39,10 @@ for file in \
   docs/audits/2026-08-31-pr77-reviewer-summary.md \
   docs/audits/2026-08-31-mainnet-launch-operator-runbook.md \
   docs/audits/2026-08-31-mainnet-gpu-mining-architecture.md \
-  docs/audits/2026-08-31-pool-mining-architecture.md; do
+  docs/audits/2026-08-31-pool-mining-architecture.md \
+  docs/audits/2026-09-01-public-security-review-window.md \
+  docs/audits/2026-09-01-gpu-physical-evidence-checklist.md \
+  docs/audits/2026-09-01-security-review-evidence-record.template.json; do
   require_file "$file"
 done
 
@@ -74,6 +77,8 @@ require_file scripts/probe-testnet-mining-rpc.sh
 require_file scripts/verify-mainnet-merge-readiness.sh
 require_file scripts/check-mainnet-merge-review-contract_test.sh
 require_file scripts/pre-audit-engineering-selfcheck.sh
+require_file scripts/security-regression-gate.sh
+require_file scripts/check-security-regression-gate-contract_test.sh
 require_file docs/audits/2026-09-01-pre-audit-engineering-selfcheck.md
 require_file docs/audits/2026-09-01-genesis-freeze-prep-checklist.md
 

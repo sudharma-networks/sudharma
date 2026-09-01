@@ -4,22 +4,32 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/sudharma-networks/sudharma/params"
 	"github.com/sudharma-networks/sudharma/transactions"
 )
 
-// ValidateMempoolTransaction checks whether a transaction
-// can safely enter the mempool.
-//
-// It validates against:
-//
-//   - current confirmed blockchain state
-//   - transactions already waiting in the mempool
-//
-// The real blockchain state is never modified.
+// ValidateMempoolTransaction checks whether a transaction can safely enter the
+// mempool on the default public-testnet network.
 func ValidateMempoolTransaction(
 	state *State,
 	pending []*transactions.Transaction,
 	candidate *transactions.Transaction,
+) error {
+	return ValidateMempoolTransactionFor(
+		state,
+		pending,
+		candidate,
+		params.DefaultNetwork,
+	)
+}
+
+// ValidateMempoolTransactionFor checks whether a transaction can safely enter
+// the mempool for an explicit network identity.
+func ValidateMempoolTransactionFor(
+	state *State,
+	pending []*transactions.Transaction,
+	candidate *transactions.Transaction,
+	network params.NetworkID,
 ) error {
 
 	if state == nil {
@@ -38,6 +48,30 @@ func ValidateMempoolTransaction(
 		return fmt.Errorf(
 			"transaction ID cannot be empty",
 		)
+	}
+
+	if err := transactions.ValidateResourceBounds(candidate); err != nil {
+		return fmt.Errorf(
+			"transaction rejected by mempool: %w",
+			err,
+		)
+	}
+
+	if len(pending) >= params.MaxMempoolTransactions {
+		return fmt.Errorf("mempool transaction capacity reached")
+	}
+
+	pendingBytes := 0
+	for _, tx := range pending {
+		if tx == nil {
+			return fmt.Errorf(
+				"mempool contains nil transaction",
+			)
+		}
+		pendingBytes += tx.EstimatedSerializedSize()
+	}
+	if pendingBytes+candidate.EstimatedSerializedSize() > params.MaxMempoolBytes {
+		return fmt.Errorf("mempool byte capacity reached")
 	}
 
 	// Reject duplicate transaction already in mempool.
@@ -91,9 +125,10 @@ func ValidateMempoolTransaction(
 
 	// Apply already-pending transactions to temporary state.
 	for _, tx := range ordered {
-		if _, err := ApplyTransaction(
+		if _, err := ApplyTransactionFor(
 			workingState,
 			tx,
+			network,
 		); err != nil {
 
 			return fmt.Errorf(
@@ -105,9 +140,10 @@ func ValidateMempoolTransaction(
 	}
 
 	// Candidate must be valid after all pending transactions.
-	if _, err := ApplyTransaction(
+	if _, err := ApplyTransactionFor(
 		workingState,
 		candidate,
+		network,
 	); err != nil {
 
 		return fmt.Errorf(

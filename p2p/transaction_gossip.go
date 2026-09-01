@@ -25,7 +25,7 @@ func (n *Node) relayTransaction(
 		)
 	}
 
-	if !tx.Verify() {
+	if !tx.VerifyForNetwork(n.ActiveNetwork()) {
 		return 0, fmt.Errorf(
 			"cannot relay invalid transaction",
 		)

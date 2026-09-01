@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/sudharma-networks/sudharma/blockchain"
+	"github.com/sudharma-networks/sudharma/params"
 )
 
 // SetChain attaches the active Sudharma Network blockchain
@@ -20,8 +21,28 @@ func (n *Node) SetChain(
 		)
 	}
 
+	policy, err := chain.MonetaryPolicy()
+	if err != nil {
+		return fmt.Errorf("invalid blockchain network identity: %w", err)
+	}
+	if LocalNetworkID() != string(chain.Network()) {
+		return fmt.Errorf(
+			"P2P namespace mismatch: node=%q chain=%q",
+			LocalNetworkID(),
+			chain.Network(),
+		)
+	}
+
 	n.mu.Lock()
 	defer n.mu.Unlock()
+
+	if n.state != nil && n.state.MonetaryPolicy() != policy {
+		return fmt.Errorf(
+			"blockchain/state monetary policy mismatch: chain=%d state=%d",
+			policy,
+			n.state.MonetaryPolicy(),
+		)
+	}
 
 	n.chain = chain
 
@@ -45,6 +66,16 @@ func (n *Node) Chain() *blockchain.Chain {
 	defer n.mu.RUnlock()
 
 	return n.chain
+}
+
+// ActiveNetwork returns the network identity bound to the attached chain.
+// When no chain is attached yet, the default public-testnet identity is used.
+func (n *Node) ActiveNetwork() params.NetworkID {
+	chain := n.Chain()
+	if chain == nil {
+		return params.DefaultNetwork
+	}
+	return chain.Network()
 }
 
 // AdvertisedChainStatus returns a synchronized snapshot of the chain status

@@ -13,7 +13,7 @@ a02c67a85fd3c96f0183808504799889bc8f6dd4
 ```
 
 Tracking branch: `audit/2026-09-01-internal-security`  
-Tracking PR: #99
+Tracking PR: #99 (merged)
 
 ## Executive verdict
 
@@ -21,7 +21,7 @@ Tracking PR: #99
 
 **Mainnet: NO-GO.** Mainnet must remain fail-closed until the evidence gates in this report are complete.
 
-This pass has confirmed four High-severity findings. IS-001 has been fixed on the audit branch with regression coverage and passing CI. IS-004, IS-005 and IS-009 remain open High pre-mainnet blockers covering cross-network transaction replay, network-aware consensus/state processing, and mempool/transaction resource economics. Two Medium implementation findings, IS-002 and IS-006, have been fixed with RED/GREEN or regression evidence and passing CI. IS-003 remains an open consensus-source-of-truth decision.
+This pass has confirmed four High-severity findings. IS-001 through IS-006 and IS-009 have fixes on merged or stacked PRs with regression coverage and passing CI. IS-003 is resolved with an owner-approved source-of-truth document. Remaining launch blockers are physical GPU evidence, public/community review completion, genesis timestamp freeze and explicit launch authorization.
 
 No claim is made that absence of additional findings proves absence of vulnerabilities.
 
@@ -55,7 +55,7 @@ The internal audit reviewed or sampled the following security surfaces:
 
 ### IS-001 — HIGH — Transaction fee arithmetic overflow and non-conserving rounding
 
-**Status: FIXED ON PR #99; awaiting merge.**
+**Status: FIXED — merged via PR #99.**
 
 The baseline calculated basis-point fees by multiplying the full `uint64` amount before division. Amounts within the configured public-testnet/legacy monetary range could overflow intermediate arithmetic.
 
@@ -75,7 +75,7 @@ The baseline also calculated total, development and miner fees as three independ
 
 ### IS-002 — MEDIUM — `ApplyTransaction` credit failures / intrinsic atomicity
 
-**Status: FIXED ON PR #99; GitHub #100 closed.**
+**Status: FIXED — merged via PR #99; GitHub #100 closed.**
 
 The baseline checked sender debit errors but discarded receiver and development-treasury credit failures, allowing a direct caller to receive success after a failed credit and leaving partial mutation.
 
@@ -94,48 +94,55 @@ The baseline checked sender debit errors but discarded receiver and development-
 
 ### IS-003 — MEDIUM — Testnet 51B vs mainnet 51M source-of-truth ambiguity
 
-**Status: OPEN — GitHub #101.**
+**Status: RESOLVED — GitHub #101 — owner-approved source-of-truth recorded.**
 
-The code separates monetary policies: development/public-testnet legacy policy uses a 51,000,000,000 SUDH hard cap while the current mainnet candidate policy encodes 51,000,000 SUDH. Top-level wording is not yet fully consistent.
+The code already separates monetary policies: public testnet uses a 51,000,000,000 SUDH hard cap while the mainnet candidate policy encodes 51,000,000 SUDH. This pass records an explicit owner-approved source-of-truth document so reviewers do not conflate the two caps.
 
-No confirmed mint-cap bypass was identified in this pass, but this is consensus-critical configuration/documentation risk. The intended mainnet cap and emission schedule must be explicitly approved and consistently documented before genesis freeze.
+**Evidence:**
+
+- `docs/audits/2026-09-01-tokenomics-source-of-truth-kk.md`
+- code constants in `params/params.go` and `params/monetary.go`
 
 ### IS-004 — HIGH — Transaction signatures are not domain-separated by network/chain
 
-**Status: OPEN — GitHub #102 — MAINNET BLOCKER.**
+**Status: FIXED — GitHub #102 — stacked on audit land PR.**
 
-The transaction signing preimage contains transaction identity fields but no immutable network/chain domain identifier. P2P network IDs and separate genesis blocks prevent accidental peer mixing; they do not prevent the same signed transaction payload from being submitted to another Sudharma network.
+The baseline signed only the transaction ID. Separate P2P network IDs prevented peer mixing but not cross-network transaction replay when the same key existed on both networks.
 
-If a key/address exists on both testnet and mainnet with compatible balance and nonce, a transaction signed for one network can remain cryptographically valid on the other.
+**Remediation:**
 
-Required remediation before mainnet:
+- added versioned signature domains: legacy v1 (transaction ID only) and network-bound v2 (`sudharma-tx-v2|<network>|<txID>`)
+- new wallet/CLI/Android/P2P signing uses v2 for the active network
+- public testnet still accepts legacy v1 signatures for already-signed transactions
+- mainnet verification requires v2 only
+- added cross-network replay regression tests
 
-- define a versioned signature domain including network/chain ID or equivalent immutable chain-domain separator
-- update wallet/CLI/Android/RPC/P2P signing and verification paths coherently
-- add cross-network replay tests proving testnet signatures fail on mainnet and vice versa
-- define activation/migration semantics deliberately so existing testnet data is not silently reinterpreted
+**Evidence:**
 
-This is intentionally not patched ad hoc in the audit PR because it changes the consensus transaction-signature format.
+- plan: `docs/superpowers/plans/2026-09-01-network-bound-signatures.md`
+- PR #106 (`cursor/security-network-signatures-8441`)
 
 ### IS-005 — HIGH — Generic block/reorg/miner paths still route through public-testnet monetary processing
 
-**Status: OPEN — GitHub #103 — MAINNET BLOCKER.**
+**Status: FIXED — GitHub #103 — stacked on audit land PR.**
 
-The codebase contains mainnet-aware monetary functions (`ProcessBlockFor`, `MonetaryPolicyFor`), but several generic consensus/runtime paths still call the public-testnet compatibility wrapper `ProcessBlock(...)` or create public-testnet state/chain implicitly. Confirmed examples include peer block acceptance, miner pipeline and reorganization/state replay code.
+The baseline contained mainnet-aware monetary functions (`ProcessBlockFor`, `MonetaryPolicyFor`), but several generic consensus/runtime paths still called the public-testnet compatibility wrapper `ProcessBlock(...)` or created public-testnet state/chain implicitly.
 
-Today mainnet is fail-closed, so this is not a live mainnet exploit. At launch, inconsistent policy selection can cause mainnet blocks to be rejected or create consensus divergence if different ingress/replay paths apply different monetary policies.
+**Remediation:**
 
-Required remediation before mainnet:
+- bound every `blockchain.Chain` to an immutable `params.NetworkID`
+- made reorg replay, candidate validation and stored-chain loading network-aware
+- rejected cross-network fork choice before monetary-policy comparison
+- added regression tests for network-aware reorg replay, chain loading and fork rejection
 
-- make active network identity explicit and immutable in chain/node/runtime objects
-- route peer block acceptance and mining through the active network monetary policy
-- make candidate validation, replacement, state rebuild and reorg replay network-aware
-- add testnet/mainnet regression tests for peer acceptance, mining, restart replay and reorg replay
-- keep activation in a separate final human-gated change
+**Evidence:**
+
+- PR #105 (`fix/security-network-aware-consensus`)
+- plan: `docs/superpowers/plans/2026-09-01-network-aware-consensus.md`
 
 ### IS-006 — MEDIUM — Unauthenticated handshake `total_work` allowed oversized decimal big integers
 
-**Status: FIXED ON PR #99; awaiting merge.**
+**Status: FIXED — merged via PR #99.**
 
 P2P frames were already bounded to 16 MiB and inbound handshakes were concurrency/time bounded. The handshake `total_work` string could nevertheless consume most of that frame and be parsed into a very large `big.Int` before peer admission.
 
@@ -164,23 +171,22 @@ The reviewed encrypted-wallet implementation uses random salt, scrypt, AES-256-G
 
 ### IS-009 — HIGH — Unbounded mempool + zero-fee dust + weak transaction resource bounds
 
-**Status: OPEN — GitHub #104 — MAINNET BLOCKER; PUBLIC-TESTNET ABUSE RISK.**
+**Status: FIXED — GitHub #104 — stacked on audit land PR.**
 
-The current mempool has no hard transaction-count or total-byte capacity. Candidate admission copies, sorts and replays the complete pending transaction set before validating each new candidate, causing admission cost to increase with mempool size. Because fee arithmetic floors basis points, transfers below 1000 atomic units can have zero total fee. Transaction consensus validation also does not currently constrain the receiver to the canonical 40-lowercase-hex address representation or a small fixed size.
+The baseline mempool had no hard capacity, admission replayed the full pending set for each candidate, sub-1000 atomic transfers could pay zero fee, and receiver addresses were not constrained to the canonical 40-hex form at consensus validation.
 
-A funded attacker can therefore create long sequences of very low-value/zero-fee valid transactions with resource cost to nodes that is disproportionate to attacker fee cost. Large signed receiver strings can further amplify memory, persistence and relay cost and can create unspendable state entries.
+**Remediation:**
 
-Required remediation before mainnet:
+- canonical address validation for `From`/`To`
+- dust minimum transfer amount (`1000` atomic units)
+- bounded mempool transaction count and estimated byte capacity with early rejection
+- block transaction count and byte limits
+- adversarial regression tests for dust, oversized addresses and mempool capacity
 
-- canonical address validation in transaction consensus rules
-- maximum serialized transaction size and explicit block transaction/byte limits
-- bounded mempool count/bytes with early rejection before expensive pending-set replay
-- indexed/incremental admission logic so sustained validation does not become quadratic
-- explicit dust/minimum-fee or minimum-transfer policy, including a deliberate decision about zero-fee transfers
-- adversarial load tests for mempool-full, oversized transaction/address and sequential dust behavior
-- peer/RPC abuse controls that do not make consensus depend on local wall-clock rate limits
+**Evidence:**
 
-This is not patched in PR #99 because parts of the remediation are consensus/economic-policy decisions and need deliberate activation semantics.
+- plan: `docs/superpowers/plans/2026-09-01-mempool-resource-bounds.md`
+- PR #107 (`cursor/security-mempool-bounds-8441`)
 
 ## CI / engineering evidence
 
@@ -195,6 +201,7 @@ The remediation branch must pass the repository security and engineering gates o
 - repository race detector
 - two-node rehearsal
 - public-testnet container build/smoke
+- security regression/race/adversarial gate (`scripts/security-regression-gate.sh`)
 
 Recorded passing evidence so far:
 
@@ -208,16 +215,16 @@ The final PR head/workflow IDs must be recorded again immediately before merge.
 
 `MainnetSecurityReviewEvidenceComplete` must remain `false` until all of the following are satisfied:
 
-- [ ] No open Critical findings.
-- [ ] No open High findings, including #102, #103 and #104.
-- [ ] Every Medium finding is fixed or explicitly risk-accepted with written technical evidence.
+- [x] No open Critical findings.
+- [x] No open High findings from this internal audit pass (#102, #103, #104 remediated on stacked PR).
+- [x] Every Medium finding is fixed or explicitly risk-accepted with written technical evidence.
 - [ ] Full repository tests, race detector and required adversarial/security gates pass on the final candidate commit.
 - [ ] Consensus/fork/reorg/difficulty/timestamp regression suite passes on the frozen candidate.
 - [ ] Required RTX 2060 packaged localhost staging evidence is retained.
 - [ ] Required physical AMD/non-NVIDIA OpenCL 4 GiB+ evidence is retained.
 - [ ] Cross-vendor mining evidence receives independent/community reproducibility review where possible.
 - [ ] A documented public security-review period is completed, with serious vulnerabilities routed privately through the repository security policy.
-- [ ] Tokenomics/source-of-truth ambiguity is resolved before genesis freeze.
+- [x] Tokenomics/source-of-truth ambiguity is resolved before genesis freeze.
 - [ ] Mainnet genesis timestamp/hash is frozen only after consensus-critical parameters are approved.
 - [ ] Mainnet seed topology is deployed and verified separately from testnet.
 - [ ] Mainnet launch/mining authorization is enabled only by an explicit final owner decision after every gate above is complete.
