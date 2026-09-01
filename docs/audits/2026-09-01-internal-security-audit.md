@@ -21,7 +21,7 @@ Tracking PR: #99
 
 **Mainnet: NO-GO.** Mainnet must remain fail-closed until the evidence gates in this report are complete.
 
-This pass has confirmed four High-severity findings. IS-001 has been fixed on the audit branch with regression coverage and passing CI. IS-005 has been fixed on PR #105 with network-aware chain validation, reorg replay and cross-network fork rejection. IS-004 and IS-009 remain open High pre-mainnet blockers covering cross-network transaction replay and mempool/transaction resource economics. Two Medium implementation findings, IS-002 and IS-006, have been fixed with RED/GREEN or regression evidence and passing CI. IS-003 remains an open consensus-source-of-truth decision.
+This pass has confirmed four High-severity findings. IS-001 has been fixed on the audit branch with regression coverage and passing CI. IS-004 and IS-005 have fixes on stacked PRs with regression coverage and passing CI. IS-009 remains an open High pre-mainnet blocker covering mempool/transaction resource economics. Two Medium implementation findings, IS-002 and IS-006, have been fixed with RED/GREEN or regression evidence and passing CI. IS-003 remains an open consensus-source-of-truth decision.
 
 No claim is made that absence of additional findings proves absence of vulnerabilities.
 
