@@ -2,55 +2,110 @@ package mempool
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 
 	"github.com/sudharma-networks/sudharma/params"
 	"github.com/sudharma-networks/sudharma/transactions"
 )
 
-// Mempool stores pending Sudharma Network transactions
-// that have not yet been included in a block.
+// Mempool stores pending Sudharma Network transactions that have not yet been
+// included in a block. Resource accounting and sender/nonce indexes are kept
+// alongside the ID map so admission checks do not rescan the full pool.
 type Mempool struct {
-	mu           sync.RWMutex
-	transactions map[string]*transactions.Transaction
+	mu                  sync.RWMutex
+	transactions        map[string]*transactions.Transaction
+	totalEstimatedBytes int
+	senderNonces        map[string]map[uint64]string
 }
 
 // NewMempool creates an empty transaction pool.
 func NewMempool() *Mempool {
 	return &Mempool{
 		transactions: make(map[string]*transactions.Transaction),
+		senderNonces: make(map[string]map[uint64]string),
 	}
 }
 
-// AddTransaction validates and adds a transaction to the mempool.
-func (m *Mempool) AddTransaction(tx *transactions.Transaction) error {
+// CheckAdmission performs cheap, index-backed resource/duplicate checks before
+// expensive state replay or signature verification. AddTransaction repeats the
+// same checks under the write lock so concurrent callers remain fail-closed.
+func (m *Mempool) CheckAdmission(tx *transactions.Transaction) error {
+	if m == nil {
+		return fmt.Errorf("mempool cannot be nil")
+	}
 	if tx == nil {
 		return fmt.Errorf("transaction cannot be nil")
 	}
-
 	if err := transactions.ValidateResourceBounds(tx); err != nil {
 		return fmt.Errorf("transaction rejected: %w", err)
 	}
 
-	if tx.ID == "" {
-		return fmt.Errorf("transaction ID cannot be empty")
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.checkAdmissionLocked(tx)
+}
+
+// AddTransaction validates and adds a transaction to the mempool.
+func (m *Mempool) AddTransaction(tx *transactions.Transaction) error {
+	if m == nil {
+		return fmt.Errorf("mempool cannot be nil")
+	}
+	if tx == nil {
+		return fmt.Errorf("transaction cannot be nil")
+	}
+	if err := transactions.ValidateResourceBounds(tx); err != nil {
+		return fmt.Errorf("transaction rejected: %w", err)
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if err := m.checkAdmissionLocked(tx); err != nil {
+		return err
+	}
+	if m.transactions == nil {
+		m.transactions = make(map[string]*transactions.Transaction)
+	}
+	if m.senderNonces == nil {
+		m.senderNonces = make(map[string]map[uint64]string)
+	}
+	if m.senderNonces[tx.From] == nil {
+		m.senderNonces[tx.From] = make(map[uint64]string)
+	}
+
+	m.transactions[tx.ID] = tx
+	m.senderNonces[tx.From][tx.Nonce] = tx.ID
+	m.totalEstimatedBytes += tx.EstimatedSerializedSize()
+	return nil
+}
+
+func (m *Mempool) checkAdmissionLocked(tx *transactions.Transaction) error {
+	if tx.ID == "" {
+		return fmt.Errorf("transaction ID cannot be empty")
+	}
 	if _, exists := m.transactions[tx.ID]; exists {
 		return fmt.Errorf("transaction already exists: %s", tx.ID)
 	}
 	if len(m.transactions) >= params.MaxMempoolTransactions {
 		return fmt.Errorf("mempool transaction capacity reached")
 	}
-	if m.totalEstimatedBytesLocked()+tx.EstimatedSerializedSize() > params.MaxMempoolBytes {
+	if m.totalEstimatedBytes+tx.EstimatedSerializedSize() > params.MaxMempoolBytes {
 		return fmt.Errorf("mempool byte capacity reached")
 	}
 
-	m.transactions[tx.ID] = tx
-
+	senderNonces := m.senderNonces[tx.From]
+	if len(senderNonces) >= params.MaxMempoolTransactionsPerSender {
+		return fmt.Errorf("mempool sender transaction capacity reached")
+	}
+	if existingID, exists := senderNonces[tx.Nonce]; exists {
+		return fmt.Errorf(
+			"sender nonce already pending: sender=%s nonce=%d transaction=%s",
+			tx.From,
+			tx.Nonce,
+			existingID,
+		)
+	}
 	return nil
 }
 
@@ -58,17 +113,61 @@ func (m *Mempool) AddTransaction(tx *transactions.Transaction) error {
 func (m *Mempool) GetTransaction(id string) (*transactions.Transaction, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
 	tx, exists := m.transactions[id]
 	return tx, exists
 }
 
-// RemoveTransaction removes a transaction from the mempool.
+// TransactionsForSender returns the bounded pending chain for one sender in
+// deterministic nonce order. Live admission uses this instead of copying and
+// replaying every transaction in the global mempool.
+func (m *Mempool) TransactionsForSender(sender string) []*transactions.Transaction {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	nonces := m.senderNonces[sender]
+	result := make([]*transactions.Transaction, 0, len(nonces))
+	for _, id := range nonces {
+		if tx, ok := m.transactions[id]; ok && tx != nil {
+			result = append(result, tx)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Nonce != result[j].Nonce {
+			return result[i].Nonce < result[j].Nonce
+		}
+		return result[i].ID < result[j].ID
+	})
+	return result
+}
+
+// RemoveTransaction removes a transaction from the mempool and updates the
+// cached resource/sender indexes atomically.
 func (m *Mempool) RemoveTransaction(id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	tx, exists := m.transactions[id]
+	if !exists {
+		return
+	}
 	delete(m.transactions, id)
+
+	if tx != nil {
+		size := tx.EstimatedSerializedSize()
+		if size >= m.totalEstimatedBytes {
+			m.totalEstimatedBytes = 0
+		} else {
+			m.totalEstimatedBytes -= size
+		}
+		if nonces := m.senderNonces[tx.From]; nonces != nil {
+			if indexedID, ok := nonces[tx.Nonce]; ok && indexedID == id {
+				delete(nonces, tx.Nonce)
+			}
+			if len(nonces) == 0 {
+				delete(m.senderNonces, tx.From)
+			}
+		}
+	}
 }
 
 // AllTransactions returns all pending transactions.
@@ -77,11 +176,9 @@ func (m *Mempool) AllTransactions() []*transactions.Transaction {
 	defer m.mu.RUnlock()
 
 	result := make([]*transactions.Transaction, 0, len(m.transactions))
-
 	for _, tx := range m.transactions {
 		result = append(result, tx)
 	}
-
 	return result
 }
 
@@ -89,39 +186,38 @@ func (m *Mempool) AllTransactions() []*transactions.Transaction {
 func (m *Mempool) Count() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
 	return len(m.transactions)
 }
 
-// TotalEstimatedBytes returns the approximate serialized size of all pending
-// transactions.
+// CountForSender returns the number of pending transactions indexed for one
+// sender. It is bounded by MaxMempoolTransactionsPerSender.
+func (m *Mempool) CountForSender(sender string) int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.senderNonces[sender])
+}
+
+// TotalEstimatedBytes returns cached resource usage in O(1).
 func (m *Mempool) TotalEstimatedBytes() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.totalEstimatedBytesLocked()
+	return m.totalEstimatedBytes
 }
 
-func (m *Mempool) totalEstimatedBytesLocked() int {
-	total := 0
-	for _, tx := range m.transactions {
-		total += tx.EstimatedSerializedSize()
-	}
-	return total
-}
-
-// AtCapacity reports whether another average-sized transaction should be
-// rejected before expensive replay validation.
+// AtCapacity reports whether the global pool cannot accept another transaction
+// before transaction-specific size/sender checks are considered.
 func (m *Mempool) AtCapacity() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.transactions) >= params.MaxMempoolTransactions ||
-		m.totalEstimatedBytesLocked() >= params.MaxMempoolBytes
+		m.totalEstimatedBytes >= params.MaxMempoolBytes
 }
 
-// Clear removes all transactions from the mempool.
+// Clear removes all transactions and resets cached indexes/accounting.
 func (m *Mempool) Clear() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
 	m.transactions = make(map[string]*transactions.Transaction)
+	m.senderNonces = make(map[string]map[uint64]string)
+	m.totalEstimatedBytes = 0
 }
