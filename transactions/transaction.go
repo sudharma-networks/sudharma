@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	"github.com/sudharma-networks/sudharma/networkcontext"
 	"github.com/sudharma-networks/sudharma/params"
 	"github.com/sudharma-networks/sudharma/wallet"
 )
@@ -108,10 +109,11 @@ func (tx *Transaction) calculateID() string {
 	return hex.EncodeToString(hash[:])
 }
 
-// Sign signs the transaction for the default public-testnet network using the
-// current network-bound signature domain.
+// Sign signs the transaction for the process-wide active network using the
+// current network-bound signature domain. Nodes bind that context when their
+// P2P network identity is selected; standalone tools default to public testnet.
 func (tx *Transaction) Sign(w *wallet.Wallet) error {
-	return tx.SignForNetwork(w, params.DefaultNetwork)
+	return tx.SignForNetwork(w, networkcontext.Active())
 }
 
 // SignForNetwork signs the transaction using the network-bound signature domain.
