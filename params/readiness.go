@@ -7,9 +7,18 @@ type ReadinessGate struct {
 	Detail string
 }
 
+// MainnetSecurityReviewEvidenceComplete is deliberately false until the
+// maintainer-controlled internal audit has no open Critical/High findings,
+// all required regression/adversarial tests pass, and a documented public
+// review window has completed. It provides a truthful zero-budget security
+// review path without pretending that the project received an independent
+// third-party audit.
+const MainnetSecurityReviewEvidenceComplete = false
+
 // MainnetReadiness reports engineering freeze status. A true launch still
-// requires the human gates below (audit, timestamp freeze, seed topology,
-// launch decision). This function never authorizes mainnet by itself.
+// requires the human gates below (security-review evidence, timestamp freeze,
+// seed topology, launch decision). This function never authorizes mainnet by
+// itself.
 func MainnetReadiness() []ReadinessGate {
 	return []ReadinessGate{
 		{
@@ -33,9 +42,9 @@ func MainnetReadiness() []ReadinessGate {
 			Detail: "mainnet genesis unix timestamp is still unset (0)",
 		},
 		{
-			Name:   "independent-security-audit",
-			Ready:  false,
-			Detail: "no independent production security audit is recorded",
+			Name:   "security-review-evidence",
+			Ready:  MainnetSecurityReviewEvidenceComplete,
+			Detail: "requires documented internal security audit, zero open Critical/High findings, passing regression/adversarial gates, and completed public review; no claim of independent third-party audit",
 		},
 		{
 			Name:   "mainnet-seed-topology",

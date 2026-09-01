@@ -12,6 +12,7 @@ const (
 	TotalFeeBasisPoints       uint64 = 10
 	DevelopmentFeeBasisPoints uint64 = 1
 	MiningFeeBasisPoints      uint64 = 9
+	feeBasisPointsDivisor     uint64 = 10000
 )
 
 type Transaction struct {
@@ -55,19 +56,36 @@ func NewTransaction(
 	return tx
 }
 
+// basisPointsFee returns floor(amount*basisPoints/10000) without first
+// multiplying the full amount. Splitting amount into quotient/remainder keeps
+// the arithmetic safe for the complete uint64 transaction-amount domain.
+func basisPointsFee(amount, basisPoints uint64) uint64 {
+	whole := amount / feeBasisPointsDivisor
+	remainder := amount % feeBasisPointsDivisor
+
+	return whole*basisPoints + (remainder*basisPoints)/feeBasisPointsDivisor
+}
+
 // CalculateFee calculates the total 0.10% transaction fee.
 func CalculateFee(amount uint64) uint64 {
-	return (amount * TotalFeeBasisPoints) / 10000
+	return basisPointsFee(amount, TotalFeeBasisPoints)
 }
 
 // DevelopmentFee returns the 0.01% development portion.
 func DevelopmentFee(amount uint64) uint64 {
-	return (amount * DevelopmentFeeBasisPoints) / 10000
+	return basisPointsFee(amount, DevelopmentFeeBasisPoints)
 }
 
-// MiningFee returns the 0.09% miner portion.
+// MiningFee returns the miner portion of the charged fee.
+//
+// The miner receives the exact remainder after the development allocation so
+// integer rounding can never create or destroy fee atoms. For amounts that are
+// exactly representable at the configured basis-point precision this remains
+// exactly 0.09%.
 func MiningFee(amount uint64) uint64 {
-	return (amount * MiningFeeBasisPoints) / 10000
+	total := CalculateFee(amount)
+	development := DevelopmentFee(amount)
+	return total - development
 }
 
 // calculateID creates the deterministic transaction ID.

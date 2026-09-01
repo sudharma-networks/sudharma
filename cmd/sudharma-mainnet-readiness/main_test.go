@@ -38,18 +38,18 @@ func TestMainnetReadinessJSONReportsUnauthorizedLaunch(t *testing.T) {
 	if decoded.LaunchAuthorized || decoded.LaunchReady {
 		t.Fatalf("payload = %+v", decoded)
 	}
-	var launchGate, auditGate, timestampGate bool
+	var launchGate, securityReviewGate, timestampGate bool
 	for _, gate := range decoded.Gates {
 		switch gate.Name {
 		case "launch-authorization":
 			launchGate = !gate.Ready
-		case "independent-security-audit":
-			auditGate = !gate.Ready
+		case "security-review-evidence":
+			securityReviewGate = !gate.Ready
 		case "genesis-timestamp-freeze":
 			timestampGate = !gate.Ready
 		}
 	}
-	if !launchGate || !auditGate || !timestampGate {
+	if !launchGate || !securityReviewGate || !timestampGate {
 		t.Fatalf("gates = %+v", decoded.Gates)
 	}
 	if !decoded.MiningStackReady {
