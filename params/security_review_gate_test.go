@@ -20,3 +20,21 @@ func TestMainnetReadinessUsesEvidenceBasedSecurityReviewGate(t *testing.T) {
 		t.Fatal("security-review-evidence gate missing")
 	}
 }
+
+func TestSecurityReviewEvidenceSubGatesStayClosedByDefault(t *testing.T) {
+	if MainnetSecurityReviewEvidenceComplete() {
+		t.Fatal("security review evidence must remain incomplete until every sub-gate closes")
+	}
+	for _, gate := range SecurityReviewEvidenceGates() {
+		switch gate.Name {
+		case "internal-audit-remediation", "security-regression-race-adversarial":
+			if !gate.Ready {
+				t.Fatalf("engineering sub-gate %q should be ready on candidate branch", gate.Name)
+			}
+		default:
+			if gate.Ready {
+				t.Fatalf("sub-gate %q must remain closed until evidence is recorded", gate.Name)
+			}
+		}
+	}
+}

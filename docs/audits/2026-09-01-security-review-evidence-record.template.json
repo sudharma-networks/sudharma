@@ -1,0 +1,29 @@
+{
+  "kind": "sudharma-mainnet-security-review-evidence",
+  "repository_commit": "REPLACE_WITH_MERGE_SHA",
+  "internal_audit_report": "docs/audits/2026-09-01-internal-security-audit.md",
+  "security_regression_gate": {
+    "script": "scripts/security-regression-gate.sh",
+    "passed_at": "REPLACE_WITH_ISO8601",
+    "ci_run_url": "REPLACE_WITH_GITHUB_ACTIONS_URL"
+  },
+  "physical_gpu_evidence": {
+    "github_issue": "https://github.com/sudharma-networks/sudharma/issues/24",
+    "rtx_2060_staging_accepted": false,
+    "amd_opencl_4gib_accepted": false,
+    "cross_vendor_review_reference": "REPLACE_WITH_LINK_OR_NA"
+  },
+  "public_community_review": {
+    "window_start_utc": "REPLACE_WITH_ISO8601",
+    "window_end_utc": "REPLACE_WITH_ISO8601",
+    "announcement_reference": "REPLACE_WITH_BLOG_OR_RELEASE_URL",
+    "unresolved_critical_high": 0
+  },
+  "genesis_freeze": {
+    "timestamp_unix": 0,
+    "hash": "REPLACE_AFTER_FREEZE_PR",
+    "freeze_pr": "REPLACE_WITH_PR_URL"
+  },
+  "reviewer_signoff": "REPLACE_WITH_OWNER_IDENTITY",
+  "notes": "Store completed record in private vault. Do not commit secrets."
+}

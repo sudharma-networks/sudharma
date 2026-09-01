@@ -1,8 +1,8 @@
 # Genesis timestamp freeze — prep checklist (owner, before activation PR)
 
-**Status:** Prep only. **Do not set** `MainnetGenesisTimestamp` until security audit gate closes.
+**Status:** Prep only. **Do not set** `MainnetGenesisTimestamp` until security-review evidence sub-gates close.
 
-Use this after the independent audit report is accepted and **before** opening the genesis freeze PR.
+Use this after the internal audit stack lands on `main` and the security regression gate is green, and **before** opening the genesis freeze PR.
 
 ---
 
@@ -22,7 +22,9 @@ Use this after the independent audit report is accepted and **before** opening t
 ```bash
 git checkout main
 bash ./scripts/pre-audit-engineering-selfcheck.sh
+bash ./scripts/security-regression-gate.sh
 go run ./cmd/sudharma-mainnet-genesis-info | jq .
+bash ./scripts/generate-mainnet-genesis-candidate.sh
 go run ./cmd/sudharma-mainnet-readiness | jq .
 ```
 
@@ -40,10 +42,11 @@ Template: `docs/audits/2026-08-31-mainnet-genesis-freeze-template.md`
 
 ---
 
-## Blocked until audit completes
+## Blocked until evidence gates complete
 
-- [ ] Independent security audit signed report recorded
-- [ ] Critical/high findings remediated or explicitly accepted (owner sign-off)
+- [ ] `scripts/security-regression-gate.sh` green on frozen candidate
+- [ ] Physical GPU evidence gate complete (#24 + checklist)
+- [ ] Public/community review window complete
 - [ ] Pre-audit selfcheck log archived in private vault
 
 ---

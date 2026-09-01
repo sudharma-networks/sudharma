@@ -96,6 +96,9 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Verify security regression gate contract
+        run: bash ./scripts/check-security-regression-gate-contract_test.sh
+
       - name: Verify Go formatting
         shell: bash
         run: |
@@ -148,6 +151,9 @@ jobs:
 
       - name: Run repository-wide race detector
         run: go test -race ./... -count=1
+
+      - name: Run security regression/race/adversarial gate
+        run: SKIP_LIVE_PROBE=1 bash ./scripts/security-regression-gate.sh
 
       - name: Run local two-node testnet rehearsal
         run: bash ./scripts/testnet-rehearsal.sh

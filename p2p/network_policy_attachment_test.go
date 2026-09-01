@@ -7,7 +7,7 @@ import (
 	"github.com/sudharma-networks/sudharma/params"
 )
 
-func TestSetChainRejectsP2PNamespaceMismatch(t *testing.T) {
+func TestSetChainRejectsP2PNamespaceMismatchOnAttachment(t *testing.T) {
 	ResetLocalNetworkIDForTests()
 	defer ResetLocalNetworkIDForTests()
 
