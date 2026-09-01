@@ -562,6 +562,8 @@ func main() {
 				knownPeer.Address,
 			)
 
+			// Refresh the remembered identity/address using the
+			// peer's current handshake information.
 			peerAddressToRemember :=
 				peer.ListenAddress
 
@@ -578,6 +580,10 @@ func main() {
 				},
 			)
 
+			// Merge dynamically discovered peers into the persistent
+
+			// known-peer list before saving on shutdown.
+
 			for _, discoveredPeer := range networkNode.DiscoveredPeersSnapshot() {
 
 				knownPeers = rememberKnownPeer(
@@ -585,7 +591,6 @@ func main() {
 					knownPeers,
 
 					discoveredPeer,
-
 				)
 
 			}
@@ -745,6 +750,10 @@ func main() {
 				},
 			)
 
+			// Merge dynamically discovered peers into the persistent
+
+			// known-peer list before saving on shutdown.
+
 			for _, discoveredPeer := range networkNode.DiscoveredPeersSnapshot() {
 
 				knownPeers = rememberKnownPeer(
@@ -752,7 +761,6 @@ func main() {
 					knownPeers,
 
 					discoveredPeer,
-
 				)
 
 			}
@@ -776,6 +784,22 @@ func main() {
 				)
 			}
 
+			// =============================================
+			// AUTOMATIC WORK-BASED SYNCHRONIZATION
+			// =============================================
+			//
+			// Always ask SyncFromPeer to compare the chains.
+			// SyncFromPeer now uses cumulative Proof-of-Work,
+			// not height alone, and safely handles:
+			//
+			//   * ordinary forward synchronization
+			//   * same-height competing forks
+			//   * shorter chains with greater total work
+			//   * weaker peers that should be ignored
+			//
+			// It independently downloads and validates a
+			// candidate before any reorganization is adopted.
+
 			fmt.Println()
 			fmt.Println(
 				"[SYNC] Evaluating peer chain by cumulative work...",
@@ -795,6 +819,9 @@ func main() {
 				return
 			}
 
+			// Chain/state synchronization is complete.
+			// Only now exchange pending transactions so
+			// funding balances/nonces are already available.
 			if err :=
 				networkNode.SyncMempoolWithPeer(
 					peer.NodeID,
@@ -829,7 +856,10 @@ func main() {
 					peer.NodeID,
 				)
 			}
-
+			// Persist immediately after sync/reorg evaluation.
+			// If the local chain was kept, this is harmless.
+			// If a better peer chain was adopted, both chain
+			// and rebuilt state are now safely persisted.
 			if err :=
 				saveNodeData(
 					chain,
@@ -875,6 +905,10 @@ func main() {
 		networkNode.MempoolCount(),
 	)
 
+	// =================================================
+	// UNFUNDED TRANSACTION NETWORK TEST
+	// =================================================
+
 	if *testTransaction {
 		if networkNode.PeerCount() == 0 {
 			fmt.Println(
@@ -886,6 +920,10 @@ func main() {
 			)
 		}
 	}
+
+	// =================================================
+	// LOCAL MINING TEST
+	// =================================================
 
 	if *mineTest {
 		if err :=
@@ -906,6 +944,10 @@ func main() {
 		}
 	}
 
+	// =================================================
+	// LIVE MEMPOOL PERSISTENCE TEST
+	// =================================================
+
 	if *mempoolTest {
 		if err :=
 			runMempoolPersistenceTest(
@@ -925,6 +967,10 @@ func main() {
 			return
 		}
 	}
+
+	// =================================================
+	// EMPTY-BLOCK DEVELOPMENT MINING
+	// =================================================
 
 	if *emptyBlocks > 0 {
 		if *testMinerAddress == "" {
@@ -953,6 +999,10 @@ func main() {
 			return
 		}
 	}
+
+	// =================================================
+	// TRANSACTION-CONFIRMING DEVELOPMENT MINING
+	// =================================================
 
 	if *mineBlocks > 0 && *testMinerAddress == "" {
 		fmt.Println(
@@ -986,6 +1036,10 @@ func main() {
 	if exitNodeLoop {
 		return
 	}
+
+	// =================================================
+	// MAIN NODE LOOP
+	// =================================================
 
 	fmt.Println()
 	fmt.Println(
@@ -1090,6 +1144,10 @@ func main() {
 		}
 	}
 
+	// =================================================
+	// SAFE SHUTDOWN
+	// =================================================
+
 	fmt.Println()
 	fmt.Println(
 		"Stopping Sudharma Network node...",
@@ -1136,6 +1194,10 @@ func main() {
 		"Mempool saved successfully.",
 	)
 
+	// Merge dynamically discovered peers into the persistent
+
+	// known-peer list before saving on shutdown.
+
 	for _, discoveredPeer := range networkNode.DiscoveredPeersSnapshot() {
 
 		knownPeers = rememberKnownPeer(
@@ -1171,6 +1233,9 @@ func main() {
 	)
 }
 
+// reconnectKnownPeersRuntime checks remembered peers while the node
+// is already running. Missing peers are retried without restarting
+// Sudharma Network. A peer that is still offline is non-fatal.
 func reconnectKnownPeersRuntime(
 	networkNode *p2p.Node,
 	knownPeers []p2p.KnownPeer,
@@ -1304,6 +1369,9 @@ func reconnectKnownPeersRuntime(
 	return lastReconnectedNodeID
 }
 
+// rememberKnownPeer adds or updates one known peer in memory.
+// Node ID is the stable identity key. If the peer advertises a new
+// address later, the stored address is updated.
 func rememberKnownPeer(
 	peers []p2p.KnownPeer,
 	candidate p2p.KnownPeer,
@@ -1322,6 +1390,8 @@ func rememberKnownPeer(
 	)
 }
 
+// rebuildStateFromChain reconstructs confirmed state
+// from every non-genesis block in the blockchain.
 func rebuildStateFromChain(
 	chain *blockchain.Chain,
 	policy params.MonetaryPolicy,
@@ -1380,6 +1450,8 @@ func rebuildStateFromChain(
 	return state, nil
 }
 
+// saveNodeData persists both the blockchain
+// and the confirmed blockchain state.
 func saveNodeData(
 	chain *blockchain.Chain,
 	state *blockchain.State,
@@ -1457,9 +1529,8 @@ func runUnfundedTransactionTest(
 		)
 
 	if err :=
-		tx.SignForNetwork(
+		tx.Sign(
 			sender,
-			networkNode.ActiveNetwork(),
 		); err != nil {
 
 		fmt.Println(err)
@@ -1532,6 +1603,15 @@ func runMiningTest(
 		"========== SUDHARMA NETWORK MINING TEST ==========",
 	)
 
+	// -------------------------------------------------
+	// Create miner and receiver.
+	//
+	// IMPORTANT:
+	// No artificial state.Credit() funding is used.
+	// Every spendable SUDH must originate from an
+	// on-chain block subsidy.
+	// -------------------------------------------------
+
 	minerWallet, err :=
 		wallet.NewWallet()
 
@@ -1554,6 +1634,10 @@ func runMiningTest(
 
 	pool :=
 		networkNode.Mempool()
+
+	// =================================================
+	// BLOCK 1 Î“Ã²Â¼â”œâ”¤Î“Ã¶Â£â”œÂºÎ“Ã¶Â£Î“Ã²Ã³ MINE EMPTY BLOCK TO CREATE REAL FUNDS
+	// =================================================
 
 	fmt.Printf(
 		"Mining funding block #%d...\n",
@@ -1586,6 +1670,7 @@ func runMiningTest(
 		"Funding block found!",
 	)
 
+	// Refresh the P2P-advertised height and tip after mining.
 	networkNode.RefreshChainStatus()
 
 	fmt.Printf(
@@ -1614,6 +1699,13 @@ func runMiningTest(
 			float64(params.CoinDecimals),
 	)
 
+	// The miner now has real blockchain-created SUDH
+	// and can legally spend it.
+
+	// =================================================
+	// CREATE TRANSACTION FOR BLOCK 2
+	// =================================================
+
 	amount :=
 		uint64(10) *
 			params.CoinDecimals
@@ -1639,9 +1731,8 @@ func runMiningTest(
 		)
 
 	if err :=
-		tx.SignForNetwork(
+		tx.Sign(
 			minerWallet,
-			networkNode.ActiveNetwork(),
 		); err != nil {
 
 		return fmt.Errorf(
@@ -1704,6 +1795,10 @@ func runMiningTest(
 		pool.Count(),
 	)
 
+	// =================================================
+	// BLOCK 2 Î“Ã²Â¼â”œâ”¤Î“Ã¶Â£â”œÂºÎ“Ã¶Â£Î“Ã²Ã³ MINE REAL TRANSACTION
+	// =================================================
+
 	fmt.Printf(
 		"Mining transaction block #%d...\n",
 		chain.Height()+1,
@@ -1735,6 +1830,7 @@ func runMiningTest(
 		"Transaction block found!",
 	)
 
+	// Refresh the P2P-advertised height and tip after mining.
 	networkNode.RefreshChainStatus()
 
 	fmt.Printf(
@@ -1767,6 +1863,10 @@ func runMiningTest(
 		float64(secondReward)/
 			float64(params.CoinDecimals),
 	)
+
+	// =================================================
+	// FINAL CONSENSUS STATE
+	// =================================================
 
 	fmt.Println()
 	fmt.Println(
@@ -1820,6 +1920,10 @@ func runMiningTest(
 		"--------------------------------",
 	)
 
+	// =================================================
+	// SAVE VALID CHAIN + STATE
+	// =================================================
+
 	if err :=
 		saveNodeData(
 			chain,
@@ -1842,6 +1946,13 @@ func runMiningTest(
 	return nil
 }
 
+// runEmptyBlockMiningTest mines development blocks containing no
+// transactions and pays every block subsidy to minerAddress.
+//
+// This helper exists specifically for live fork/reorg testing.
+// It lets two independent chains share the same funded address
+// without needing the winning node to possess that address's
+// private key.
 func runEmptyBlockMiningTest(
 	chain *blockchain.Chain,
 	nodeState *blockchain.State,
@@ -2031,6 +2142,8 @@ func runEmptyBlockMiningTest(
 	return nil
 }
 
+// runBlockMiningMode runs positive -mineblocks requests as one-shot work and
+// reports whether main must exit instead of entering the normal node loop.
 func runBlockMiningMode(count uint64, mine func() error) (exitNodeLoop bool, err error) {
 	if count == 0 {
 		return false, nil
@@ -2041,6 +2154,10 @@ func runBlockMiningMode(count uint64, mine func() error) (exitNodeLoop bool, err
 	return true, mine()
 }
 
+// runBlockMiningTest mines and broadcasts a bounded number of development
+// blocks using the node's current mempool. Unlike runEmptyBlockMiningTest, this
+// helper intentionally permits pending transactions so testnet operators can
+// confirm an end-to-end transaction without changing consensus behavior.
 func runBlockMiningTest(
 	chain *blockchain.Chain,
 	nodeState *blockchain.State,
@@ -2122,6 +2239,18 @@ func runBlockMiningTest(
 	return nil
 }
 
+// runMempoolPersistenceTest creates one fully valid pending transaction
+// and intentionally leaves it unmined.
+//
+// Flow:
+//  1. create miner/sender + receiver wallets
+//  2. mine one empty funding block to sender
+//  3. create and sign a 10 SUDH transaction
+//  4. validate and add it to the mempool
+//  5. save chain, state and mempool
+//
+// Restart the same node without -mempooltest to prove the transaction
+// is restored from sudharma-mempool.json.
 func runMempoolPersistenceTest(
 	chain *blockchain.Chain,
 	nodeState *blockchain.State,
@@ -2252,9 +2381,8 @@ func runMempoolPersistenceTest(
 		)
 
 	if err :=
-		tx.SignForNetwork(
+		tx.Sign(
 			sender,
-			networkNode.ActiveNetwork(),
 		); err != nil {
 
 		return fmt.Errorf(
