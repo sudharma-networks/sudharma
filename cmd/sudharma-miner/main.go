@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/sudharma-networks/sudharma/gpuminer"
+	"github.com/sudharma-networks/sudharma/gpuminer/stratum"
 	"github.com/sudharma-networks/sudharma/params"
 )
 
@@ -28,13 +29,16 @@ func run(args []string, in io.Reader, out, errOut io.Writer) error {
 	address := fs.String("address", "", "Sudharma wallet address that receives mining rewards")
 	auto := fs.Bool("auto", false, "use saved wallet address and start mining immediately")
 	configPath := fs.String("config", "", "optional GPU miner JSON config (deployment/testnet/gpu-miner*.example.json)")
-	network := fs.String("network", params.NetworkPublicTestnet, "mining network: public-testnet or mainnet")
+	network := fs.String("network", params.MiningNetworkPublicTestnet, "mining network: public-testnet or mainnet")
 	rpcURL := fs.String("rpc", "", "optional mining RPC URL override for local testing")
 	backend := fs.String("backend", params.ProductionMiningBackend, "GPU backend: gpu-only, cuda, or opencl")
 	hasherDir := fs.String("hasher-dir", "", "folder that contains the NVIDIA or AMD GPU hasher")
 	device := fs.Int("device", 0, "GPU device index")
 	probe := fs.Bool("probe", false, "validate address and RPC without hashing")
 	once := fs.Bool("once", false, "fetch one GPU job, hash it, submit, then exit")
+	stratumURL := fs.String("stratum", "", "Stratum pool URL (stratum+tcp://host:port) for pool mining")
+	workerName := fs.String("worker", "default", "pool worker name appended as wallet.worker")
+	poolPassword := fs.String("password", "x", "Stratum pool password (most pools use x)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -46,6 +50,19 @@ func run(args []string, in io.Reader, out, errOut io.Writer) error {
 	reward, err := resolveRewardAddress(*address, *auto, in, out)
 	if err != nil {
 		return err
+	}
+
+	if poolCfg, poolMode, err := resolvePoolConfig(*configPath, *stratumURL, *workerName, *poolPassword, reward); err != nil {
+		return err
+	} else if poolMode {
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer cancel()
+		if *once {
+			var onceCancel context.CancelFunc
+			ctx, onceCancel = context.WithTimeout(ctx, 30*time.Second)
+			defer onceCancel()
+		}
+		return runPoolMiner(ctx, out, poolCfg, *once, *hasherDir, *device)
 	}
 
 	resolved, err := resolveMinerConfig(*configPath, reward, *network, *rpcURL, *backend, *device)
@@ -215,4 +232,102 @@ func shortAddress(address string) string {
 		return address
 	}
 	return address[:6] + "…" + address[len(address)-4:]
+}
+
+type poolMinerConfig struct {
+	StratumURL string
+	Login      string
+	Password   string
+	Network    string
+	Address    string
+}
+
+func resolvePoolConfig(configPath, stratumURL, workerName, password, reward string) (poolMinerConfig, bool, error) {
+	if strings.TrimSpace(configPath) != "" {
+		poolCfg, err := gpuminer.LoadPoolFileConfig(configPath)
+		if err == nil {
+			address := poolCfg.RewardAddress
+			if strings.TrimSpace(reward) != "" {
+				address, err = gpuminer.NormalizeRewardAddress(reward)
+				if err != nil {
+					return poolMinerConfig{}, false, err
+				}
+			}
+			worker := poolCfg.WorkerName
+			if strings.TrimSpace(workerName) != "" && workerName != "default" {
+				worker = workerName
+			}
+			login, err := stratum.WorkerLogin(address, worker)
+			if err != nil {
+				return poolMinerConfig{}, false, err
+			}
+			pass := poolCfg.Password
+			if strings.TrimSpace(password) != "" {
+				pass = password
+			}
+			return poolMinerConfig{
+				StratumURL: poolCfg.StratumURL,
+				Login:      login,
+				Password:   pass,
+				Network:    poolCfg.Network(),
+				Address:    address,
+			}, true, nil
+		}
+	}
+	if strings.TrimSpace(stratumURL) == "" {
+		return poolMinerConfig{}, false, nil
+	}
+	address, err := gpuminer.NormalizeRewardAddress(reward)
+	if err != nil {
+		return poolMinerConfig{}, false, err
+	}
+	login, err := stratum.WorkerLogin(address, workerName)
+	if err != nil {
+		return poolMinerConfig{}, false, err
+	}
+	return poolMinerConfig{
+		StratumURL: stratumURL,
+		Login:      login,
+		Password:   password,
+		Address:    address,
+	}, true, nil
+}
+
+func runPoolMiner(ctx context.Context, out io.Writer, cfg poolMinerConfig, once bool, hasherDir string, device int) error {
+	fmt.Fprintf(out, "Connecting to pool %s as %s …\n", cfg.StratumURL, cfg.Login)
+	fmt.Fprintln(out, "Pool shares accumulate through the operator payout scheme (PPS/PPLNS/etc.).")
+	fmt.Fprintln(out, "Press Ctrl+C to stop.")
+	fmt.Fprintln(out, "")
+
+	if err := gpuminer.SaveAddress(cfg.Address); err != nil {
+		fmt.Fprintf(out, "Note: could not remember wallet address for next time: %v\n", err)
+	}
+
+	var miner stratum.ShareMiner = stratum.ReferenceShareMiner{}
+	if hasher, err := gpuminer.DetectGPUHasher(hasherDir); err == nil {
+		miner = stratum.NewShareMiner(gpuminer.CommandBackend{Path: hasher, Device: device})
+		fmt.Fprintf(out, "Using GPU hasher %s for pool shares.\n", hasher)
+	} else {
+		fmt.Fprintln(out, "No Khushi GPU hasher found; using reference share search for pool jobs.")
+	}
+
+	loop := &stratum.Loop{
+		PoolURL:  cfg.StratumURL,
+		Login:    cfg.Login,
+		Password: cfg.Password,
+		Miner:    miner,
+		Once:     once,
+		Log: func(format string, args ...any) {
+			fmt.Fprintf(out, format+"\n", args...)
+		},
+	}
+	shares, blocks, err := loop.Run(ctx)
+	if err != nil {
+		return err
+	}
+	if once && shares+blocks < 1 {
+		return fmt.Errorf("connected to pool but no share was accepted yet")
+	}
+	fmt.Fprintf(out, "Stopped after %d share(s) and %d block(s).\n", shares, blocks)
+	return nil
 }

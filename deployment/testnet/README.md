@@ -18,10 +18,13 @@ The container runs as an unprivileged `sudharma` user, drops Linux capabilities 
 - `nginx-rpc.example.conf`: HTTPS/rate-limited RPC reverse-proxy starting point.
 - `demand-miner.example.json`: non-secret, testnet-only demand-miner configuration.
 - `gpu-miner.example.json`: non-secret GPU miner configuration using the same public-testnet seed-1/seed-2 RPC path as the wallet and explorer proxy.
+- `sudharma-pool.service`: disabled-by-default reference pool operator unit (Stratum on `:3333`).
+- `pool.example.json`: reference pool operator JSON config for PPS/PPLNS/SOLO/FPPS modes.
 - `gpu-miner.seed1-live.example.json` / `gpu-miner.seed2-live.example.json`: live-testnet GPU miner templates aligned with the demand-miner seed host naming.
 - `sudharma-demand-miner.service`: disabled-by-default hardened supervisor service.
 - `install-demand-miner.sh`: idempotent installer with optional explicit activation.
-- `install-demand-miner_test.sh`: staged installer and hardening safety checks.
+- `install-pool-operator.sh`: idempotent pool operator installer (disabled by default).
+- `install-pool-operator_test.sh`: installer safety checks for pool operator assets.
 
 ## Preflight
 
@@ -185,3 +188,36 @@ go run ./cmd/sudharma-miner --config ./deployment/testnet/gpu-miner.example.json
 ```
 
 Block rewards always go to the configured wallet address. This service never uses the demand-miner reward address or mining APIs.
+
+## Pool mining (Stratum v1)
+
+Reference pool operator stack for PPS/PPLNS/SOLO/FPPS payout modes:
+
+- `pool.example.json` — operator config for `cmd/sudharma-pool`
+- `gpu-miner-pool.example.json` — worker config for Stratum clients
+
+Operator smoke:
+
+```bash
+go run ./cmd/sudharma-pool -config ./deployment/testnet/pool.example.json
+bash ./scripts/pool-mining-smoke_test.sh
+```
+
+Worker (solo machine or rig):
+
+```bash
+go run ./cmd/sudharma-miner \
+  -config ./deployment/testnet/gpu-miner-pool.example.json \
+  -address YOUR_WALLET_ADDRESS \
+  -auto
+```
+
+Workers use login `wallet.worker` over Stratum. See `docs/audits/2026-08-31-pool-mining-architecture.md`.
+
+Install the reference pool operator (disabled by default). Full steps: `pool-operator-runbook.md`.
+
+```bash
+go build -trimpath -o ./sudharma-pool ./cmd/sudharma-pool
+sudo useradd --system --home /nonexistent --shell /usr/sbin/nologin sudharma-pool 2>/dev/null || true
+sudo SUDHARMA_POOL_BIN="$PWD/sudharma-pool" bash ./deployment/testnet/install-pool-operator.sh
+```

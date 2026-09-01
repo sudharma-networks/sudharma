@@ -1,0 +1,17 @@
+{
+  "network": "public-testnet",
+  "rpc_url": "https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com",
+  "rpc_urls": [
+    "http://172.31.10.171:29100",
+    "http://172.31.32.195:29100",
+    "https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com"
+  ],
+  "payout_address": "9ccdc094489874bed888ffe4bdf9b8298f4c5131",
+  "payout_scheme": "pplns",
+  "pool_difficulty": 1,
+  "pool_fee_bps": 100,
+  "pplns_window": 10000,
+  "stratum_listen": ":3333",
+  "work_poll_seconds": 5,
+  "expected_network": "sudharma"
+}

@@ -30,10 +30,11 @@ Public-testnet reward behavior preserved via compatibility wrappers (`ProcessBlo
 
 ## Review note
 
-`State.MintSupply` still enforces the public-testnet `params.MaxSupply` ceiling. Mainnet safety for this stage relies on `stateRemainingSupplyFor` clipping against `params.MaxSupplyFor(policy)` before mint. A later activation PR should make `MintSupply` policy-aware (or remove the hardcoded testnet ceiling) before mainnet genesis.
+`State` binds one monetary policy at creation (`NewStateFor`). `MintSupply` and
+`MintSupplyFor` enforce that policy's hard cap; cross-policy mints are rejected.
+Public-testnet nodes continue to use `NewState()` / `MonetaryPolicyPublicTestnet`.
 
 ## Remaining before mainnet launch
 
 - Human review of this implementation
-- Policy-aware mint ceiling (or equivalent) if required for activation
 - Security audit, genesis freeze, tokenomics activation decision, launch decision

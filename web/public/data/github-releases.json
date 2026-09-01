@@ -20,7 +20,7 @@
       "status": "available",
       "releaseTag": "windows-gpu-miner-v0.1.0",
       "prerelease": true,
-      "safetyNote": "GPU-only miner. CPU and ASIC mining are not supported on public testnet or mainnet.",
+      "safetyNote": "GPU-only solo and pool mining on public-testnet. Includes Start Pool Mining.bat for Stratum workers.",
       "checksumUrl": "/downloads/Sudharma-GPU-Miner-Windows-latest.zip.sha256"
     },
     {

@@ -112,6 +112,100 @@ func TestBalanceOverflowRejected(t *testing.T) {
 	}
 }
 
+func TestMintSupplyForMainnetEnforcesMainnetCap(t *testing.T) {
+	state := NewStateFor(params.MonetaryPolicyMainnet)
+
+	if err := state.MintSupplyFor(params.MonetaryPolicyMainnet, params.MainnetMaxSupply); err != nil {
+		t.Fatal(err)
+	}
+	if state.IssuedSupply() != params.MainnetMaxSupply {
+		t.Fatalf("expected issued supply %d, got %d", params.MainnetMaxSupply, state.IssuedSupply())
+	}
+
+	if err := state.MintSupplyFor(params.MonetaryPolicyMainnet, 1); err == nil {
+		t.Fatal("mainnet mint above 51M was accepted")
+	}
+	if state.IssuedSupply() != params.MainnetMaxSupply {
+		t.Fatalf("issued supply changed after rejected mainnet mint: %d", state.IssuedSupply())
+	}
+
+	if err := state.MintSupply(1); err == nil {
+		t.Fatal("MintSupply must stay on the mainnet cap once state is mainnet-bound")
+	}
+	if state.IssuedSupply() != params.MainnetMaxSupply {
+		t.Fatalf("issued supply changed after rejected MintSupply: %d", state.IssuedSupply())
+	}
+
+	if err := state.MintSupplyFor(params.MonetaryPolicyPublicTestnet, 1); err == nil {
+		t.Fatal("cross-policy mint on mainnet state was accepted")
+	}
+}
+
+func TestMintSupplyCompatibilityWrapperKeepsTestnetCap(t *testing.T) {
+	state := NewState()
+	if err := state.MintSupply(params.MaxSupply); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.MintSupply(1); err == nil {
+		t.Fatal("testnet mint above 51B was accepted")
+	}
+}
+
+func TestMintSupplyForRejectsUnknownPolicy(t *testing.T) {
+	state := NewState()
+	if err := state.MintSupplyFor(params.MonetaryPolicy(255), 1); err == nil {
+		t.Fatal("expected unknown monetary policy error")
+	}
+	if state.IssuedSupply() != 0 {
+		t.Fatal("unknown policy mutated issued supply")
+	}
+}
+
+func TestNewStateForDefaultsPublicTestnetPolicy(t *testing.T) {
+	state := NewState()
+	if state.MonetaryPolicy() != params.MonetaryPolicyPublicTestnet {
+		t.Fatalf("expected public-testnet policy, got %d", state.MonetaryPolicy())
+	}
+}
+
+func TestMintSupplyForRejectsCrossPolicyOnMainnetState(t *testing.T) {
+	state := NewStateFor(params.MonetaryPolicyMainnet)
+	if err := state.MintSupplyFor(params.MonetaryPolicyPublicTestnet, 1); err == nil {
+		t.Fatal("expected cross-policy mint rejection")
+	}
+}
+
+func TestCreditMinerRewardForStopsAtMainnetCap(t *testing.T) {
+	state := NewStateFor(params.MonetaryPolicyMainnet)
+	remaining := uint64(1)
+	alreadyIssued := params.MainnetMaxSupply - remaining
+	if err := state.MintSupplyFor(params.MonetaryPolicyMainnet, alreadyIssued); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := CreditMinerRewardFor(state, params.MonetaryPolicyMainnet, 1, "miner", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != remaining {
+		t.Fatalf("expected clipped mainnet subsidy %d, got %d", remaining, got)
+	}
+	if state.IssuedSupply() != params.MainnetMaxSupply {
+		t.Fatalf("expected issued supply %d, got %d", params.MainnetMaxSupply, state.IssuedSupply())
+	}
+
+	second, err := CreditMinerRewardFor(state, params.MonetaryPolicyMainnet, 2, "miner", 9_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second != 9_000 {
+		t.Fatalf("expected fee-only reward 9000, got %d", second)
+	}
+	if state.IssuedSupply() != params.MainnetMaxSupply {
+		t.Fatal("fee-only mainnet block minted new supply")
+	}
+}
+
 func TestMinerSubsidyStopsAtMaxSupply(t *testing.T) {
 	state := NewState()
 

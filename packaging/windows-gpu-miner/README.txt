@@ -18,4 +18,10 @@ Optional
 
 This is not the demand miner. Both can run at the same time if needed.
 
+Pool mining (optional)
+- Double-click "Start Pool Mining.bat" to connect to a Sudharma Stratum pool
+- Enter pool URL like stratum+tcp://YOUR_POOL_HOST:3333
+- Worker name defaults to rig1 (login becomes wallet.rig1)
+- Pool operators run cmd/sudharma-pool; see deployment/testnet/pool.example.json
+
 Mainnet stays closed until launch.

@@ -41,7 +41,7 @@ export function classifyAsset(release, asset) {
   } else if (lower.includes("gpu-miner") && lower.includes("windows")) {
     slot = "windows-gpu-miner"; kind = "miner"; channel = "experimental";
     name = "Sudharma One-Click Windows GPU Miner"; platform = "Windows"; architecture = "NVIDIA CUDA / AMD OpenCL GPU";
-    safetyNote = "GPU-only miner. CPU and ASIC mining are not supported on public testnet or mainnet.";
+    safetyNote = "GPU-only solo and pool mining on public-testnet. Includes Start Pool Mining.bat for Stratum workers.";
   } else if ((lower.includes("nvidia") || lower.includes("cuda")) && lower.includes("miner")) {
     slot = "nvidia-miner"; kind = "miner"; channel = "experimental";
     name = "Khushi Miner — NVIDIA / CUDA"; platform = lower.includes("windows") ? "Windows" : "Cross-platform"; architecture = "NVIDIA CUDA GPU";

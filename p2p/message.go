@@ -11,6 +11,9 @@ import (
 const (
 	ProtocolVersion uint32 = 1
 	NetworkID              = "sudharma-testnet-1"
+	// MainnetNetworkID is the frozen mainnet P2P namespace. Handshake still
+	// uses NetworkID (public testnet) until mainnet launch is authorized.
+	MainnetNetworkID = "sudharma-mainnet-1"
 
 	MaxPeersPerMessage = 128
 )
@@ -104,7 +107,7 @@ func NewHandshakeMessage(nodeID string, listenAddress string, height uint64, tip
 	}
 	return encodeMessage(MessageHandshake, Handshake{
 		ProtocolVersion: ProtocolVersion,
-		NetworkID:       NetworkID,
+		NetworkID:       LocalNetworkID(),
 		NodeID:          nodeID,
 		ListenAddress:   listenAddress,
 		Height:          height,
@@ -263,7 +266,7 @@ func DecodeHandshake(message *Message) (*Handshake, error) {
 	if handshake.ProtocolVersion != ProtocolVersion {
 		return nil, fmt.Errorf("unsupported protocol version: %d", handshake.ProtocolVersion)
 	}
-	if handshake.NetworkID != NetworkID {
+	if handshake.NetworkID != LocalNetworkID() {
 		return nil, fmt.Errorf("wrong Sudharma Network network: %s", handshake.NetworkID)
 	}
 	if handshake.NodeID == "" {

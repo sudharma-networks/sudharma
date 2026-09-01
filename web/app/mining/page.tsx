@@ -9,6 +9,12 @@ export default function MiningPage() {
   return <div className="section-shell page-stack"><PageHero eyebrow="MINING" title="Mine Sudharma on GPU only." description="Sudharma uses the Khushi GPU-PoW algorithm. There is no CPU miner and no ASIC miner — not on public testnet, and not on mainnet. NVIDIA CUDA and AMD/OpenCL GPUs are the supported hardware."><Link className="button" href="/downloads">GPU miner downloads</Link></PageHero>
     <section className="notice"><StatusChip status="Experimental" /><p>This GPU miner is a separate program from the demand miner. Demand miner is unchanged and can keep running. The public GPU miner pays block rewards to the wallet address you paste. CPU mining and ASIC mining are not supported.</p></section>
     <section className="info-card page-stack">
+      <p className="eyebrow">POOL MINING (STRATUM)</p>
+      <h2>Join a pool or run your own operator server.</h2>
+      <p>Workers connect with <span className="mono">wallet.worker</span> over Stratum v1. Payout modes include PPS, PPLNS, SOLO, and FPPS. Use <span className="mono">Start Pool Mining.bat</span> on Windows or <span className="mono">sudharma-miner --stratum stratum+tcp://HOST:3333</span>.</p>
+      <p>Pool operators run the reference <span className="mono">sudharma-pool</span> server beside public-testnet RPC. See the Pools and Kryptex guides below.</p>
+    </section>
+    <section className="info-card page-stack">
       <p className="eyebrow">ONE-CLICK WINDOWS GPU MINER</p>
       <h2>Paste your wallet address. Start mining.</h2>
       <p>The Windows miner asks only for your 40-character Sudharma wallet address once. It connects to public-testnet automatically, remembers your address, and starts mining on the next double-click. It never asks for a seed phrase or private key.</p>

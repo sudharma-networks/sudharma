@@ -16,9 +16,9 @@ func TestProductionMiningIsGPUOnlyOnTestnetAndMainnet(t *testing.T) {
 		t.Fatal("mainnet mining must stay unauthorized until launch")
 	}
 
-	for _, network := range []string{NetworkPublicTestnet, NetworkMainnet, "testnet", "sudharma-mainnet-1"} {
+	for _, network := range []string{MiningNetworkPublicTestnet, MiningNetworkMainnet, "testnet", "sudharma-mainnet-1"} {
 		normalized := NormalizeMiningNetwork(network)
-		if normalized != NetworkPublicTestnet && normalized != NetworkMainnet {
+		if normalized != MiningNetworkPublicTestnet && normalized != MiningNetworkMainnet {
 			t.Fatalf("network %q normalized to %q", network, normalized)
 		}
 	}
@@ -60,7 +60,7 @@ func TestValidateMiningBackendRejectsCPUAndASIC(t *testing.T) {
 }
 
 func TestMiningRPCForNetwork(t *testing.T) {
-	url, err := MiningRPCForNetwork(NetworkPublicTestnet)
+	url, err := MiningRPCForNetwork(MiningNetworkPublicTestnet)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestMiningRPCForNetwork(t *testing.T) {
 		t.Fatalf("testnet rpc = %q", url)
 	}
 
-	endpoints, err := MiningRPCEndpointsForNetwork(NetworkPublicTestnet)
+	endpoints, err := MiningRPCEndpointsForNetwork(MiningNetworkPublicTestnet)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestMiningRPCForNetwork(t *testing.T) {
 		t.Fatalf("seed endpoints = %#v", endpoints[1:])
 	}
 
-	_, err = MiningRPCForNetwork(NetworkMainnet)
+	_, err = MiningRPCForNetwork(MiningNetworkMainnet)
 	if err == nil {
 		t.Fatal("mainnet mining must be refused until authorized")
 	}

@@ -125,7 +125,7 @@ func Resolve(cfg Config) (Config, error) {
 
 func resolveMiningEndpoints(network, rpcURL string, rpcURLs []string) ([]string, error) {
 	if override := strings.TrimRight(strings.TrimSpace(rpcURL), "/"); override != "" {
-		if network == params.NetworkMainnet && !params.MainnetMiningAuthorized {
+		if network == params.MiningNetworkMainnet && !params.MainnetMiningAuthorized {
 			return nil, fmt.Errorf("mainnet mining is not authorized; Sudharma mainnet remains GPU-only and closed until launch")
 		}
 		return []string{override}, nil
@@ -147,7 +147,7 @@ func resolveMiningEndpoints(network, rpcURL string, rpcURLs []string) ([]string,
 		if len(out) == 0 {
 			return nil, fmt.Errorf("at least one mining RPC endpoint is required")
 		}
-		if network == params.NetworkMainnet && !params.MainnetMiningAuthorized {
+		if network == params.MiningNetworkMainnet && !params.MainnetMiningAuthorized {
 			return nil, fmt.Errorf("mainnet mining is not authorized; Sudharma mainnet remains GPU-only and closed until launch")
 		}
 		return out, nil
