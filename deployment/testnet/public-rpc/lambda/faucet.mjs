@@ -13,6 +13,7 @@ export const CHALLENGE_SEND_SUDH = 25;
 export const CHALLENGE_REWARD_SUDH = 50;
 export const MAX_ROUNDS = 5;
 export const COOLDOWN_MS = 24 * 60 * 60 * 1000;
+export const TRANSACTION_SIGNATURE_NETWORK = 'sudharma-testnet-1';
 
 const LOWER_HEX_40 = /^[0-9a-f]{40}$/;
 const LOWER_HEX_64 = /^[0-9a-f]{64}$/;
@@ -88,7 +89,8 @@ export function createSigner(privateScalarHex) {
       const fee = Math.floor((amount * 10) / 10_000);
       const canonical = `${address}|${to}|${amount}|${fee}|${nonce}`;
       const id = sha256(Buffer.from(canonical, 'utf8')).toString('hex');
-      const signature = cryptoSign('sha256', Buffer.from(id, 'utf8'), {
+      const signingMessage = `sudharma-tx-v2|${TRANSACTION_SIGNATURE_NETWORK}|${id}`;
+      const signature = cryptoSign('sha256', Buffer.from(signingMessage, 'utf8'), {
         key: privateKey,
         dsaEncoding: 'ieee-p1363',
       });
