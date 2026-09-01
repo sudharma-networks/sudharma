@@ -6,6 +6,7 @@ import (
 
 	"github.com/sudharma-networks/sudharma/blockchain/mempool"
 	"github.com/sudharma-networks/sudharma/params"
+	"github.com/sudharma-networks/sudharma/transactions"
 )
 
 // NewBlockFromMempool creates a candidate block from pending transactions while
