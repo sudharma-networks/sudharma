@@ -22,6 +22,18 @@ func testBlock(t *testing.T) *blockchain.Block {
 	return block
 }
 
+func findNoncePoolOnly(t *testing.T, block *blockchain.Block, poolDifficulty, blockDifficulty uint32) uint64 {
+	t.Helper()
+	for nonce := uint64(0); nonce < 5_000_000; nonce++ {
+		hash := pow.HashBlock(block, nonce)
+		if pow.ValidHash(hash, poolDifficulty) && !pow.ValidHash(hash, blockDifficulty) {
+			return nonce
+		}
+	}
+	t.Fatalf("no pool-only nonce found for pool=%d block=%d", poolDifficulty, blockDifficulty)
+	return 0
+}
+
 func findNonce(t *testing.T, block *blockchain.Block, difficulty uint32) uint64 {
 	t.Helper()
 	for nonce := uint64(0); nonce < 5_000_000; nonce++ {
@@ -37,7 +49,7 @@ func findNonce(t *testing.T, block *blockchain.Block, difficulty uint32) uint64 
 func TestValidateShareAcceptsPoolShareAndBlock(t *testing.T) {
 	block := testBlock(t)
 	block.Difficulty = 100
-	blockShare := findNonce(t, block, 1)
+	blockShare := findNoncePoolOnly(t, block, 1, 100)
 
 	result, err := ValidateShare(block, blockShare, 1, 100)
 	if err != nil {
