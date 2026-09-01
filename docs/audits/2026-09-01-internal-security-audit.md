@@ -12,7 +12,7 @@ Audit baseline:
 a02c67a85fd3c96f0183808504799889bc8f6dd4
 ```
 
-Tracking branch: `audit/2026-09-01-internal-security`
+Tracking branch: `audit/2026-09-01-internal-security`  
 Tracking PR: #99
 
 ## Executive verdict
@@ -21,7 +21,7 @@ Tracking PR: #99
 
 **Mainnet: NO-GO.** Mainnet must remain fail-closed until the evidence gates in this report are complete.
 
-The review found one High-severity monetary-arithmetic defect. A regression test first reproduced the failure, then the implementation was corrected and the repository CI/race/integration gates passed on the remediation branch. Two Medium findings remain tracked for hardening/documentation before the security-review evidence gate can close.
+This pass has confirmed three High-severity findings. IS-001 has been fixed on the audit branch with regression coverage and passing CI. IS-006, a P2P resource-hardening finding, has also been fixed with passing CI. IS-004 and IS-005 remain open High pre-mainnet blockers because they affect cross-network transaction replay protection and network-aware consensus/state processing. Medium findings remain tracked for atomicity and source-of-truth cleanup.
 
 No claim is made that absence of additional findings proves absence of vulnerabilities.
 
@@ -36,6 +36,7 @@ The internal audit reviewed or sampled the following security surfaces:
 - staged state application and mempool validation
 - wallet key generation, signature verification and encrypted wallet storage
 - public-testnet/mainnet network separation and launch authorization guards
+- P2P handshake parsing, message bounds, block acceptance and sync paths
 - GPU mining, pool/Stratum readiness gates and existing physical-test blockers
 - faucet/RPC contracts covered by repository CI
 - CI, race testing, two-node rehearsal and container smoke gates
@@ -45,11 +46,10 @@ The internal audit reviewed or sampled the following security surfaces:
 
 1. Pin review to an exact canonical `main` commit.
 2. Inspect consensus/security-critical source rather than relying on project documentation alone.
-3. Convert reproducible findings into regression tests before implementation changes.
-4. Require a failing test/check on the vulnerable implementation (RED).
-5. Apply the minimal remediation and require repository CI to pass (GREEN).
-6. Record unresolved findings as explicit mainnet blockers rather than silently accepting them.
-7. Keep all mainnet authorization, genesis timestamp, seed topology and mining authorization gates closed.
+3. Convert reproducible findings into regression tests before implementation changes when the remediation is safe and narrowly scoped.
+4. Require repository CI on remediation commits.
+5. Record architecture/consensus findings as explicit mainnet blockers instead of silently changing compatibility-sensitive formats.
+6. Keep all mainnet authorization, genesis timestamp, seed topology and mining authorization gates closed.
 
 ## Findings
 
@@ -57,63 +57,111 @@ The internal audit reviewed or sampled the following security surfaces:
 
 **Status: FIXED ON PR #99; awaiting merge.**
 
-The baseline calculated basis-point fees by multiplying the full `uint64` amount before division. Amounts within the configured public-testnet/legacy monetary range could therefore overflow intermediate arithmetic.
+The baseline calculated basis-point fees by multiplying the full `uint64` amount before division. Amounts within the configured public-testnet/legacy monetary range could overflow intermediate arithmetic.
 
-The baseline also calculated total, development and miner fees as three independently floored percentages. For some ordinary atomic amounts the split did not equal the charged fee. For example, at 1000 atomic units the total 0.10% fee floors to 1 atom while the independently calculated 0.01% and 0.09% portions both floor to 0. `ApplyTransaction` subsequently requires the portions to equal the transaction fee, so this creates inconsistent validity/application behavior.
+The baseline also calculated total, development and miner fees as three independently floored percentages. For some ordinary atomic amounts the split did not equal the charged fee. For example, at 1000 atomic units the total 0.10% fee floors to 1 atom while the independently calculated 0.01% and 0.09% portions both floor to 0.
 
 **Remediation:**
 
-- Added security regression coverage at maximum configured legacy/testnet supply scale and small atomic values.
+- Added regression coverage at maximum configured legacy/testnet supply scale and small atomic values.
 - Replaced full-width multiplication with quotient/remainder basis-point arithmetic.
-- Defined miner fee as the exact charged-fee remainder after the development allocation so integer rounding always conserves fee atoms.
+- Defined miner fee as the exact charged-fee remainder after development allocation so integer rounding always conserves fee atoms.
 
 **Evidence:**
 
-- Test-only commit: `8d181e6c5b9746c188574df1a48addf6738169a9` — expected CI failure reproduced the defect.
-- First fixed commit line: `b8ffad367e7664a5f5df7982978477273bf52bbb` — CI passed.
-- Final audit branch must remain green before merge.
+- RED/test-only commit: `8d181e6c5b9746c188574df1a48addf6738169a9`.
+- First GREEN fix: `b8ffad367e7664a5f5df7982978477273bf52bbb`.
+- CI #942 and Faucet Recovery CI #278 passed on that fix line.
 
 ### IS-002 — MEDIUM — `ApplyTransaction` discards credit failures / intrinsic atomicity is weak
 
 **Status: OPEN — GitHub #100.**
 
-`ApplyTransaction` checks the sender debit error but currently discards errors returned when crediting the receiver and development treasury. It also performs several mutations before nonce/processed markers are finalized.
+`ApplyTransaction` checks the sender debit error but discards errors returned when crediting the receiver and development treasury. It also performs several mutations before nonce/processed markers are finalized.
 
-Canonical mempool and block paths use cloned/temporary state before committing, which materially limits immediate exploitability. Nevertheless this helper should be intrinsically fail-closed so a future overflow/invariant failure cannot be silently accepted and a direct caller cannot be left with partial mutation.
+Canonical mempool/block paths use cloned temporary state before committing, limiting immediate exploitability. The helper must still become intrinsically fail-closed before the security-review evidence gate closes.
 
-Required before security-review closure:
+Required work:
 
 - regression tests for receiver/development credit failure
 - explicit atomicity contract
 - aliasing tests (`From == To`, receiver/development overlap)
-- fail-closed mutation/error propagation
+- fail-closed error propagation and mutation semantics
 - full race/regression verification
 
-### IS-003 — MEDIUM — Testnet 51B vs mainnet 51M supply wording is ambiguous in top-level materials
+### IS-003 — MEDIUM — Testnet 51B vs mainnet 51M source-of-truth ambiguity
 
 **Status: OPEN — GitHub #101.**
 
-The code intentionally separates monetary policies: development/public-testnet legacy policy uses a 51,000,000,000 SUDH hard cap while the current mainnet candidate policy encodes 51,000,000 SUDH. Some top-level wording can be read as though 51B applies universally, while mainnet-readiness material states 51M.
+The code separates monetary policies: development/public-testnet legacy policy uses a 51,000,000,000 SUDH hard cap while the current mainnet candidate policy encodes 51,000,000 SUDH. Top-level wording is not yet fully consistent.
 
-This review did not identify a confirmed code-path mix-up; it is a consensus-critical documentation/source-of-truth risk. The intended mainnet hard cap and emission schedule must be explicitly approved and consistently documented before genesis freeze.
+No confirmed mint-cap bypass was identified in this pass, but this is consensus-critical configuration/documentation risk. The intended mainnet cap and emission schedule must be explicitly approved and consistently documented before genesis freeze.
 
-### IS-004 — INFO/POSITIVE — Mainnet remains fail-closed
+### IS-004 — HIGH — Transaction signatures are not domain-separated by network/chain
+
+**Status: OPEN — GitHub #102 — MAINNET BLOCKER.**
+
+The transaction signing preimage currently contains transaction fields such as sender, receiver, amount, fee, nonce and public key, but no immutable network/chain domain identifier. P2P network IDs and separate genesis blocks prevent accidental peer mixing, but they do not prevent a signed transaction payload from being submitted to another Sudharma network.
+
+If a key/address exists on both testnet and mainnet with compatible balance and nonce, a transaction signed for one network can remain cryptographically valid on the other.
+
+Required remediation before mainnet:
+
+- define a versioned signature domain including network/chain ID or equivalent immutable chain-domain separator
+- update wallet/CLI/Android/RPC/P2P signing and verification paths coherently
+- add cross-network replay tests proving testnet signatures fail on mainnet and vice versa
+- define activation/migration semantics deliberately so existing testnet data is not silently reinterpreted
+
+This is intentionally not patched ad hoc in the audit PR because it changes the consensus transaction-signature format.
+
+### IS-005 — HIGH — Generic block/reorg/miner paths still route through public-testnet monetary processing
+
+**Status: OPEN — GitHub #103 — MAINNET BLOCKER.**
+
+The codebase contains mainnet-aware monetary functions (`ProcessBlockFor`, `MonetaryPolicyFor`), but several generic consensus/runtime paths still call the public-testnet compatibility wrapper `ProcessBlock(...)` or create public-testnet state/chain implicitly. Confirmed examples include peer block acceptance, miner pipeline and reorganization/state replay code.
+
+Today mainnet is fail-closed, so this is not a live mainnet exploit. At launch, however, inconsistent policy selection can cause mainnet blocks to be rejected or can create consensus divergence if different ingress/replay paths apply different monetary policies.
+
+Required remediation before mainnet:
+
+- make active network identity explicit and immutable in chain/node/runtime objects
+- route peer block acceptance and mining through the active network monetary policy
+- make candidate validation, replacement, state rebuild and reorg replay network-aware
+- add testnet/mainnet regression tests for peer acceptance, mining, restart replay and reorg replay
+- keep activation in a separate final human-gated change
+
+### IS-006 — MEDIUM — Unauthenticated handshake `total_work` allowed oversized decimal big integers
+
+**Status: FIXED ON PR #99; awaiting merge.**
+
+P2P frames were already bounded to 16 MiB and inbound handshakes were concurrency/time bounded. However, the handshake `total_work` string could still consume most of that frame and be parsed into a very large `big.Int` before peer admission, creating unnecessary CPU/memory pressure from unauthenticated peers.
+
+**Remediation:**
+
+- Added `MaxHandshakeTotalWorkDigits = 128`.
+- Both outbound construction and inbound handshake decoding reject oversized `total_work` encodings before `big.Int` parsing/storage.
+- Added regression tests for oversized inbound and outbound work values.
+
+**Evidence:**
+
+- Audit branch hardening head included commit line through `7580689094c3565d6ad63f80d0143e26e365877d`.
+- CI #949 and Faucet Recovery CI #285 passed.
+
+### IS-007 — INFO/POSITIVE — Mainnet remains fail-closed
 
 **Status: VERIFIED IN REVIEWED CODE/TESTS.**
 
-Mainnet launch authorization remains false, the mainnet genesis timestamp remains unset, mainnet mining authorization remains false, and network identity is separated from the public testnet. The audit branch replaces the paid/independent-audit-only readiness item with a truthful `security-review-evidence` gate that also remains false.
+`MainnetLaunchAuthorized` remains false, the mainnet genesis timestamp remains unset, mainnet mining authorization remains false, and mainnet/testnet identities are distinct. The audit branch uses a truthful `security-review-evidence` readiness gate that also remains false.
 
-This change does **not** authorize mainnet. The evidence gate requires the internal audit to have zero open Critical/High findings, required regression/adversarial tests to pass, and a documented public review period to complete.
-
-### IS-005 — INFO/POSITIVE — Encrypted wallet storage uses authenticated encryption and memory-hard KDF parameters
+### IS-008 — INFO/POSITIVE — Encrypted wallet storage uses authenticated encryption and a memory-hard KDF
 
 **Status: NO CRITICAL DEFECT IDENTIFIED IN THIS PASS.**
 
-The reviewed encrypted-wallet implementation uses random salt, scrypt, AES-256-GCM, a random nonce and authenticated envelope parameters. Unsupported envelope/KDF/cipher parameters are rejected. This finding is not a cryptographic certification and does not replace dedicated wallet penetration/recovery testing.
+The reviewed encrypted-wallet implementation uses random salt, scrypt, AES-256-GCM, a random nonce and authenticated encryption. Unsupported envelope/KDF/cipher parameters are rejected. This is not a cryptographic certification and does not replace recovery/device-level testing.
 
 ## CI / engineering evidence
 
-The remediation branch is required to pass the repository security and engineering gates, including applicable:
+The remediation branch must pass the repository security and engineering gates on its final head, including applicable:
 
 - tracked-secret checks
 - RPC/faucet contract checks
@@ -125,14 +173,19 @@ The remediation branch is required to pass the repository security and engineeri
 - two-node rehearsal
 - public-testnet container build/smoke
 
-The final PR head and workflow IDs should be recorded in the PR conversation before merge.
+Recorded passing evidence so far:
+
+- fee remediation: CI #942, Faucet Recovery CI #278
+- P2P `total_work` hardening: CI #949, Faucet Recovery CI #285
+
+The final PR head/workflow IDs must be recorded again immediately before merge.
 
 ## Zero-budget security-review evidence gate
 
 `MainnetSecurityReviewEvidenceComplete` must remain `false` until all of the following are satisfied:
 
 - [ ] No open Critical findings.
-- [ ] No open High findings.
+- [ ] No open High findings, including #102 and #103.
 - [ ] Every Medium finding is fixed or explicitly risk-accepted with written technical evidence.
 - [ ] Full repository tests, race detector and required adversarial/security gates pass on the final candidate commit.
 - [ ] Consensus/fork/reorg/difficulty/timestamp regression suite passes on the frozen candidate.
@@ -147,7 +200,7 @@ The final PR head and workflow IDs should be recorded in the PR conversation bef
 
 ## Public/community review path
 
-A paid auditor is not required for this internal evidence process. The project should invite developers and security researchers to review the frozen candidate and use private vulnerability reporting for high-impact findings. Community review should be described accurately as public/community review, not independent professional certification.
+A paid auditor is not required for this internal evidence process. The project can invite developers and security researchers to review the frozen candidate and use private vulnerability reporting for high-impact findings. Community review must be described accurately as public/community review, not independent professional certification.
 
 ## Remaining project blockers outside this audit
 
@@ -161,4 +214,4 @@ Security-review completion is only one part of project finalization. Current kno
 
 ## Final security statement
 
-Sudharma can continue development and public-testnet operation without purchasing an external audit. A future mainnet launch may use this evidence-based zero-budget route, provided the project remains transparent that no independent third-party audit occurred and does not close the security-review gate until its documented requirements are actually satisfied.
+Sudharma can continue development and public-testnet operation without purchasing an external audit. Mainnet must not launch yet. The zero-budget route remains viable only if the project transparently records and resolves the open High findings, completes the required evidence gates and never represents this internal AI-assisted review as an independent third-party certification.
