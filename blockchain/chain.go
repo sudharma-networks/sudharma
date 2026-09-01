@@ -11,6 +11,7 @@ import (
 
 type Chain struct {
 	mu        sync.RWMutex
+	network   params.NetworkID
 	blocks    []*Block
 	totalWork *big.Int
 }
@@ -23,13 +24,17 @@ func NewChain() *Chain {
 	return chain
 }
 
-// NewChainFor creates a chain whose genesis matches the requested network.
+// NewChainFor creates a chain whose immutable identity and genesis match the requested network.
 func NewChainFor(network params.NetworkID) (*Chain, error) {
 	genesis, err := GenesisFor(network)
 	if err != nil {
 		return nil, err
 	}
+	if _, err := params.MonetaryPolicyFor(network); err != nil {
+		return nil, err
+	}
 	return &Chain{
+		network: network,
 		blocks: []*Block{
 			genesis,
 		},
@@ -37,10 +42,29 @@ func NewChainFor(network params.NetworkID) (*Chain, error) {
 	}, nil
 }
 
+// Network returns the immutable network identity bound to this chain.
+func (c *Chain) Network() params.NetworkID {
+	if c == nil {
+		return ""
+	}
+	return c.network
+}
+
+// MonetaryPolicy returns the monetary policy implied by the chain's network identity.
+func (c *Chain) MonetaryPolicy() (params.MonetaryPolicy, error) {
+	if c == nil {
+		return 0, fmt.Errorf("chain cannot be nil")
+	}
+	return params.MonetaryPolicyFor(c.network)
+}
+
 // ValidateChainGenesis ensures an on-disk chain belongs to the active network.
 func ValidateChainGenesis(chain *Chain, network params.NetworkID) error {
 	if chain == nil {
 		return fmt.Errorf("chain cannot be nil")
+	}
+	if chain.Network() != network {
+		return fmt.Errorf("chain identity does not match network %q", network)
 	}
 	genesis, ok := chain.BlockByHeight(0)
 	if !ok || genesis == nil {
