@@ -60,9 +60,14 @@ Expected before launch:
 
 ## Deferred until after mainnet launch decision
 
-- GPU Windows/HiveOS public miner packages (stay on `feature/gpu-pow-v1`)
-- DEX/CEX listing (native SUDH needs wrap/bridge for Uniswap-style DEXes)
 - Public GPU mining RPC on mainnet (requires `MainnetMiningAuthorized`)
+- DEX/CEX listing (native SUDH needs wrap/bridge for Uniswap-style DEXes)
+
+## Available on public-testnet today (not mainnet)
+
+- Solo GPU miner: Windows one-click + `sudharma-miner` (PR #79)
+- Pool reference stack: `cmd/sudharma-pool` + Stratum workers (`gpuminer/stratum`)
+- Payout modes: PPS, PPLNS, SOLO, FPPS — see `docs/audits/2026-08-31-pool-mining-architecture.md`
 
 ## Related PRs
 

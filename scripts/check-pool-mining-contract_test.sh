@@ -38,6 +38,9 @@ require_file 'deployment/testnet/gpu-miner-pool.example.json'
 require_file 'deployment/mainnet/pool.example.json'
 require_file 'deployment/mainnet/gpu-miner-pool.example.json'
 
+go test ./pool -run TestStratumPoolRoundTripCreditsWorkerShare -count=1 >/dev/null \
+  || fail 'pool stratum round-trip integration test must pass'
+
 go test ./gpuminer/stratum/... -count=1 >/dev/null \
   || fail 'stratum miner client tests must pass'
 

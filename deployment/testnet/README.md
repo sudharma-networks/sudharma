@@ -186,3 +186,28 @@ go run ./cmd/sudharma-miner --config ./deployment/testnet/gpu-miner.example.json
 ```
 
 Block rewards always go to the configured wallet address. This service never uses the demand-miner reward address or mining APIs.
+
+## Pool mining (Stratum v1)
+
+Reference pool operator stack for PPS/PPLNS/SOLO/FPPS payout modes:
+
+- `pool.example.json` — operator config for `cmd/sudharma-pool`
+- `gpu-miner-pool.example.json` — worker config for Stratum clients
+
+Operator smoke:
+
+```bash
+go run ./cmd/sudharma-pool -config ./deployment/testnet/pool.example.json
+bash ./scripts/pool-mining-smoke_test.sh
+```
+
+Worker (solo machine or rig):
+
+```bash
+go run ./cmd/sudharma-miner \
+  -config ./deployment/testnet/gpu-miner-pool.example.json \
+  -address YOUR_WALLET_ADDRESS \
+  -auto
+```
+
+Workers use login `wallet.worker` over Stratum. See `docs/audits/2026-08-31-pool-mining-architecture.md`.

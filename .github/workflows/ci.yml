@@ -60,6 +60,9 @@ jobs:
       - name: Verify pool mining contract
         run: bash ./scripts/check-pool-mining-contract_test.sh
 
+      - name: Run pool mining smoke tests
+        run: bash ./scripts/pool-mining-smoke_test.sh
+
       - name: Verify testnet RC readiness contract
         run: bash ./scripts/check-testnet-rc-readiness_test.sh
 
