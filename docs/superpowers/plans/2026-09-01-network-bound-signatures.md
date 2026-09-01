@@ -21,3 +21,5 @@ Transaction signatures previously signed only the transaction ID. A valid testne
 ## Migration
 
 Operators do not need to resign historical confirmed testnet transactions. New submissions should use v2 automatically through updated clients.
+
+For public-testnet rollout, update node/RPC binaries first so `/v1/status` exposes the canonical `network_id`. Only after nodes report that identity should updated CLI/faucet clients be deployed. The CLI fails closed when `network_id` is missing, unsupported, or does not match the operator-selected network, so mixed-version rollout cannot silently sign for the wrong chain.
