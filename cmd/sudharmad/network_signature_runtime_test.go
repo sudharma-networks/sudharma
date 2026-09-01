@@ -1,21 +1,35 @@
 package main
 
 import (
-	"bytes"
-	"os"
 	"testing"
+
+	"github.com/sudharma-networks/sudharma/p2p"
+	"github.com/sudharma-networks/sudharma/params"
+	"github.com/sudharma-networks/sudharma/transactions"
+	"github.com/sudharma-networks/sudharma/wallet"
 )
 
-func TestDevelopmentTransactionHelpersUseExplicitNetworkSigner(t *testing.T) {
-	source, err := os.ReadFile("main.go")
+func TestDaemonActiveNetworkBindsConvenienceTransactionSigner(t *testing.T) {
+	p2p.SetLocalNetworkID(params.NetworkMainnet)
+	t.Cleanup(p2p.ResetLocalNetworkIDForTests)
+
+	sender, err := wallet.NewWallet()
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiver, err := wallet.NewWallet()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if bytes.Contains(source, []byte("tx.Sign(")) {
-		t.Fatal("sudharmad transaction helpers must not use the default-network signer")
+	tx := transactions.NewTransaction(sender.Address, receiver.Address, params.MinTransferAmount, 1)
+	if err := tx.Sign(sender); err != nil {
+		t.Fatal(err)
 	}
-	if got := bytes.Count(source, []byte("tx.SignForNetwork(")); got < 3 {
-		t.Fatalf("expected every sudharmad transaction helper to use SignForNetwork, got %d explicit signer call(s)", got)
+	if !tx.VerifyForNetwork(params.NetworkMainnet) {
+		t.Fatal("daemon convenience signer did not bind to the active mainnet identity")
+	}
+	if tx.VerifyForNetwork(params.NetworkPublicTestnet) {
+		t.Fatal("mainnet-bound daemon signature replayed on public testnet")
 	}
 }
