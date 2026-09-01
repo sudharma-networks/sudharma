@@ -3,10 +3,12 @@ package blockchain
 import (
 	"fmt"
 
+	"github.com/sudharma-networks/sudharma/params"
 	"github.com/sudharma-networks/sudharma/transactions"
 )
 
-// ProcessBlock processes an entire Sudharma Network block atomically.
+// ProcessBlock processes an entire Sudharma Network block atomically under the
+// public-testnet monetary policy.
 //
 // Transactions are first applied to a temporary copy of the state.
 // If ANY transaction fails, the real blockchain state remains unchanged.
@@ -21,6 +23,22 @@ func ProcessBlock(
 	block *Block,
 	minerAddress string,
 ) (uint64, error) {
+	return ProcessBlockFor(
+		state,
+		params.MonetaryPolicyPublicTestnet,
+		block,
+		minerAddress,
+	)
+}
+
+// ProcessBlockFor processes an entire Sudharma Network block atomically under
+// an explicit monetary policy.
+func ProcessBlockFor(
+	state *State,
+	policy params.MonetaryPolicy,
+	block *Block,
+	minerAddress string,
+) (uint64, error) {
 
 	if state == nil {
 		return 0, fmt.Errorf("state cannot be nil")
@@ -32,6 +50,10 @@ func ProcessBlock(
 
 	if minerAddress == "" {
 		return 0, fmt.Errorf("miner address cannot be empty")
+	}
+
+	if err := params.ValidateMonetaryPolicy(policy); err != nil {
+		return 0, err
 	}
 
 	// Create temporary state.
@@ -65,8 +87,9 @@ func ProcessBlock(
 
 	// Credit block subsidy + accumulated miner fees
 	// to the temporary state.
-	totalReward, err := CreditMinerReward(
+	totalReward, err := CreditMinerRewardFor(
 		workingState,
+		policy,
 		block.Height,
 		minerAddress,
 		totalMinerFees,
