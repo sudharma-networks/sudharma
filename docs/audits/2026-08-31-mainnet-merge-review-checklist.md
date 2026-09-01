@@ -92,9 +92,9 @@ Forbidden in these PRs:
 ## After merge to `main`
 
 1. Tag or record the merge commit for operator evidence
-2. Proceed to **security audit** (`docs/audits/2026-08-31-security-audit-evidence-template.md`) and **genesis timestamp freeze** (human gates)
+2. **Security audit kickoff (owner):** `docs/audits/2026-09-01-security-audit-kickoff-checklist.md` — send `docs/audits/2026-09-01-security-audit-brief.md` to external auditor
 3. Review mainnet seed topology draft (`deployment/mainnet/OPERATOR-CHECKLIST.md`)
-4. Open a **dedicated activation PR** only after all human gates close
+4. Open a **dedicated activation PR** only after audit gate + genesis freeze + launch decision
 
 ## Parallel (does not block merge)
 
