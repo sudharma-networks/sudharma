@@ -6,11 +6,39 @@ import (
 	"github.com/sudharma-networks/sudharma/transactions"
 )
 
+// ApplyTransaction validates and applies one transaction atomically. All
+// mutations are performed against a private state clone first. The caller's
+// state is replaced only after every debit, credit, nonce and replay marker
+// operation succeeds.
 func ApplyTransaction(
 	state *State,
 	tx *transactions.Transaction,
 ) (uint64, error) {
+	if state == nil {
+		return 0, fmt.Errorf("state cannot be nil")
+	}
 
+	workingState := state.Clone()
+	minerFee, err := applyTransactionMutating(workingState, tx)
+	if err != nil {
+		return 0, err
+	}
+
+	if err := state.ReplaceWith(workingState); err != nil {
+		return 0, err
+	}
+
+	return minerFee, nil
+}
+
+// applyTransactionMutating applies a transaction to an isolated state object.
+// Callers must not pass shared live state unless they intentionally accept
+// partial mutation on error. ApplyTransaction is the public fail-closed entry
+// point and always supplies a private clone.
+func applyTransactionMutating(
+	state *State,
+	tx *transactions.Transaction,
+) (uint64, error) {
 	if state == nil {
 		return 0, fmt.Errorf("state cannot be nil")
 	}
@@ -89,7 +117,7 @@ func ApplyTransaction(
 	minerFee :=
 		transactions.MiningFee(tx.Amount)
 
-	if developmentFee+minerFee != tx.Fee {
+	if developmentFee > tx.Fee || minerFee != tx.Fee-developmentFee {
 		return 0, fmt.Errorf(
 			"invalid fee distribution",
 		)
@@ -127,15 +155,19 @@ func ApplyTransaction(
 		return 0, err
 	}
 
-	state.Credit(
+	if err := state.Credit(
 		tx.To,
 		tx.Amount,
-	)
+	); err != nil {
+		return 0, fmt.Errorf("receiver credit failed: %w", err)
+	}
 
-	state.Credit(
+	if err := state.Credit(
 		developmentAddress,
 		developmentFee,
-	)
+	); err != nil {
+		return 0, fmt.Errorf("development treasury credit failed: %w", err)
+	}
 
 	if err := state.SetAccountNonce(
 		tx.From,
