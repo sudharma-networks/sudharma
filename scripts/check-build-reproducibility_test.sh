@@ -20,6 +20,8 @@ require_file mobile/android/gradle/wrapper/gradle-wrapper.properties
 [ -x mobile/android/gradlew ] || fail 'mobile/android/gradlew must be executable'
 grep -Fq 'distributionSha256Sum=544c35d6bd849ae8a5ed0bcea39ba677dc40f49df7d1835561582da2009b961d' mobile/android/gradle/wrapper/gradle-wrapper.properties \
   || fail 'Gradle 8.7 distribution checksum must be pinned'
+grep -Fq 'validateDistributionUrl=true' mobile/android/gradle/wrapper/gradle-wrapper.properties \
+  || fail 'Gradle wrapper distribution URL validation must remain enabled'
 grep -Fq 'run: ./gradlew --no-daemon :app:testDebugUnitTest' .github/workflows/android-wallet.yml \
   || fail 'Android CI unit tests must use the checked-in Gradle wrapper'
 grep -Fq 'run: ./gradlew --no-daemon :app:lintDebug' .github/workflows/android-wallet.yml \
