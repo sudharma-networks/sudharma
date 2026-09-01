@@ -57,18 +57,18 @@ func TestMainnetLaunchIsNotReady(t *testing.T) {
 	if MainnetLaunchReady() {
 		t.Fatal("mainnet reported launch-ready while human gates remain open")
 	}
-	var unauthorized, unfrozen, unaudited bool
+	var unauthorized, unfrozen, securityReviewOpen bool
 	for _, gate := range MainnetReadiness() {
 		switch gate.Name {
 		case "launch-authorization":
 			unauthorized = !gate.Ready
 		case "genesis-timestamp-freeze":
 			unfrozen = !gate.Ready
-		case "independent-security-audit":
-			unaudited = !gate.Ready
+		case "security-review-evidence":
+			securityReviewOpen = !gate.Ready
 		}
 	}
-	if !unauthorized || !unfrozen || !unaudited {
+	if !unauthorized || !unfrozen || !securityReviewOpen {
 		t.Fatal("required unready gates were marked ready")
 	}
 }
