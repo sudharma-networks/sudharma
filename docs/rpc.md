@@ -104,3 +104,50 @@ Explorer responses include `Access-Control-Allow-Origin: *` for browser clients.
 | `POST` | `/v1/faucet/challenge` | Challenge reward claim (wallet clients) |
 
 Faucet responses include browser CORS headers. Website clients may POST with `Content-Type: text/plain;charset=UTF-8` and a JSON body to avoid a CORS preflight. Test SUDH has no mainnet value.
+
+### GPU mining (solo, public-testnet)
+
+The public HTTPS proxy and seed nginx allowlists expose GPU mining routes for
+`sudharma-gpupow-v1` candidate blocks. This API is independent of the demand
+miner (`sudharmad -mineblocks`). CPU and ASIC backends are rejected.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` / `POST` | `/v1/mining/work` | Fetch a GPU candidate block for a wallet address |
+| `POST` | `/v1/mining/submit` | Submit a solved block for acceptance and broadcast |
+
+#### `GET` / `POST /v1/mining/work`
+
+Provide the miner's 40-character lowercase hex reward address:
+
+- Query: `?address=<40-hex>`
+- JSON body: `{ "address": "<40-hex>" }`
+
+Success returns HTTP `200` with fields including:
+
+- `algorithm`: `sudharma-gpupow-v1`
+- `height`, `parent`, `difficulty`, `target`, `timestamp`
+- `block`: full candidate block JSON for the GPU hasher
+- `pow_compat`: RVN/BTC `getblocktemplate` and ETH `eth_getWork` field aliases
+
+#### `POST /v1/mining/submit`
+
+Accepts the solved candidate block JSON (same shape as the `block` field from
+`/v1/mining/work`). On success the node validates PoW, credits
+`reward_address`, accepts the block locally, and relays it to peers.
+
+Pool operators use the same HTTP endpoints internally; workers connect to
+Stratum pools with `sudharma-miner --stratum stratum+tcp://HOST:3333`. See
+`docs/audits/2026-08-31-pool-mining-architecture.md` and
+`docs/audits/2026-08-31-mainnet-gpu-mining-architecture.md`.
+
+Live testnet probe:
+
+```bash
+curl -fsS -X POST "https://ja6a03avlc.execute-api.ap-south-1.amazonaws.com/v1/mining/work" \
+  -H 'content-type: application/json' \
+  --data '{"address":"YOUR_WALLET_ADDRESS"}'
+```
+
+Mainnet GPU mining remains gated until `MainnetMiningAuthorized` is set in a
+dedicated activation PR.

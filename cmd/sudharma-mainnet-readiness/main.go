@@ -18,23 +18,42 @@ type output struct {
 	LaunchAuthorized bool       `json:"launch_authorized"`
 	LaunchReady      bool       `json:"launch_ready"`
 	Gates            []gateJSON `json:"gates"`
+	MiningStackReady bool       `json:"mining_stack_ready"`
+	MiningGates      []gateJSON `json:"mining_gates"`
 }
 
-func buildOutput() output {
-	gates := params.MainnetReadiness()
-	payload := output{
-		LaunchAuthorized: params.MainnetLaunchAuthorized,
-		LaunchReady:      params.MainnetLaunchReady(),
-		Gates:            make([]gateJSON, 0, len(gates)),
-	}
+func gatesToJSON(gates []params.ReadinessGate) []gateJSON {
+	out := make([]gateJSON, 0, len(gates))
 	for _, gate := range gates {
-		payload.Gates = append(payload.Gates, gateJSON{
+		out = append(out, gateJSON{
 			Name:   gate.Name,
 			Ready:  gate.Ready,
 			Detail: gate.Detail,
 		})
 	}
-	return payload
+	return out
+}
+
+func miningGatesToJSON(gates []params.MiningReadinessGate) []gateJSON {
+	out := make([]gateJSON, 0, len(gates))
+	for _, gate := range gates {
+		out = append(out, gateJSON{
+			Name:   gate.Name,
+			Ready:  gate.Ready,
+			Detail: gate.Detail,
+		})
+	}
+	return out
+}
+
+func buildOutput() output {
+	return output{
+		LaunchAuthorized: params.MainnetLaunchAuthorized,
+		LaunchReady:      params.MainnetLaunchReady(),
+		Gates:            gatesToJSON(params.MainnetReadiness()),
+		MiningStackReady: params.MiningStackReady(),
+		MiningGates:      miningGatesToJSON(params.MiningReadiness()),
+	}
 }
 
 func main() {

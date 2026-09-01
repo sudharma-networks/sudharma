@@ -59,4 +59,12 @@ grep -Fq 'func MiningReadiness()' params/mining_readiness.go \
 grep -Fq 'MiningStackReady' cmd/sudharma-mining-readiness/main.go \
   || fail 'sudharma-mining-readiness command must exist'
 
+grep -Fq 'mining_stack_ready' cmd/sudharma-mainnet-readiness/main.go \
+  || fail 'mainnet readiness report must include mining_stack_ready'
+
+grep -Fq 'mining_gates' cmd/sudharma-mainnet-readiness/main.go \
+  || fail 'mainnet readiness report must include mining_gates'
+
+require_file deployment/testnet/pool.env.example
+
 printf 'PASS: mainnet readiness contract is present\n'

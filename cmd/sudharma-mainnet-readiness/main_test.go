@@ -22,10 +22,15 @@ func TestMainnetReadinessJSONReportsUnauthorizedLaunch(t *testing.T) {
 	var decoded struct {
 		LaunchAuthorized bool `json:"launch_authorized"`
 		LaunchReady      bool `json:"launch_ready"`
+		MiningStackReady bool `json:"mining_stack_ready"`
 		Gates            []struct {
 			Name  string `json:"name"`
 			Ready bool   `json:"ready"`
 		} `json:"gates"`
+		MiningGates []struct {
+			Name  string `json:"name"`
+			Ready bool   `json:"ready"`
+		} `json:"mining_gates"`
 	}
 	if err := json.Unmarshal(out, &decoded); err != nil {
 		t.Fatal(err)
@@ -46,6 +51,18 @@ func TestMainnetReadinessJSONReportsUnauthorizedLaunch(t *testing.T) {
 	}
 	if !launchGate || !auditGate || !timestampGate {
 		t.Fatalf("gates = %+v", decoded.Gates)
+	}
+	if !decoded.MiningStackReady {
+		t.Fatal("mining_stack_ready must be true for testnet engineering gates")
+	}
+	var mainnetMiningGate bool
+	for _, gate := range decoded.MiningGates {
+		if gate.Name == "mainnet-mining" {
+			mainnetMiningGate = !gate.Ready
+		}
+	}
+	if !mainnetMiningGate {
+		t.Fatalf("mining_gates = %+v", decoded.MiningGates)
 	}
 	if !strings.Contains(string(out), "mainnet") {
 		t.Fatalf("output = %s", out)

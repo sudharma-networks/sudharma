@@ -82,7 +82,7 @@ fi
 cat <<EOF
 Installed Sudharma pool operator assets for dedicated user sudharma-pool.
 Service remains disabled unless --enable was explicitly supplied.
-Review /etc/sudharma/pool.json and docs/audits/2026-08-31-pool-mining-architecture.md before activation.
+Review /etc/sudharma/pool.json, deployment/testnet/pool.env.example, and docs/audits/2026-08-31-pool-mining-architecture.md before activation.
 EOF
 
 if (( enable )); then

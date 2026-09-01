@@ -13,6 +13,7 @@ launch by itself.
 - [ ] Merge PR #77 — Mainnet readiness freeze
 - [ ] `go test ./... -count=1` green on `main`
 - [ ] `go run ./cmd/sudharma-mainnet-readiness` shows `launch_ready: false`
+- [ ] `go run ./cmd/sudharma-mining-readiness` shows `stack_ready: true` and `mainnet_mining_authorized: false`
 
 ## Human gates (required before any activation PR)
 
@@ -48,13 +49,17 @@ launch by itself.
 ```bash
 go test ./params ./consensus ./blockchain ./p2p ./cmd/sudharmad -count=1
 go run ./cmd/sudharma-mainnet-readiness | jq .
+go run ./cmd/sudharma-mining-readiness | jq .
 bash ./scripts/check-mainnet-readiness-contract_test.sh
+bash ./scripts/check-mining-readiness-contract_test.sh
 ```
 
 Expected before launch:
 
 - `launch_authorized: false`
 - `launch_ready: false`
+- `mining_stack_ready: true` (testnet solo + pool engineering ready)
+- `mainnet_mining_authorized: false`
 - `genesis-timestamp-freeze` gate not ready
 - `independent-security-audit` gate not ready
 
