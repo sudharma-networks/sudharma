@@ -23,7 +23,8 @@ The container runs as an unprivileged `sudharma` user, drops Linux capabilities 
 - `gpu-miner.seed1-live.example.json` / `gpu-miner.seed2-live.example.json`: live-testnet GPU miner templates aligned with the demand-miner seed host naming.
 - `sudharma-demand-miner.service`: disabled-by-default hardened supervisor service.
 - `install-demand-miner.sh`: idempotent installer with optional explicit activation.
-- `install-demand-miner_test.sh`: staged installer and hardening safety checks.
+- `install-pool-operator.sh`: idempotent pool operator installer (disabled by default).
+- `install-pool-operator_test.sh`: installer safety checks for pool operator assets.
 
 ## Preflight
 
@@ -212,3 +213,11 @@ go run ./cmd/sudharma-miner \
 ```
 
 Workers use login `wallet.worker` over Stratum. See `docs/audits/2026-08-31-pool-mining-architecture.md`.
+
+Install the reference pool operator (disabled by default):
+
+```bash
+go build -trimpath -o ./sudharma-pool ./cmd/sudharma-pool
+sudo useradd --system --home /nonexistent --shell /usr/sbin/nologin sudharma-pool 2>/dev/null || true
+sudo SUDHARMA_POOL_BIN="$PWD/sudharma-pool" bash ./deployment/testnet/install-pool-operator.sh
+```

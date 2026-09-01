@@ -42,6 +42,12 @@ require_file 'scripts/publish-sudharma-pool-binary.sh'
 require_file 'deployment/testnet/sudharma-pool.service'
 require_file 'packaging/windows-gpu-miner/gpu-miner-pool.example.json'
 
+require_file 'deployment/testnet/install-pool-operator.sh'
+require_file 'scripts/build-windows-gpu-miner.sh'
+
+bash ./deployment/testnet/install-pool-operator_test.sh >/dev/null \
+  || fail 'pool operator installer safety checks must pass'
+
 go test ./pool -run TestStratumPoolRoundTripCreditsWorkerShare -count=1 >/dev/null \
   || fail 'pool stratum round-trip integration test must pass'
 

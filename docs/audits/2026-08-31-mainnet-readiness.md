@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-31  
 **Branch:** `cursor/mainnet-readiness-8441`  
-**Priority:** Mainnet readiness first. GPU mining (Windows/HiveOS) and DEX/CEX listing stay deferred until this freeze is reviewed.
+**Priority:** Mainnet readiness first. Testnet GPU solo + pool mining are live on engineering branches; mainnet activation and DEX/CEX listing stay human-gated.
 
 ## What this stage does
 
