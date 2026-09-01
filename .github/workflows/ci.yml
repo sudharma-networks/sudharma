@@ -36,7 +36,10 @@ jobs:
 
       - name: Install public RPC Lambda dependencies
         working-directory: deployment/testnet/public-rpc/lambda
-        run: npm install --ignore-scripts --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Verify clean-checkout build reproducibility
+        run: bash ./scripts/check-build-reproducibility_test.sh
 
       - name: Run public RPC Lambda tests
         working-directory: deployment/testnet/public-rpc/lambda

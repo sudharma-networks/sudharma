@@ -37,16 +37,17 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
-          cache-dependency-path: web/package.json
+          cache-dependency-path: web/package-lock.json
       - name: Test visitor counter backend contract
         working-directory: .
         run: node --test deployment/website/visitor-counter/*.test.mjs
-      - run: npm install
+      - run: npm ci
       - name: Sync verified GitHub release metadata
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: npm run sync:github
       - run: npm run typecheck
+      - run: npm run lint
       - run: npm test
       - run: npm run build
       - run: npx playwright install --with-deps chromium
