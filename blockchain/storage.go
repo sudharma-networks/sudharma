@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/sudharma-networks/sudharma/params"
 )
 
 // SaveToFile saves the complete Sudharma Network chain to disk.
@@ -70,12 +72,22 @@ func (c *Chain) SaveToFile(path string) error {
 	return nil
 }
 
-// LoadChainFromFile loads and validates a Sudharma Network chain from disk.
+// LoadChainFromFile loads a public-testnet chain from disk for compatibility.
 func LoadChainFromFile(path string) (*Chain, error) {
+	return LoadChainFromFileFor(path, params.NetworkPublicTestnet)
+}
+
+// LoadChainFromFileFor loads and validates a Sudharma Network chain from disk
+// under an explicit network identity. It does not authorize runtime mainnet;
+// callers must obtain their active network through the launch-gated parser.
+func LoadChainFromFileFor(path string, network params.NetworkID) (*Chain, error) {
 	if path == "" {
 		return nil, fmt.Errorf(
 			"storage path cannot be empty",
 		)
+	}
+	if _, err := params.MonetaryPolicyFor(network); err != nil {
+		return nil, err
 	}
 
 	data, err := os.ReadFile(path)
@@ -104,16 +116,14 @@ func LoadChainFromFile(path string) (*Chain, error) {
 			"blockchain file contains no blocks",
 		)
 	}
-
-	expectedGenesis := NewGenesisBlock()
-
-	if blocks[0].Hash() != expectedGenesis.Hash() {
-		return nil, fmt.Errorf(
-			"invalid genesis block",
-		)
+	if blocks[0] == nil {
+		return nil, fmt.Errorf("invalid genesis block")
 	}
 
-	chain := NewChain()
+	chain, err := newChainFromGenesisForNetwork(network, blocks[0])
+	if err != nil {
+		return nil, fmt.Errorf("invalid genesis block: %w", err)
+	}
 
 	for i := 1; i < len(blocks); i++ {
 		if err := chain.AddBlock(
