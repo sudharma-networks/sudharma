@@ -27,9 +27,13 @@ for file in \
   deployment/mainnet/sudharma-mainnet.service \
   deployment/testnet/install-pool-operator.sh \
   deployment/testnet/pool-operator-runbook.md \
+  deployment/testnet/windows-gpu-miner-republish-runbook.md \
   deployment/testnet/remote-install-sudharma-pool-from-url.sh \
   docs/audits/2026-08-31-mainnet-merge-review-checklist.md \
   docs/audits/2026-08-31-mainnet-genesis-freeze-template.md \
+  docs/audits/2026-08-31-security-audit-evidence-template.md \
+  docs/audits/2026-08-31-pr76-reviewer-summary.md \
+  docs/audits/2026-08-31-pr77-reviewer-summary.md \
   docs/audits/2026-08-31-mainnet-launch-operator-runbook.md \
   docs/audits/2026-08-31-mainnet-gpu-mining-architecture.md \
   docs/audits/2026-08-31-pool-mining-architecture.md; do
@@ -64,6 +68,8 @@ grep -Fq 'ProcessBlockFor' cmd/sudharmad/main.go \
   || fail 'sudharmad must replay blocks with ProcessBlockFor'
 
 require_file scripts/probe-testnet-mining-rpc.sh
+require_file scripts/verify-mainnet-merge-readiness.sh
+require_file scripts/check-mainnet-merge-review-contract_test.sh
 
 go test ./blockchain -run 'TestNewChainFor|TestValidateChainGenesis|TestMintSupplyForMainnetEnforcesMainnetCap' -count=1 >/dev/null \
   || fail 'network-aware chain and monetary policy tests must pass'
