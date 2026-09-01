@@ -307,3 +307,51 @@ func TestApplyTransactionUsesPermanentTreasury(t *testing.T) {
 		)
 	}
 }
+
+func TestApplyTransactionCreditFailureIsAtomic(t *testing.T) {
+	sender, err := wallet.NewWallet()
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiver, err := wallet.NewWallet()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	state := NewState()
+	amount := uint64(1000)
+	fee := transactions.CalculateFee(amount)
+	initialSender := amount + fee
+	if err := state.Credit(sender.Address, initialSender); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Credit(receiver.Address, ^uint64(0)); err != nil {
+		t.Fatal(err)
+	}
+	initialTreasury := state.Balance(params.DevelopmentTreasuryAddress)
+
+	tx := transactions.NewTransaction(sender.Address, receiver.Address, amount, 1)
+	if err := tx.Sign(sender); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := ApplyTransaction(state, tx); err == nil {
+		t.Fatal("expected receiver credit overflow to reject transaction")
+	}
+
+	if got := state.Balance(sender.Address); got != initialSender {
+		t.Fatalf("sender balance changed after rejected transaction: got %d want %d", got, initialSender)
+	}
+	if got := state.Balance(receiver.Address); got != ^uint64(0) {
+		t.Fatalf("receiver balance changed after rejected transaction: got %d", got)
+	}
+	if got := state.Balance(params.DevelopmentTreasuryAddress); got != initialTreasury {
+		t.Fatalf("treasury balance changed after rejected transaction: got %d want %d", got, initialTreasury)
+	}
+	if got := state.AccountNonce(sender.Address); got != 0 {
+		t.Fatalf("nonce changed after rejected transaction: got %d", got)
+	}
+	if state.IsTransactionProcessed(tx.ID) {
+		t.Fatal("rejected transaction was marked processed")
+	}
+}
