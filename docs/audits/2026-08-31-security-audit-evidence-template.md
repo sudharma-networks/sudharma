@@ -1,6 +1,14 @@
 # Independent security audit — evidence template
 
-**Status:** Not started. This template records what reviewers and operators need **after** an external audit. It does not substitute for an audit.
+**Status:** Kickoff package ready — external audit **commission by owner (Kk)**. See kickoff checklist below.
+
+**Kickoff (before report):**
+- `docs/audits/2026-09-01-security-audit-kickoff-checklist.md`
+- `docs/audits/2026-09-01-security-audit-brief.md` (send to auditor)
+- `docs/audits/2026-09-01-security-audit-scope.md`
+- `docs/audits/2026-09-01-security-audit-kickoff-record.template.json` (private vault)
+
+This template records what reviewers and operators need **after** an external audit completes. It does not substitute for an audit.
 
 ## Scope (recommended)
 

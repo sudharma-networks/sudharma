@@ -1,0 +1,26 @@
+{
+  "kind": "sudharma-mainnet-security-audit-kickoff",
+  "status": "commissioned",
+  "owner_signoff": "Kk",
+  "kickoff_date": "REPLACE_WITH_ISO8601_UTC",
+  "repository_commit_audited": "a63fe384a75a8857f02a78b612be5b9b0a233cb8",
+  "auditor": {
+    "firm_or_researcher": "REPLACE_WITH_NAME",
+    "contact": "REPLACE_WITH_EMAIL",
+    "contract_reference": "REPLACE_WITH_PRIVATE_VAULT_PATH"
+  },
+  "scope_documents_sent": [
+    "docs/audits/2026-09-01-security-audit-brief.md",
+    "docs/audits/2026-09-01-security-audit-scope.md",
+    "docs/audits/2026-08-31-mainnet-gpu-mining-architecture.md",
+    "docs/audits/2026-08-31-pool-mining-architecture.md"
+  ],
+  "verification_baseline_run": [
+    "bash ./scripts/verify-mainnet-merge-readiness.sh pr77",
+    "bash ./scripts/mainnet-monetary-rehearsal.sh",
+    "go test ./... -count=1"
+  ],
+  "expected_completion": "REPLACE_WITH_DATE",
+  "notes": "Store in private evidence vault only. Update status to in_progress when audit starts, report_received when signed report arrives.",
+  "final_evidence_template": "docs/audits/2026-08-31-security-audit-evidence-template.md"
+}

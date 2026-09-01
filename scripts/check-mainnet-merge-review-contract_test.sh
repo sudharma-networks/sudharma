@@ -17,6 +17,10 @@ for path in \
   docs/audits/2026-08-31-owner-signoff-templates.md \
   docs/audits/2026-08-31-mainnet-genesis-freeze-template.md \
   docs/audits/2026-08-31-security-audit-evidence-template.md \
+  docs/audits/2026-09-01-security-audit-kickoff-checklist.md \
+  docs/audits/2026-09-01-security-audit-brief.md \
+  docs/audits/2026-09-01-security-audit-scope.md \
+  docs/audits/2026-09-01-security-audit-kickoff-record.template.json \
   deployment/mainnet/OPERATOR-CHECKLIST.md \
   deployment/testnet/pool-operator-runbook.md \
   deployment/testnet/windows-gpu-miner-republish-runbook.md \
