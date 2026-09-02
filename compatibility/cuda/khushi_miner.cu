@@ -123,9 +123,6 @@ bool checked_add(std::size_t a, std::size_t b, std::size_t* out) {
 }
 
 std::size_t required_vram_bytes(std::size_t epoch_bytes, std::size_t runtime_bytes) {
-    // This reports the allocation needed by the current miner mode. Production
-    // epoch/DAG sizing remains an explicit consensus/deployment parameter and
-    // is passed in as epoch_bytes instead of being inferred from a GPU model.
     constexpr std::size_t runtime_reserve = 64u * 1024u * 1024u;
     std::size_t required = 0u;
     if (!checked_add(epoch_bytes, runtime_bytes, &required)) return std::numeric_limits<std::size_t>::max();
@@ -228,20 +225,12 @@ int run_production_memory_self_test() {
     if (production_memory_preflight() != 0) return 2;
 
     void* device_cache = nullptr;
-    if (cuda_error(
-            "cudaMalloc(production cache)",
-            cudaMalloc(&device_cache, static_cast<std::size_t>(kProductionCacheBytes))) != 0) {
-        return 1;
-    }
+    if (cuda_error("cudaMalloc(production cache)", cudaMalloc(&device_cache, static_cast<std::size_t>(kProductionCacheBytes))) != 0) return 1;
 
     std::array<void*, kProductionChunkCount> dataset_chunks{};
-    auto release = [](void* value) {
-        if (value != nullptr) cudaFree(value);
-    };
+    auto release = [](void* value) { if (value != nullptr) cudaFree(value); };
     auto allocate = [](void** output, std::size_t bytes) {
-        return cuda_error(
-                   "cudaMalloc(production dataset chunk)",
-                   cudaMalloc(output, bytes)) == 0;
+        return cuda_error("cudaMalloc(production dataset chunk)", cudaMalloc(output, bytes)) == 0;
     };
 
     if (!allocate_dataset_chunks(&dataset_chunks, allocate, release)) {
@@ -252,16 +241,13 @@ int run_production_memory_self_test() {
 
     std::size_t remaining_vram_bytes = 0u;
     std::size_t total_vram_bytes = 0u;
-    if (cuda_error(
-            "cudaMemGetInfo(production allocated)",
-            cudaMemGetInfo(&remaining_vram_bytes, &total_vram_bytes)) != 0) {
+    if (cuda_error("cudaMemGetInfo(production allocated)", cudaMemGetInfo(&remaining_vram_bytes, &total_vram_bytes)) != 0) {
         release_dataset_chunks(&dataset_chunks, release);
         cudaFree(device_cache);
         return 1;
     }
     if (remaining_vram_bytes < kProductionRuntimeReserveBytes) {
-        std::fprintf(
-            stderr,
+        std::fprintf(stderr,
             "production-memory-self-test=failed runtime reserve remaining_vram_bytes=%llu required_reserve_bytes=%llu\n",
             static_cast<unsigned long long>(remaining_vram_bytes),
             static_cast<unsigned long long>(kProductionRuntimeReserveBytes));
@@ -278,8 +264,7 @@ int run_production_memory_self_test() {
 
 int run_telemetry() {
     char command[512] = {};
-    std::snprintf(command,
-                  sizeof(command),
+    std::snprintf(command, sizeof(command),
                   "nvidia-smi -i %d --query-gpu=name,driver_version,temperature.gpu,power.draw,utilization.gpu,memory.used --format=csv,noheader,nounits",
                   selected_device);
     std::puts("telemetry-columns=name,driver_version,temperature.gpu,power.draw,utilization.gpu,memory.used");
@@ -342,10 +327,28 @@ int run_benchmark(unsigned seconds) {
 
     cudaDeviceProp prop{};
     if (cuda_error("cudaGetDeviceProperties(benchmark)", cudaGetDeviceProperties(&prop, selected_device)) != 0) return 1;
+    cudaFuncAttributes kernel_attributes{};
+    if (cuda_error(
+            "cudaFuncGetAttributes(khushi_search_kernel)",
+            cudaFuncGetAttributes(&kernel_attributes, sudharma::gpupowv1::khushi_search_kernel)) != 0) {
+        return 1;
+    }
+    const unsigned device_max_threads =
+        prop.maxThreadsPerBlock > 0 ? static_cast<unsigned>(prop.maxThreadsPerBlock) : 1u;
+    const unsigned kernel_max_threads =
+        kernel_attributes.maxThreadsPerBlock > 0 ? static_cast<unsigned>(kernel_attributes.maxThreadsPerBlock) : 1u;
+    const unsigned launch_max_threads =
+        device_max_threads < kernel_max_threads ? device_max_threads : kernel_max_threads;
     const tuning::Profile profile = tuning::cuda_profile(prop.major, prop.minor);
-    const auto launch_candidates = tuning::candidates(
-        profile,
-        prop.maxThreadsPerBlock > 0 ? static_cast<unsigned>(prop.maxThreadsPerBlock) : 1u);
+    const auto launch_candidates = tuning::candidates(profile, launch_max_threads);
+
+    std::printf(
+        "autotune-limits backend=cuda device=%d family=%s device_max_threads=%u kernel_max_threads=%u launch_max_threads=%u\n",
+        selected_device,
+        tuning::family_name(profile.family),
+        device_max_threads,
+        kernel_max_threads,
+        launch_max_threads);
 
     SearchCache host_cache = benchmark_cache();
     SearchCache* device_cache = nullptr;
