@@ -86,7 +86,8 @@ func TestLoadChainFromFileForUsesDisabledNetworkPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := loaded.PoWPolicy(); got != want {
+	got := loaded.PoWPolicy()
+	if got != want {
 		t.Fatalf("PoW policy = %+v, want %+v", got, want)
 	}
 	if got.GPUV1ActivationHeight != params.GPUV1ActivationDisabled {
