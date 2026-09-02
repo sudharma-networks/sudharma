@@ -50,16 +50,40 @@ Our long-term goal is to provide an open blockchain development platform on whic
 | Native Coin | Sudharma |
 | Symbol | SUDH |
 | Decimal Precision | 8 |
-| Maximum Supply (Hard Cap) | 51,000,000,000 SUDH |
-| Initial Block Reward | 50 SUDH |
+| Public testnet maximum supply (legacy hard cap) | 51,000,000,000 SUDH |
+| Mainnet maximum supply (final monetary policy) | 51,000,000 SUDH |
 | Target Block Time | 60 seconds |
-| Halving Interval | 1,000,000 blocks |
+| Mainnet subsidy-bearing blocks | 5,259,600 |
+| Mainnet emission epochs | 40 quarterly epochs |
+| Mainnet nominal subsidy period | ~10 target years |
+| Mainnet subsidy after height 5,259,600 | 0 SUDH |
+| Public testnet initial block reward | 50 SUDH |
+| Public testnet halving interval | 1,000,000 blocks |
 | Premine | 0 |
 | Total Transaction Fee | 0.10% |
 | Development Portion | 0.01% |
 | Miner Portion | 0.09% |
 
-The 51,000,000,000 SUDH value is the consensus hard cap. The current pre-mainnet block-subsidy and halving schedule remains subject to controlled revision before mainnet and cannot mint beyond this cap.
+The **final approved mainnet monetary policy is capped at exactly 51,000,000 SUDH** in `params/monetary.go`. It uses a deterministic block-height schedule of 5,259,600 subsidy-bearing blocks split into 40 quarterly epochs, nominally about 10 target years at a 60-second block interval. Subsidy is permanently zero after height 5,259,600. The current public testnet remains on its separate legacy 51,000,000,000 SUDH development policy so the live testnet is not rewritten by this mainnet decision.
+
+Mainnet economics are final, but **mainnet activation is not authorized**. Launch and mining gates remain fail-closed, and the mainnet genesis timestamp remains unset until the required security and readiness gates are completed.
+
+### Mainnet emission roadmap
+
+| Target year | Share of 51M cap | SUDH issued | Cumulative SUDH |
+| ---: | ---: | ---: | ---: |
+| 1 | 16% | 8,160,000 | 8,160,000 |
+| 2 | 14% | 7,140,000 | 15,300,000 |
+| 3 | 13% | 6,630,000 | 21,930,000 |
+| 4 | 12% | 6,120,000 | 28,050,000 |
+| 5 | 11% | 5,610,000 | 33,660,000 |
+| 6 | 10% | 5,100,000 | 38,760,000 |
+| 7 | 8% | 4,080,000 | 42,840,000 |
+| 8 | 7% | 3,570,000 | 46,410,000 |
+| 9 | 5% | 2,550,000 | 48,960,000 |
+| 10 | 4% | 2,040,000 | 51,000,000 |
+
+Each target year contains 525,960 blocks and four 131,490-block epochs. The duration is block-height based rather than calendar based: if real blocks arrive faster or slower than 60 seconds, the wall-clock completion date moves, but the 51M cap and emission heights do not.
 
 ## Current Development Genesis
 
