@@ -5,10 +5,9 @@ import (
 	"math/big"
 )
 
-// CloneChain creates an independent Chain structure containing
-// the same block sequence, immutable network identity and cumulative work.
-//
-// Blocks are treated as immutable consensus objects once accepted.
+// CloneChain creates an independent Chain structure containing the same block
+// sequence, immutable network identity, proof policy/verifier, and cumulative
+// work. Blocks are treated as immutable consensus objects once accepted.
 func CloneChain(source *Chain) (*Chain, error) {
 	if source == nil {
 		return nil, fmt.Errorf("source chain cannot be nil")
@@ -25,14 +24,18 @@ func CloneChain(source *Chain) (*Chain, error) {
 	copy(blocks, source.blocks)
 
 	return &Chain{
-		network:   source.network,
-		blocks:    blocks,
-		totalWork: new(big.Int).Set(source.totalWork),
+		network:       source.network,
+		blocks:        blocks,
+		totalWork:     new(big.Int).Set(source.totalWork),
+		powPolicy:     source.powPolicy,
+		proofVerifier: source.proofVerifier,
 	}, nil
 }
 
 // ReplaceWith atomically replaces the current chain with another fully
 // revalidated candidate chain. BetterChain must be used before replacement.
+// The current chain's immutable runtime proof configuration is authoritative;
+// a candidate carrying a different policy is rejected before revalidation.
 func (c *Chain) ReplaceWith(candidate *Chain) error {
 	if c == nil {
 		return fmt.Errorf("current chain cannot be nil")
@@ -51,6 +54,16 @@ func (c *Chain) ReplaceWith(candidate *Chain) error {
 		)
 	}
 
+	currentPolicy, currentVerifier := c.proofValidationConfig()
+	candidatePolicy := candidate.PoWPolicy()
+	if currentPolicy != candidatePolicy {
+		return fmt.Errorf(
+			"candidate proof-of-work policy mismatch: current=%+v candidate=%+v",
+			currentPolicy,
+			candidatePolicy,
+		)
+	}
+
 	candidate.mu.RLock()
 	if len(candidate.blocks) == 0 {
 		candidate.mu.RUnlock()
@@ -65,7 +78,12 @@ func (c *Chain) ReplaceWith(candidate *Chain) error {
 		return fmt.Errorf("candidate genesis block is nil")
 	}
 
-	validated, err := newChainFromGenesisForNetwork(c.Network(), newBlocks[0])
+	validated, err := newChainFromGenesisForNetworkWithConsensus(
+		c.Network(),
+		newBlocks[0],
+		currentPolicy,
+		currentVerifier,
+	)
 	if err != nil {
 		return fmt.Errorf("candidate has wrong genesis block: %w", err)
 	}
