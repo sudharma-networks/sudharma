@@ -38,6 +38,8 @@ func TestCUDABenchmarkUsesRuntimeAutotuneProfiles(t *testing.T) {
 		"gpu_tuning_profile.h",
 		"cuda_profile(prop.major, prop.minor)",
 		"prop.maxThreadsPerBlock",
+		"cudaFuncGetAttributes",
+		"kernel_attributes.maxThreadsPerBlock",
 		"tuning::candidates",
 		"tuning::work_items",
 		"autotune-candidate",
