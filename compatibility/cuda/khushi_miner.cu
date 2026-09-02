@@ -42,6 +42,8 @@ constexpr const char* kGenesisCacheHex[8] = {
     "14d42ce1d735d05d233dccb89532ee7fdbb10acb45d97f2010c04122677b21375a9ddd9dff63010306414d2ecf8c3fb007df86898b2bb55b61c64f19ebffe140",
 };
 
+constexpr unsigned long long kAutotuneCandidateMilliseconds = 1000ull;
+
 int selected_device = 0;
 
 int cuda_error(const char* operation, cudaError_t err) {
@@ -123,9 +125,6 @@ bool checked_add(std::size_t a, std::size_t b, std::size_t* out) {
 }
 
 std::size_t required_vram_bytes(std::size_t epoch_bytes, std::size_t runtime_bytes) {
-    // This reports the allocation needed by the current miner mode. Production
-    // epoch/DAG sizing remains an explicit consensus/deployment parameter and
-    // is passed in as epoch_bytes instead of being inferred from a GPU model.
     constexpr std::size_t runtime_reserve = 64u * 1024u * 1024u;
     std::size_t required = 0u;
     if (!checked_add(epoch_bytes, runtime_bytes, &required)) return std::numeric_limits<std::size_t>::max();
@@ -363,13 +362,6 @@ int run_benchmark(unsigned seconds) {
     if (cuda_error("cudaMemcpy(cache)", cudaMemcpy(device_cache, &host_cache, sizeof(host_cache), cudaMemcpyHostToDevice)) != 0) return 1;
     if (cuda_error("cudaMemcpy(generation)", cudaMemcpy(stale_generation, &generation, sizeof(generation), cudaMemcpyHostToDevice)) != 0) return 1;
 
-    const unsigned long long total_milliseconds = static_cast<unsigned long long>(seconds) * 1000ull;
-    const unsigned long long candidate_milliseconds =
-        launch_candidates.empty() ? total_milliseconds :
-        (total_milliseconds / static_cast<unsigned long long>(launch_candidates.size()) < 250ull
-             ? 250ull
-             : total_milliseconds / static_cast<unsigned long long>(launch_candidates.size()));
-
     double best_rate = -1.0;
     unsigned best_local_size = 0u;
     std::size_t best_work_items = 0u;
@@ -389,7 +381,7 @@ int run_benchmark(unsigned seconds) {
         const std::uint64_t nonces_per_launch = static_cast<std::uint64_t>(work_items);
         std::uint64_t nonce_start = 0u;
         const auto started = std::chrono::steady_clock::now();
-        const auto deadline = started + std::chrono::milliseconds(candidate_milliseconds);
+        const auto deadline = started + std::chrono::milliseconds(kAutotuneCandidateMilliseconds);
 
         do {
             SearchJob job = benchmark_job(nonce_start, nonces_per_launch);
@@ -425,7 +417,7 @@ int run_benchmark(unsigned seconds) {
         }
     }
 
-    if (best_local_size == 0u) {
+    if (best_local_size == 0u || best_work_items == 0u) {
         std::fputs("Khushi Algorithm CUDA autotune produced no safe launch candidate\n", stderr);
         return 6;
     }
@@ -438,8 +430,46 @@ int run_benchmark(unsigned seconds) {
         best_elapsed,
         best_hashes,
         best_rate);
+
+    unsigned long long zero = 0ull;
+    if (cuda_error("cudaMemcpy(final benchmark nonce reset)", cudaMemcpy(found_nonce, &no_nonce, sizeof(no_nonce), cudaMemcpyHostToDevice)) != 0) return 1;
+    if (cuda_error("cudaMemcpy(final benchmark hashes reset)", cudaMemcpy(hashes_done, &zero, sizeof(zero), cudaMemcpyHostToDevice)) != 0) return 1;
+
+    const unsigned final_threads = best_local_size;
+    const std::size_t final_work_items = best_work_items;
+    const unsigned final_blocks = static_cast<unsigned>((final_work_items + final_threads - 1u) / final_threads);
+    const std::uint64_t final_nonces_per_launch = static_cast<std::uint64_t>(final_work_items);
+    std::uint64_t final_nonce_start = 0u;
+    const auto final_started = std::chrono::steady_clock::now();
+    const auto final_deadline = final_started + std::chrono::seconds(seconds);
+
+    do {
+        SearchJob job = benchmark_job(final_nonce_start, final_nonces_per_launch);
+        sudharma::gpupowv1::khushi_search_kernel<<<final_blocks, final_threads>>>(
+            job, device_cache, stale_generation, generation, found_nonce, hashes_done);
+        if (cuda_error("khushi_search_kernel selected-profile launch", cudaGetLastError()) != 0) return 1;
+        if (cuda_error("khushi_search_kernel selected-profile sync", cudaDeviceSynchronize()) != 0) return 1;
+        final_nonce_start += final_nonces_per_launch;
+    } while (std::chrono::steady_clock::now() < final_deadline);
+
+    unsigned long long final_hashes = 0ull;
+    if (cuda_error("cudaMemcpy(final benchmark hashes host)", cudaMemcpy(&final_hashes, hashes_done, sizeof(final_hashes), cudaMemcpyDeviceToHost)) != 0) return 1;
+    const auto final_ended = std::chrono::steady_clock::now();
+    const double final_elapsed = std::chrono::duration<double>(final_ended - final_started).count();
+    const double final_rate = final_elapsed > 0.0 ? static_cast<double>(final_hashes) / final_elapsed : 0.0;
+    std::printf(
+        "selected-profile-benchmark backend=cuda device=%d family=%s local_size=%u blocks=%u work_items=%llu requested_seconds=%u seconds=%.3f hashes=%llu hashrate_hps=%.6f\n",
+        selected_device,
+        tuning::family_name(profile.family),
+        final_threads,
+        final_blocks,
+        static_cast<unsigned long long>(final_work_items),
+        seconds,
+        final_elapsed,
+        final_hashes,
+        final_rate);
     std::printf("Khushi Algorithm benchmark backend=cuda device=%d seconds=%.3f hashes=%llu hashrate_hps=%.6f\n",
-                selected_device, best_elapsed, best_hashes, best_rate);
+                selected_device, final_elapsed, final_hashes, final_rate);
 
     cudaFree(hashes_done);
     cudaFree(found_nonce);
@@ -484,11 +514,11 @@ int run_staging_search(const char* header_hex, const char* target_hex, std::uint
 
     const std::uint32_t generation = 1u;
     const unsigned long long no_nonce = kSearchNoNonce;
-    unsigned long long zero = 0ull;
+    unsigned long long staging_zero = 0ull;
     if (cuda_error("cudaMemcpy(staging cache)", cudaMemcpy(device_cache, &host_cache, sizeof(host_cache), cudaMemcpyHostToDevice)) != 0) return 1;
     if (cuda_error("cudaMemcpy(staging generation)", cudaMemcpy(stale_generation, &generation, sizeof(generation), cudaMemcpyHostToDevice)) != 0) return 1;
     if (cuda_error("cudaMemcpy(staging nonce)", cudaMemcpy(found_nonce, &no_nonce, sizeof(no_nonce), cudaMemcpyHostToDevice)) != 0) return 1;
-    if (cuda_error("cudaMemcpy(staging hashes)", cudaMemcpy(hashes_done, &zero, sizeof(zero), cudaMemcpyHostToDevice)) != 0) return 1;
+    if (cuda_error("cudaMemcpy(staging hashes)", cudaMemcpy(hashes_done, &staging_zero, sizeof(staging_zero), cudaMemcpyHostToDevice)) != 0) return 1;
 
     constexpr unsigned threads = 32u;
     constexpr std::uint64_t nonces_per_launch = 32u;
