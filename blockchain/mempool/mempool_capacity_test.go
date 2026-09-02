@@ -15,9 +15,7 @@ func TestMempoolRejectsAtTransactionCapacity(t *testing.T) {
 	added := 0
 	for senderIndex := 0; added < params.MaxMempoolTransactions; senderIndex++ {
 		sender := fmt.Sprintf("%040x", senderIndex+1)
-		for nonce := uint64(1);
-			nonce <= uint64(params.MaxMempoolTransactionsPerSender) && added < params.MaxMempoolTransactions;
-			nonce++ {
+		for nonce := uint64(1); nonce <= uint64(params.MaxMempoolTransactionsPerSender) && added < params.MaxMempoolTransactions; nonce++ {
 			tx := transactions.NewTransaction(
 				sender,
 				receiver,
