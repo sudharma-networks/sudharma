@@ -78,9 +78,32 @@ func LoadChainFromFile(path string) (*Chain, error) {
 }
 
 // LoadChainFromFileFor loads and validates a Sudharma Network chain from disk
-// under an explicit network identity. It does not authorize runtime mainnet;
-// callers must obtain their active network through the launch-gated parser.
+// under an explicit network identity and that network's disabled PoW policy.
+// It does not authorize runtime mainnet; callers must obtain their active
+// network through the launch-gated parser.
 func LoadChainFromFileFor(path string, network params.NetworkID) (*Chain, error) {
+	policy, err := PoWPolicyForNetwork(network)
+	if err != nil {
+		return nil, err
+	}
+	return LoadChainFromFileForWithConsensus(
+		path,
+		network,
+		policy,
+		legacyProofVerifier{},
+	)
+}
+
+// LoadChainFromFileForWithConsensus loads and validates a Sudharma Network
+// chain from disk under explicit immutable PoW consensus configuration. The
+// policy and verifier remain runtime configuration and are not serialized into
+// the chain file.
+func LoadChainFromFileForWithConsensus(
+	path string,
+	network params.NetworkID,
+	policy PoWPolicy,
+	verifier ProofVerifier,
+) (*Chain, error) {
 	if path == "" {
 		return nil, fmt.Errorf(
 			"storage path cannot be empty",
@@ -120,7 +143,12 @@ func LoadChainFromFileFor(path string, network params.NetworkID) (*Chain, error)
 		return nil, fmt.Errorf("invalid genesis block")
 	}
 
-	chain, err := newChainFromGenesisForNetwork(network, blocks[0])
+	chain, err := newChainFromGenesisForNetworkWithConsensus(
+		network,
+		blocks[0],
+		policy,
+		verifier,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("invalid genesis block: %w", err)
 	}
