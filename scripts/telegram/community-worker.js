@@ -12,6 +12,8 @@ const {
 const MAX_REPLIES_PER_RUN = 20;
 const REPORT_RATE_WINDOW_MS = 60 * 60 * 1000;
 const REPORT_DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000;
+const TELEGRAM_RETRY_ATTEMPTS = 3;
+const TELEGRAM_RETRY_DELAY_MS = 500;
 const COMMUNITY_REPORT_MARKER_RE = /<!-- sudharma-telegram-community-report:v1 update_id=\d+ -->/;
 const GITHUB_ACTIONS_BOT_LOGIN = 'github-actions[bot]';
 
@@ -49,6 +51,20 @@ function telegramApiError(method, data, response) {
   return error;
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableTelegramError(error) {
+  if (!(error instanceof Error)) return false;
+  if (error.diagnosticCode === 'telegram-api-429-rate-limited') {
+    return true;
+  }
+  return error.message.startsWith('Telegram API ')
+    && error.message.endsWith(' failed')
+    && typeof error.diagnosticCode !== 'string';
+}
+
 function createTelegramAdapter({ token, fetchImpl = globalThis.fetch }) {
   if (typeof token !== 'string' || token.length === 0) {
     throw new Error('Telegram bot token is required');
@@ -57,7 +73,7 @@ function createTelegramAdapter({ token, fetchImpl = globalThis.fetch }) {
     throw new Error('A fetch implementation is required');
   }
 
-  async function call(method, payload = {}) {
+  async function callOnce(method, payload = {}) {
     let response;
     try {
       response = await fetchImpl(`https://api.telegram.org/bot${token}/${method}`, {
@@ -80,6 +96,23 @@ function createTelegramAdapter({ token, fetchImpl = globalThis.fetch }) {
       throw telegramApiError(method, data, response);
     }
     return data.result;
+  }
+
+  async function call(method, payload = {}) {
+    const maxAttempts = method === 'sendMessage' ? 1 : TELEGRAM_RETRY_ATTEMPTS;
+    let lastError;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        return await callOnce(method, payload);
+      } catch (error) {
+        lastError = error;
+        if (attempt >= maxAttempts || !isRetryableTelegramError(error)) {
+          throw error;
+        }
+        await sleep(TELEGRAM_RETRY_DELAY_MS * attempt);
+      }
+    }
+    throw lastError;
   }
 
   return {
@@ -466,6 +499,7 @@ if (require.main === module) {
 
 module.exports = {
   MAX_REPLIES_PER_RUN,
+  TELEGRAM_RETRY_ATTEMPTS,
   createTelegramAdapter,
   createGithubAdapter,
   createWorker,
