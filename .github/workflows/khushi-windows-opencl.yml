@@ -4,12 +4,14 @@ on:
   push:
     branches:
       - feature/gpu-pow-v1
+      - feature/gpu-autotune-profiles
     paths:
       - '.github/workflows/khushi-windows-opencl.yml'
       - '.github/workflows/khushi-windows-cuda.yml'
       - '.github/workflows/publish-test-mining-release.yml'
       - 'compatibility/opencl/**'
       - 'compatibility/cuda/**'
+      - 'compatibility/gpu/**'
       - 'compatibility/gpupowv1/windows_opencl_artifact_contract_test.go'
       - 'compatibility/gpupowv1/windows_self_contained_staging_release_contract_test.go'
       - 'cmd/sudharma-gpupow-staging/**'
