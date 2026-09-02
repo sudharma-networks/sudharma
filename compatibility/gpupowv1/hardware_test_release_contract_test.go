@@ -87,6 +87,18 @@ func TestHardwareTestReleaseUsesExactRevisionArtifactsAndImmutableTag(t *testing
 	}
 }
 
+func TestHardwareTestReleaseNormalizesWindowsMetadataCRLF(t *testing.T) {
+	workflow := readHardwareTestContractFile(t, "../../.github/workflows/publish-khushi-hardware-test-v0.2.0.yml")
+	for _, want := range []string{
+		"tr -d '\\r' < backend/nvidia/build-metadata.txt",
+		"tr -d '\\r' < backend/opencl/build-metadata.txt",
+	} {
+		if !strings.Contains(workflow, want) {
+			t.Fatalf("publisher must normalize Windows CRLF before exact source-revision verification; missing %q", want)
+		}
+	}
+}
+
 func TestHardwareTestReleaseFailsClosedOnExistingDifferentTag(t *testing.T) {
 	workflow := readHardwareTestContractFile(t, "../../.github/workflows/publish-khushi-hardware-test-v0.2.0.yml")
 	for _, want := range []string{
