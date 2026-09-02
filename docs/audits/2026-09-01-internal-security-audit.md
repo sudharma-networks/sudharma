@@ -6,7 +6,7 @@ This is a **maintainer-controlled, AI-assisted internal security audit** of Sudh
 
 It is **not an independent third-party security audit** and must never be described or marketed as one.
 
-Audit baseline:
+Original audit baseline:
 
 ```text
 a02c67a85fd3c96f0183808504799889bc8f6dd4
@@ -15,13 +15,34 @@ a02c67a85fd3c96f0183808504799889bc8f6dd4
 Tracking branch: `audit/2026-09-01-internal-security`  
 Tracking PR: #99 (merged)
 
+## Stage 5 reconciliation — 2026-09-02
+
+The original report is preserved as the audit record, but finding status/evidence below has been reconciled against the post-Step-4 `main` baseline:
+
+```text
+9882b46307b06fa78095103aab11d0f5a086d701
+```
+
+Canonical Stage 5 evidence record:
+
+`docs/audits/2026-09-02-final-regression-security-evidence.md`
+
+The Step 1–4 remediation sequence is now merged:
+
+- #103 / IS-005 network-aware block/reorg/runtime processing — PR #109, merge `1033602d86ddcbbb194d85e4c15d6044155b818a`
+- #102 / IS-004 network-bound transaction signatures — PR #111, merge `5353948b8b244647e1c2eec3c80ee792d7548c41`
+- #104 / IS-009 bounded mempool/resource/dust policy — PR #114, merge `c9236ce3f2dfc397baafbea1c2d1526bd7e43841`
+- #101 / IS-003 final 51M mainnet tokenomics reconciliation — PR #116, merge `9882b46307b06fa78095103aab11d0f5a086d701`
+
+Issue #102 was found reopened during Stage 5 without a new technical finding or explanatory comment. The merged PR #111 implementation, current-main network-aware verification, two-way replay tests and current-main CI were re-verified; #102 was then re-closed as completed on 2026-09-02.
+
 ## Executive verdict
 
 **Public testnet: CONTINUE WITH TESTNET CAUTION AND ABUSE MONITORING.**
 
-**Mainnet: NO-GO.** Mainnet must remain fail-closed until the evidence gates in this report are complete.
+**Mainnet: NO-GO.** Mainnet must remain fail-closed until every remaining evidence/activation gate is genuinely complete.
 
-This pass has confirmed four High-severity findings. IS-001 through IS-006 and IS-009 have fixes on merged or stacked PRs with regression coverage and passing CI. IS-003 is resolved with an owner-approved source-of-truth document. Remaining launch blockers are physical GPU evidence, public/community review completion, genesis timestamp freeze and explicit launch authorization.
+All required Critical/High/Medium remediations identified by this internal audit pass are now merged with regression evidence. The full current-main CI/race/security/adversarial sequence is green. This does **not** make mainnet ready: physical cross-vendor GPU/staging evidence and the public/community security-review window remain incomplete, and mainnet genesis/seed/launch/mining authorization remains separately human-gated.
 
 No claim is made that absence of additional findings proves absence of vulnerabilities.
 
@@ -44,11 +65,11 @@ The internal audit reviewed or sampled the following security surfaces:
 
 ## Method
 
-1. Pin review to an exact canonical `main` commit.
+1. Pin review to exact commits instead of relying on moving branch names.
 2. Inspect consensus/security-critical source rather than relying on project documentation alone.
 3. Convert reproducible findings into regression tests before implementation changes when remediation is safe and narrowly scoped.
-4. Require repository CI on remediation commits.
-5. Record architecture/consensus/economic findings as explicit mainnet blockers instead of silently changing compatibility-sensitive formats or policy.
+4. Require repository CI on remediation heads and current merged main.
+5. Record architecture/consensus/economic findings as explicit mainnet blockers instead of silently changing compatibility-sensitive formats or live-chain policy.
 6. Keep all mainnet authorization, genesis timestamp, seed topology and mining authorization gates closed.
 
 ## Findings
@@ -57,111 +78,129 @@ The internal audit reviewed or sampled the following security surfaces:
 
 **Status: FIXED — merged via PR #99.**
 
-The baseline calculated basis-point fees by multiplying the full `uint64` amount before division. Amounts within the configured public-testnet/legacy monetary range could overflow intermediate arithmetic.
-
-The baseline also calculated total, development and miner fees as three independently floored percentages. For some ordinary atomic amounts the split did not equal the charged fee. At 1000 atomic units the total 0.10% fee floors to 1 atom while independently floored 0.01% and 0.09% portions both produce 0.
+The baseline calculated basis-point fees by multiplying the full `uint64` amount before division. Amounts within the configured public-testnet/legacy monetary range could overflow intermediate arithmetic. The baseline also calculated total, development and miner fees as independently floored percentages, which could fail to conserve fee atoms.
 
 **Remediation:**
 
-- Added regression coverage at maximum configured legacy/testnet supply scale and small atomic values.
-- Replaced full-width multiplication with quotient/remainder basis-point arithmetic.
-- Defined miner fee as the exact charged-fee remainder after development allocation so integer rounding always conserves fee atoms.
+- regression coverage at maximum configured legacy/testnet supply scale and small atomic values
+- overflow-safe quotient/remainder basis-point arithmetic
+- miner fee defined as the exact charged-fee remainder after development allocation
 
 **Evidence:**
 
-- RED/test-only commit: `8d181e6c5b9746c188574df1a48addf6738169a9`.
-- First GREEN fix: `b8ffad367e7664a5f5df7982978477273bf52bbb`.
-- CI #942 and Faucet Recovery CI #278 passed on that fix line.
+- RED/test-only commit: `8d181e6c5b9746c188574df1a48addf6738169a9`
+- first GREEN fix: `b8ffad367e7664a5f5df7982978477273bf52bbb`
+- CI #942 and Faucet Recovery CI #278 passed on that fix line
 
 ### IS-002 — MEDIUM — `ApplyTransaction` credit failures / intrinsic atomicity
 
-**Status: FIXED — merged via PR #99; GitHub #100 closed.**
+**Status: FIXED — merged; GitHub #100 closed.**
 
 The baseline checked sender debit errors but discarded receiver and development-treasury credit failures, allowing a direct caller to receive success after a failed credit and leaving partial mutation.
 
 **Remediation:**
 
-- Added a regression test that forces receiver balance overflow and requires rejection with no sender/receiver/treasury/nonce/replay-marker mutation.
-- `ApplyTransaction` now operates against a private state clone and replaces caller state only after every debit, credit, nonce and replay-marker step succeeds.
-- Receiver and development-treasury `Credit` errors are explicitly propagated.
+- regression test forcing receiver balance overflow with no state mutation allowed on rejection
+- `ApplyTransaction` now mutates a private clone and commits only after all debit/credit/nonce/replay-marker steps succeed
+- receiver and development-treasury `Credit` errors are propagated
 
 **Evidence:**
 
-- RED commit: `337c44e11435a83fe678366cc62e8fe78ad73a03`; CI #951 failed through the pre-audit selfcheck as expected.
-- GREEN commit: `01932605a8632ae956b4c1e0caccc7eb02dcc972`.
-- CI #952 passed including pre-audit selfcheck, formatting, `go vet`, full tests, repository-wide race detector, two-node rehearsal and public-testnet container build/smoke.
-- Faucet Recovery CI #288 passed.
+- RED commit `337c44e11435a83fe678366cc62e8fe78ad73a03`; CI #951 failed as expected
+- GREEN commit `01932605a8632ae956b4c1e0caccc7eb02dcc972`
+- CI #952 and Faucet Recovery CI #288 passed
 
 ### IS-003 — MEDIUM — Testnet 51B vs mainnet 51M source-of-truth ambiguity
 
-**Status: RESOLVED — GitHub #101 — owner-approved source-of-truth recorded.**
+**Status: FIXED — GitHub #101 closed via PR #116.**
 
-The code already separates monetary policies: public testnet uses a 51,000,000,000 SUDH hard cap while the mainnet candidate policy encodes 51,000,000 SUDH. This pass records an explicit owner-approved source-of-truth document so reviewers do not conflate the two caps.
+The running public testnet intentionally retains its legacy 51,000,000,000 SUDH development policy. The **final mainnet monetary policy** is separately locked at exactly **51,000,000 SUDH**, zero premine, 60-second target blocks, 5,259,600 subsidy-bearing blocks, 40 quarterly epochs and a nominal 10-target-year emission schedule. Subsidy is permanently zero after height 5,259,600.
+
+**Remediation:**
+
+- canonical source-of-truth explicitly labels 51B as legacy public-testnet-only
+- README and website metadata label 51M as final mainnet economics
+- documentation regression contract locks 51M / 40 epochs / 131,490 blocks per epoch / final height 5,259,600
+- existing live public-testnet history/economics were not rewritten
 
 **Evidence:**
 
 - `docs/audits/2026-09-01-tokenomics-source-of-truth-kk.md`
-- code constants in `params/params.go` and `params/monetary.go`
+- PR #116, merge `9882b46307b06fa78095103aab11d0f5a086d701`
+- post-merge CI #1073, Website CI #173 and Faucet Recovery CI #352 all passed
 
-### IS-004 — HIGH — Transaction signatures are not domain-separated by network/chain
+### IS-004 — HIGH — Transaction signatures were not domain-separated by network/chain
 
-**Status: FIXED — GitHub #102 — stacked on audit land PR.**
+**Status: FIXED — GitHub #102 closed; merged via PR #111.**
 
-The baseline signed only the transaction ID. Separate P2P network IDs prevented peer mixing but not cross-network transaction replay when the same key existed on both networks.
+The baseline signed only the transaction ID. Separate P2P network IDs prevented peer mixing but did not prevent cross-network transaction replay when the same key/state existed on both networks.
 
 **Remediation:**
 
-- added versioned signature domains: legacy v1 (transaction ID only) and network-bound v2 (`sudharma-tx-v2|<network>|<txID>`)
-- new wallet/CLI/Android/P2P signing uses v2 for the active network
-- public testnet still accepts legacy v1 signatures for already-signed transactions
-- mainnet verification requires v2 only
-- added cross-network replay regression tests
+- versioned signature domains: legacy v1 and network-bound v2 (`sudharma-tx-v2|<network>|<txID>`)
+- new wallet/CLI/runtime/faucet signing uses the active network-bound domain
+- public testnet accepts legacy v1 only for backward compatibility with already-signed transactions
+- mainnet verification requires v2
+- P2P/consensus validation verifies against the active network
+- replay tests cover testnet -> mainnet and mainnet -> testnet
+- Android regression coverage validates the network domain
 
 **Evidence:**
 
 - plan: `docs/superpowers/plans/2026-09-01-network-bound-signatures.md`
-- PR #106 (`cursor/security-network-signatures-8441`)
+- PR #111, merge `5353948b8b244647e1c2eec3c80ee792d7548c41`
+- PR-head CI #1003, Faucet Recovery CI #314 and Android Wallet CI #346 passed
+- current-main CI #1073 re-ran the Go/security/race path successfully
 
-### IS-005 — HIGH — Generic block/reorg/miner paths still route through public-testnet monetary processing
+### IS-005 — HIGH — Generic block/reorg/miner paths routed through public-testnet monetary processing
 
-**Status: FIXED — GitHub #103 — stacked on audit land PR.**
+**Status: FIXED — GitHub #103 closed; merged via PR #109.**
 
-The baseline contained mainnet-aware monetary functions (`ProcessBlockFor`, `MonetaryPolicyFor`), but several generic consensus/runtime paths still called the public-testnet compatibility wrapper `ProcessBlock(...)` or created public-testnet state/chain implicitly.
+The baseline contained mainnet-aware monetary functions but several generic consensus/runtime paths still used public-testnet compatibility wrappers or implicit public-testnet state/chain construction.
 
 **Remediation:**
 
-- bound every `blockchain.Chain` to an immutable `params.NetworkID`
-- made reorg replay, candidate validation and stored-chain loading network-aware
-- rejected cross-network fork choice before monetary-policy comparison
-- added regression tests for network-aware reorg replay, chain loading and fork rejection
+- chains/runtime paths bind to explicit network identity and monetary policy
+- peer block acceptance, mining, stored-chain replay and state rebuild are network-aware
+- reorg/candidate-chain validation uses the chain network/genesis policy
+- cross-network fork choice is rejected
+- regression coverage exercises testnet/mainnet network separation across runtime/replay/reorg paths
 
 **Evidence:**
 
-- PR #105 (`fix/security-network-aware-consensus`)
 - plan: `docs/superpowers/plans/2026-09-01-network-aware-consensus.md`
+- PR #109, merge `1033602d86ddcbbb194d85e4c15d6044155b818a`
+- exact-head CI and post-merge Faucet Recovery evidence recorded in PR #109
+- current-main CI #1073 passed full tests, race, two-node rehearsal and security gate
 
 ### IS-006 — MEDIUM — Unauthenticated handshake `total_work` allowed oversized decimal big integers
 
 **Status: FIXED — merged via PR #99.**
 
-P2P frames were already bounded to 16 MiB and inbound handshakes were concurrency/time bounded. The handshake `total_work` string could nevertheless consume most of that frame and be parsed into a very large `big.Int` before peer admission.
+P2P frames were already bounded, but the handshake `total_work` string could consume most of a frame and be parsed into a very large `big.Int` before peer admission.
 
 **Remediation:**
 
-- Added `MaxHandshakeTotalWorkDigits = 128`.
-- Outbound construction and inbound decoding reject oversized `total_work` before `big.Int` parsing/storage.
-- Added regression tests for oversized inbound and outbound work values.
+- `MaxHandshakeTotalWorkDigits = 128`
+- outbound construction and inbound decoding reject oversized `total_work` before `big.Int` parsing/storage
+- regression tests cover oversized inbound and outbound values
 
 **Evidence:**
 
-- Hardening line through `7580689094c3565d6ad63f80d0143e26e365877d`.
-- CI #949 and Faucet Recovery CI #285 passed.
+- hardening line through `7580689094c3565d6ad63f80d0143e26e365877d`
+- CI #949 and Faucet Recovery CI #285 passed
 
 ### IS-007 — INFO/POSITIVE — Mainnet remains fail-closed
 
-**Status: VERIFIED IN REVIEWED CODE/TESTS.**
+**Status: VERIFIED ON STAGE 5 REVIEWED MAIN.**
 
-`MainnetLaunchAuthorized` remains false, the mainnet genesis timestamp remains unset, mainnet mining authorization remains false, and mainnet/testnet identities are distinct. The audit branch uses a truthful `security-review-evidence` readiness gate that also remains false.
+```text
+MainnetLaunchAuthorized = false
+MainnetMiningAuthorized = false
+MainnetGenesisTimestamp = 0
+```
+
+Public testnet remains the default network, and mainnet/testnet identities are distinct. `MainnetSecurityReviewEvidenceComplete()` remains false because physical GPU evidence and public/community review are still false.
 
 ### IS-008 — INFO/POSITIVE — Encrypted wallet storage uses authenticated encryption and a memory-hard KDF
 
@@ -171,78 +210,76 @@ The reviewed encrypted-wallet implementation uses random salt, scrypt, AES-256-G
 
 ### IS-009 — HIGH — Unbounded mempool + zero-fee dust + weak transaction resource bounds
 
-**Status: FIXED — GitHub #104 — stacked on audit land PR.**
+**Status: FIXED — GitHub #104 closed; merged via PR #114.**
 
-The baseline mempool had no hard capacity, admission replayed the full pending set for each candidate, sub-1000 atomic transfers could pay zero fee, and receiver addresses were not constrained to the canonical 40-hex form at consensus validation.
+The baseline mempool had no hard capacity, candidate admission replayed the full pending set, sub-1000 atomic transfers could pay zero fee, and receiver/resource bounds were weak.
 
 **Remediation:**
 
-- canonical address validation for `From`/`To`
-- dust minimum transfer amount (`1000` atomic units)
-- bounded mempool transaction count and estimated byte capacity with early rejection
-- block transaction count and byte limits
-- adversarial regression tests for dust, oversized addresses and mempool capacity
+- canonical address validation and transaction resource bounds
+- explicit 1000-atomic minimum transfer
+- bounded mempool transaction count/estimated bytes and per-sender cap
+- sender/nonce index and sender-scoped pending validation on live admission paths
+- block transaction count/byte limits
+- adversarial tests for dust spam, oversized resources, duplicate nonce, capacity/accounting and explicit-network peer decode
 
 **Evidence:**
 
-- plan: `docs/superpowers/plans/2026-09-01-mempool-resource-bounds.md`
-- PR #107 (`cursor/security-mempool-bounds-8441`)
+- plan: `docs/superpowers/plans/2026-09-02-mempool-admission-bounds.md`
+- PR #114, merge `c9236ce3f2dfc397baafbea1c2d1526bd7e43841`
+- exact-head CI/Faucet Recovery evidence recorded on PR #114
+- current-main CI #1073 passed full tests, repository-wide race and security regression/race/adversarial gate
 
-## CI / engineering evidence
+## Current-main CI / engineering evidence
 
-The remediation branch must pass the repository security and engineering gates on its final head, including applicable:
+Reviewed main `9882b46307b06fa78095103aab11d0f5a086d701` passed:
 
-- tracked-secret checks
-- RPC/faucet contract checks
-- mining/pool gates
-- mainnet readiness tests
-- `go vet`
-- full Go test suite
-- repository race detector
-- two-node rehearsal
-- public-testnet container build/smoke
-- security regression/race/adversarial gate (`scripts/security-regression-gate.sh`)
+- CI #1073 (`33594324731`)
+- Website CI #173 (`33594324734`)
+- Faucet Recovery CI #352 (`33594324750`)
 
-Recorded passing evidence so far:
+CI #1073 successfully completed all substantive stages, including mainnet monetary rehearsal, pre-audit selfcheck, `gofmt`, `go vet`, full Go tests, repository-wide race detector, security regression/race/adversarial gate, local two-node testnet rehearsal, public-testnet container build and smoke test.
 
-- fee remediation: CI #942, Faucet Recovery CI #278
-- P2P `total_work` hardening: CI #949, Faucet Recovery CI #285
-- transaction atomicity remediation: CI #952, Faucet Recovery CI #288
-
-The final PR head/workflow IDs must be recorded again immediately before merge.
+See `docs/audits/2026-09-02-final-regression-security-evidence.md` for the consolidated evidence record.
 
 ## Zero-budget security-review evidence gate
 
-`MainnetSecurityReviewEvidenceComplete` must remain `false` until all of the following are satisfied:
+`MainnetSecurityReviewEvidenceComplete()` must remain `false` until every sub-gate and later activation prerequisite is genuinely satisfied:
 
-- [x] No open Critical findings.
-- [x] No open High findings from this internal audit pass (#102, #103, #104 remediated on stacked PR).
-- [x] Every Medium finding is fixed or explicitly risk-accepted with written technical evidence.
-- [ ] Full repository tests, race detector and required adversarial/security gates pass on the final candidate commit.
-- [ ] Consensus/fork/reorg/difficulty/timestamp regression suite passes on the frozen candidate.
-- [ ] Required RTX 2060 packaged localhost staging evidence is retained.
-- [ ] Required physical AMD/non-NVIDIA OpenCL 4 GiB+ evidence is retained.
-- [ ] Cross-vendor mining evidence receives independent/community reproducibility review where possible.
-- [ ] A documented public security-review period is completed, with serious vulnerabilities routed privately through the repository security policy.
-- [x] Tokenomics/source-of-truth ambiguity is resolved before genesis freeze.
-- [ ] Mainnet genesis timestamp/hash is frozen only after consensus-critical parameters are approved.
-- [ ] Mainnet seed topology is deployed and verified separately from testnet.
-- [ ] Mainnet launch/mining authorization is enabled only by an explicit final owner decision after every gate above is complete.
+- [x] No open Critical findings from this internal audit pass.
+- [x] Required High findings #102, #103 and #104 are remediated/closed with merged regression coverage.
+- [x] Medium findings are fixed; #101 now records the final 51M mainnet source-of-truth.
+- [x] Full repository tests and repository-wide race detector pass on Stage 5 reviewed main.
+- [x] Security regression/race/adversarial gate passes on Stage 5 reviewed main.
+- [x] Mainnet monetary/readiness contracts pass on Stage 5 reviewed main.
+- [ ] Re-run all required automated gates on the later exact frozen mainnet candidate if it differs from the reviewed commit.
+- [ ] RTX 2060 independent packaged localhost staging acceptance is retained in #24.
+- [ ] Physical AMD/non-NVIDIA OpenCL GPU with at least 4 GiB dedicated VRAM passes production memory/vector/benchmark and independent staging evidence in #24.
+- [ ] Cross-vendor mining evidence receives reproducibility/community review where possible.
+- [ ] A documented public/community security-review window is started against one exact candidate commit and completed with no unresolved Critical/High reports.
+- [ ] Mainnet genesis timestamp/hash is frozen only after consensus-critical parameters and evidence gates are ready.
+- [ ] Mainnet seed topology is prepared/verified separately from public testnet.
+- [ ] Mainnet launch/mining authorization is enabled only by an explicit final owner decision after every required gate is complete.
 
 ## Public/community review path
 
-A paid auditor is not required for this internal evidence process. The project can invite developers and security researchers to review the frozen candidate and use private vulnerability reporting for high-impact findings. Community review must be described accurately as public/community review, not independent professional certification.
+A paid auditor is not required for this internal evidence process. The project can invite developers and security researchers to review a later pinned candidate and use private vulnerability reporting for high-impact findings. The review window is **not started by Stage 5**; see `docs/audits/2026-09-01-public-security-review-window.md`.
 
-## Remaining project blockers outside this audit
+Community review must be described accurately as public/community review, not independent professional certification.
 
-Security-review completion is only one part of project finalization. Current known release blockers also include:
+## Remaining project/mainnet blockers
 
-- Android wallet regression restoration/release work tracked in PR #98
+The audit remediation sequence being complete is not equivalent to overall project or mainnet readiness. Current known blockers include:
+
 - physical Khushi GPU evidence tracked in #24
-- Kryptex-specific external onboarding/profile questions tracked in #13
-- public documentation/community issues such as #41
-- mainnet genesis/seed/launch gates described above
+- public/community security-review window not yet started/completed
+- later exact frozen-candidate regression rerun
+- mainnet genesis timestamp/hash freeze
+- mainnet seed topology/operator verification
+- explicit owner-controlled launch and mining authorization
+- Android wallet regression restoration/release work tracked separately in PR #98 for the user-facing wallet baseline
+- external pool/listing/onboarding work such as #13 where applicable
 
 ## Final security statement
 
-Sudharma can continue development and public-testnet operation without purchasing an external audit. Mainnet must not launch yet. The zero-budget route remains viable only if the project transparently records and resolves the open High findings, completes the required evidence gates and never represents this internal AI-assisted review as an independent third-party certification.
+Sudharma can continue development and public-testnet operation without purchasing an external audit. The maintainer-controlled internal audit findings identified in this pass have been remediated with current-main automated evidence, but **mainnet must not launch yet**. The zero-budget route remains viable only if the remaining physical GPU, public/community review, frozen-candidate, genesis/seed and explicit activation gates are completed truthfully. This internal AI-assisted review must never be represented as independent third-party certification.
