@@ -7,14 +7,42 @@ import (
 	"time"
 )
 
-// validateBlockCore performs consensus checks that do not depend
-// on the algorithm used to calculate the next difficulty.
+// validateBlockCore is the legacy compatibility entry point used by tests and
+// callers that do not carry a Chain. It remains Version-1/double-SHA256 only.
 func validateBlockCore(block *Block, previous *Block) error {
+	return validateBlockCoreWithProof(
+		block,
+		previous,
+		LegacyOnlyPoWPolicy(),
+		legacyProofVerifier{},
+	)
+}
+
+// validateBlockCoreWithProof performs consensus checks under the immutable
+// proof-version policy and verifier bound to a Chain.
+func validateBlockCoreWithProof(
+	block *Block,
+	previous *Block,
+	policy PoWPolicy,
+	verifier ProofVerifier,
+) error {
 	if block == nil {
 		return fmt.Errorf("block cannot be nil")
 	}
 	if previous == nil {
 		return fmt.Errorf("previous block cannot be nil")
+	}
+	if !policy.VersionAllowed(block.Version, block.Height) {
+		expectedVersion, _ := policy.VersionAtHeight(block.Height)
+		return fmt.Errorf(
+			"invalid block version: expected %d at height %d, got %d",
+			expectedVersion,
+			block.Height,
+			block.Version,
+		)
+	}
+	if verifier == nil || !verifier.SupportsVersion(block.Version) {
+		return fmt.Errorf("proof verifier does not support block version %d", block.Version)
 	}
 
 	expectedHeight := previous.Height + 1
@@ -39,13 +67,16 @@ func validateBlockCore(block *Block, previous *Block) error {
 	if err := validateBlockTransactions(block); err != nil {
 		return err
 	}
-	if !validBlockProofOfWorkCore(block) {
+	if !verifier.Verify(block) {
 		return fmt.Errorf("invalid proof of work")
 	}
 
 	return nil
 }
 
+// validBlockProofOfWorkCore is the existing legacy Version-1 proof rule. Stage
+// 1 keeps it unchanged; future Khushi Version-2 verification is injected via a
+// different ProofVerifier rather than changing this compatibility function.
 func validBlockProofOfWorkCore(block *Block) bool {
 	hashBytes, err := hex.DecodeString(block.Hash())
 	if err != nil {
