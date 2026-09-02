@@ -16,13 +16,13 @@ run() {
 
 run go vet ./...
 
-run go test ./params ./consensus ./blockchain ./transactions ./wallet ./p2p ./rpc ./pool ./gpuminer/... \
-  -run 'TestCrossNetwork|TestLegacySignature|TestMainnetRequires|TestValidateResourceBounds|TestMempoolRejects|TestNetworkBound|TestReorg|TestRejectCrossNetwork|TestLoadChainFromFileFor|TestSetLocalNetworkID|TestApplyTransactionCreditFailure|TestFee|TestMainnet' \
+run go test ./params ./consensus ./blockchain ./blockchain/mempool ./transactions ./wallet ./p2p ./rpc ./pool ./gpuminer/... \
+  -run 'TestCrossNetwork|TestLegacySignature|TestMainnetRequires|TestValidateResourceBounds|TestMempoolRejects|TestMempoolCached|TestMempoolRemoval|TestTransactionsForSender|TestLocalSubmission|TestSequentialDustSpam|TestDecodeTransactionForNetwork|TestNetworkBound|TestReorg|TestRejectCrossNetwork|TestLoadChainFromFileFor|TestSetLocalNetworkID|TestApplyTransactionCreditFailure|TestFee|TestMainnet' \
   -count=1
 
 run go test ./... -count=1
 
-run go test -race ./params ./consensus ./blockchain ./transactions ./wallet ./p2p ./rpc ./pool ./miner ./gpuminer/... ./cmd/sudharmad ./cmd/sudharma-wallet -count=1
+run go test -race ./params ./consensus ./blockchain ./blockchain/mempool ./transactions ./wallet ./p2p ./rpc ./pool ./miner ./gpuminer/... ./cmd/sudharmad ./cmd/sudharma-wallet -count=1
 
 run bash ./scripts/mainnet-monetary-rehearsal.sh
 SKIP_LIVE_PROBE=1 run bash ./scripts/pre-audit-engineering-selfcheck.sh

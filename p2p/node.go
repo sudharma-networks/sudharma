@@ -404,7 +404,7 @@ func (n *Node) readLoop(peer *PeerConnection) {
 			// preventing reputation farming through cheap keepalive spam.
 
 		case MessageTransaction:
-			tx, err := DecodeTransaction(message)
+			tx, err := DecodeTransactionForNetwork(message, n.ActiveNetwork())
 			if err != nil {
 				fmt.Printf("[TX] Rejected malformed transaction from %s: %v\n", peer.Info.NodeID, err)
 				if n.punishPeer(peer, PeerPenaltyMalformed, "malformed transaction") {
@@ -416,26 +416,11 @@ func (n *Node) readLoop(peer *PeerConnection) {
 				fmt.Printf("[TX] Duplicate transaction ignored: %s\n", tx.ID)
 				continue
 			}
-			state := n.State()
-			if state == nil {
-				fmt.Printf("[TX] Rejected %s: blockchain state unavailable\n", tx.ID)
-				continue
-			}
-			pending := n.mempool.AllTransactions()
-			if err := blockchain.ValidateMempoolTransactionFor(
-				state,
-				pending,
-				tx,
-				n.ActiveNetwork(),
-			); err != nil {
+			if err := n.admitVerifiedTransaction(tx); err != nil {
 				fmt.Printf("[TX] Rejected %s from %s: %v\n", tx.ID, peer.Info.NodeID, err)
 				if n.punishPeer(peer, PeerPenaltyInvalidData, "invalid transaction") {
 					return
 				}
-				continue
-			}
-			if err := n.mempool.AddTransaction(tx); err != nil {
-				fmt.Printf("[TX] Mempool add failed for %s: %v\n", tx.ID, err)
 				continue
 			}
 			n.rewardValidPeerMessage(peer)

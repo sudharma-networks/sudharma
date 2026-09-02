@@ -7,7 +7,10 @@ import (
 	"github.com/sudharma-networks/sudharma/wallet"
 )
 
-// EstimatedSerializedSize approximates the in-memory/relay cost of a transaction.
+// EstimatedSerializedSize returns the canonical field-payload size used by
+// transaction, mempool, and block resource policies. It intentionally excludes
+// transport/container overhead so every validation path uses the same stable
+// bound independent of JSON formatting.
 func (tx *Transaction) EstimatedSerializedSize() int {
 	if tx == nil {
 		return 0
@@ -21,7 +24,7 @@ func (tx *Transaction) EstimatedSerializedSize() int {
 }
 
 // ValidateResourceBounds checks consensus-visible transaction size and address
-// rules before expensive mempool replay or state application.
+// rules before expensive signature, mempool replay, or state application work.
 func ValidateResourceBounds(tx *Transaction) error {
 	if tx == nil {
 		return fmt.Errorf("transaction cannot be nil")
@@ -41,7 +44,7 @@ func ValidateResourceBounds(tx *Transaction) error {
 	if len(tx.Signature) > params.MaxTransactionSignatureSize {
 		return fmt.Errorf("transaction signature exceeds maximum size")
 	}
-	if tx.EstimatedSerializedSize() > params.MaxBlockTransactionBytes {
+	if tx.EstimatedSerializedSize() > params.MaxTransactionSerializedBytes {
 		return fmt.Errorf("transaction exceeds maximum serialized size")
 	}
 	if tx.Amount < params.MinTransferAmount {

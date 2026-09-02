@@ -194,7 +194,7 @@ func (n *Node) ReorganizeWithMempoolRecovery(
 		}
 
 		pending :=
-			n.mempool.AllTransactions()
+			n.mempool.TransactionsForSender(tx.From)
 
 		if err :=
 			blockchain.ValidateMempoolTransactionFor(

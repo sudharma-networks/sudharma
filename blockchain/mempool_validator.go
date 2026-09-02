@@ -23,134 +23,76 @@ func ValidateMempoolTransaction(
 	)
 }
 
-// ValidateMempoolTransactionFor checks whether a transaction can safely enter
-// the mempool for an explicit network identity.
+// ValidateMempoolTransactionFor validates a candidate against confirmed state
+// plus only that sender's bounded pending chain. Cross-sender pending transfers
+// are deliberately ignored: mempool admission does not permit spending
+// unconfirmed incoming funds, which removes global replay coupling and keeps
+// candidate validation cost bounded by MaxMempoolTransactionsPerSender.
+//
+// Global count/byte capacity and duplicate sender/nonce checks are enforced by
+// mempool.CheckAdmission/AddTransaction before this function is called on live
+// admission paths.
 func ValidateMempoolTransactionFor(
 	state *State,
 	pending []*transactions.Transaction,
 	candidate *transactions.Transaction,
 	network params.NetworkID,
 ) error {
-
 	if state == nil {
-		return fmt.Errorf(
-			"state cannot be nil",
-		)
+		return fmt.Errorf("state cannot be nil")
 	}
-
 	if candidate == nil {
-		return fmt.Errorf(
-			"candidate transaction cannot be nil",
-		)
+		return fmt.Errorf("candidate transaction cannot be nil")
 	}
-
 	if candidate.ID == "" {
-		return fmt.Errorf(
-			"transaction ID cannot be empty",
-		)
+		return fmt.Errorf("transaction ID cannot be empty")
 	}
-
 	if err := transactions.ValidateResourceBounds(candidate); err != nil {
-		return fmt.Errorf(
-			"transaction rejected by mempool: %w",
-			err,
-		)
+		return fmt.Errorf("transaction rejected by mempool: %w", err)
 	}
 
-	if len(pending) >= params.MaxMempoolTransactions {
-		return fmt.Errorf("mempool transaction capacity reached")
-	}
-
-	pendingBytes := 0
+	senderPending := make([]*transactions.Transaction, 0, params.MaxMempoolTransactionsPerSender)
 	for _, tx := range pending {
 		if tx == nil {
-			return fmt.Errorf(
-				"mempool contains nil transaction",
-			)
+			return fmt.Errorf("mempool contains nil transaction")
 		}
-		pendingBytes += tx.EstimatedSerializedSize()
-	}
-	if pendingBytes+candidate.EstimatedSerializedSize() > params.MaxMempoolBytes {
-		return fmt.Errorf("mempool byte capacity reached")
-	}
-
-	// Reject duplicate transaction already in mempool.
-	for _, tx := range pending {
-		if tx == nil {
-			return fmt.Errorf(
-				"mempool contains nil transaction",
-			)
-		}
-
 		if tx.ID == candidate.ID {
-			return fmt.Errorf(
-				"transaction already exists in mempool: %s",
-				candidate.ID,
-			)
+			return fmt.Errorf("transaction already exists in mempool: %s", candidate.ID)
+		}
+		if tx.From != candidate.From {
+			continue
+		}
+		senderPending = append(senderPending, tx)
+		if len(senderPending) >= params.MaxMempoolTransactionsPerSender {
+			return fmt.Errorf("mempool sender transaction capacity reached")
 		}
 	}
+
+	sort.Slice(senderPending, func(i, j int) bool {
+		if senderPending[i].Nonce != senderPending[j].Nonce {
+			return senderPending[i].Nonce < senderPending[j].Nonce
+		}
+		return senderPending[i].ID < senderPending[j].ID
+	})
 
 	// Never modify confirmed blockchain state.
 	workingState := state.Clone()
 
-	// Make pending execution deterministic.
-	ordered := make(
-		[]*transactions.Transaction,
-		len(pending),
-	)
-
-	copy(
-		ordered,
-		pending,
-	)
-
-	sort.Slice(
-		ordered,
-		func(i, j int) bool {
-
-			if ordered[i].From != ordered[j].From {
-				return ordered[i].From <
-					ordered[j].From
-			}
-
-			if ordered[i].Nonce != ordered[j].Nonce {
-				return ordered[i].Nonce <
-					ordered[j].Nonce
-			}
-
-			return ordered[i].ID <
-				ordered[j].ID
-		},
-	)
-
-	// Apply already-pending transactions to temporary state.
-	for _, tx := range ordered {
-		if _, err := ApplyTransactionFor(
-			workingState,
-			tx,
-			network,
-		); err != nil {
-
+	// Apply only this sender's already-pending transactions. Since one sender is
+	// capped at a small fixed queue, this replay is bounded independent of the
+	// global mempool size.
+	for _, tx := range senderPending {
+		if _, err := ApplyTransactionFor(workingState, tx, network); err != nil {
 			return fmt.Errorf(
-				"existing mempool transaction %s is invalid: %w",
+				"existing sender mempool transaction %s is invalid: %w",
 				tx.ID,
 				err,
 			)
 		}
 	}
 
-	// Candidate must be valid after all pending transactions.
-	if _, err := ApplyTransactionFor(
-		workingState,
-		candidate,
-		network,
-	); err != nil {
-
-		return fmt.Errorf(
-			"transaction rejected by mempool: %w",
-			err,
-		)
+	if _, err := ApplyTransactionFor(workingState, candidate, network); err != nil {
+		return fmt.Errorf("transaction rejected by mempool: %w", err)
 	}
-
 	return nil
 }
