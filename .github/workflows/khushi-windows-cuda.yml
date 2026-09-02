@@ -60,8 +60,8 @@ jobs:
           call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           where cl.exe
           if not exist dist mkdir dist
-          nvcc -std=c++17 --expt-relaxed-constexpr -O3 -lineinfo -Xcompiler "/EHsc" -gencode=arch=compute_61,code=sm_61 -gencode=arch=compute_75,code=sm_75 -gencode=arch=compute_86,code=sm_86 -gencode=arch=compute_89,code=sm_89 -gencode=arch=compute_120,code=sm_120 -gencode=arch=compute_120,code=compute_120 compatibility\cuda\khushi_miner.cu -o dist\khushi-miner-nvidia.exe
-          nvcc -std=c++17 --expt-relaxed-constexpr -O3 -lineinfo -Xcompiler "/EHsc" -gencode=arch=compute_61,code=sm_61 -gencode=arch=compute_75,code=sm_75 -gencode=arch=compute_86,code=sm_86 -gencode=arch=compute_89,code=sm_89 -gencode=arch=compute_120,code=sm_120 -gencode=arch=compute_120,code=compute_120 compatibility\cuda\khushi_production_vectors.cu -o dist\khushi-production-vectors-nvidia.exe
+          nvcc -std=c++17 --expt-relaxed-constexpr -O3 -lineinfo -Xcompiler "/EHsc" -gencode=arch=compute_61,code=sm_61 -gencode=arch=compute_75,code=sm_75 -gencode=arch=compute_86,code=sm_86 -gencode=arch=compute_89,code=sm_89 -gencode=arch=compute_89,code=compute_89 -gencode=arch=compute_120,code=sm_120 -gencode=arch=compute_120,code=compute_120 compatibility\cuda\khushi_miner.cu -o dist\khushi-miner-nvidia.exe
+          nvcc -std=c++17 --expt-relaxed-constexpr -O3 -lineinfo -Xcompiler "/EHsc" -gencode=arch=compute_61,code=sm_61 -gencode=arch=compute_75,code=sm_75 -gencode=arch=compute_86,code=sm_86 -gencode=arch=compute_89,code=sm_89 -gencode=arch=compute_89,code=compute_89 -gencode=arch=compute_120,code=sm_120 -gencode=arch=compute_120,code=compute_120 compatibility\cuda\khushi_production_vectors.cu -o dist\khushi-production-vectors-nvidia.exe
 
       - name: Build same-revision local staging verifier
         shell: pwsh
@@ -86,7 +86,7 @@ jobs:
             "algorithm=Khushi Algorithm",
             "protocol_id=sudharma-gpupow-v1",
             "source_revision=$env:GITHUB_SHA",
-            "cuda_arches=sm_61,sm_75,sm_86,sm_89,sm_120,compute_120",
+            "cuda_arches=sm_61,sm_75,sm_86,sm_89,compute_89,sm_120,compute_120",
             "artifact=khushi-miner-nvidia.exe",
             "production_vector_artifact=khushi-production-vectors-nvidia.exe",
             "staging_verifier_artifact=sudharma-gpupow-staging.exe",
