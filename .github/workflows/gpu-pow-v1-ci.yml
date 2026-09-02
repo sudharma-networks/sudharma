@@ -58,6 +58,13 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Shared GPU autotune C++ policy
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic \
+            compatibility/gpu/gpu_tuning_profile_test.cpp \
+            -o /tmp/gpu_tuning_profile_test
+          /tmp/gpu_tuning_profile_test
+
       - name: Consensus baseline tests
         run: go test ./blockchain ./consensus -count=1 -v
 
