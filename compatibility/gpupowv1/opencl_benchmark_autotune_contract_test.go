@@ -17,6 +17,8 @@ func TestOpenCLBenchmarkUsesRuntimeAutotuneProfiles(t *testing.T) {
 		"CL_DEVICE_VENDOR",
 		"CL_DEVICE_MAX_COMPUTE_UNITS",
 		"CL_DEVICE_MAX_WORK_GROUP_SIZE",
+		"CL_KERNEL_WORK_GROUP_SIZE",
+		"clGetKernelWorkGroupInfo",
 		"tuning::opencl_profile",
 		"tuning::candidates",
 		"tuning::work_items",
