@@ -355,6 +355,43 @@ test('Telegram adapter never includes token in thrown API errors', async () => {
   );
 });
 
+test('Telegram adapter retries transient getMe transport failures', async () => {
+  let attempts = 0;
+  const adapter = createTelegramAdapter({
+    token: 'safe-test-token',
+    fetchImpl: async (url) => {
+      attempts += 1;
+      if (attempts < 2) {
+        throw new Error('synthetic network failure');
+      }
+      return {
+        ok: true,
+        async json() {
+          return { ok: true, result: { id: 1, username: 'SudharmaNetworkBot' } };
+        },
+      };
+    },
+  });
+
+  const result = await adapter.getMe();
+  assert.equal(result.username, 'SudharmaNetworkBot');
+  assert.equal(attempts, 2);
+});
+
+test('Telegram adapter does not retry sendMessage failures', async () => {
+  let attempts = 0;
+  const adapter = createTelegramAdapter({
+    token: 'safe-test-token',
+    fetchImpl: async () => {
+      attempts += 1;
+      throw new Error('synthetic network failure');
+    },
+  });
+
+  await assert.rejects(() => adapter.sendMessage({ chat_id: 1, text: 'hello' }));
+  assert.equal(attempts, 1);
+});
+
 test('Telegram adapter sends JSON Bot API requests and returns result objects', async () => {
   const calls = [];
   const adapter = createTelegramAdapter({
