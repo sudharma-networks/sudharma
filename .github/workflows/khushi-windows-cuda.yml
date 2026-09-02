@@ -5,10 +5,12 @@ on:
     branches:
       - feature/gpu-pow-v1
       - feature/gpu-autotune-profiles
+      - feature/khushi-hardware-test-v0.2.0
     paths:
       - '.github/workflows/khushi-windows-cuda.yml'
       - '.github/workflows/khushi-windows-opencl.yml'
       - '.github/workflows/publish-test-mining-release.yml'
+      - '.github/workflows/publish-khushi-hardware-test-v0.2.0.yml'
       - 'compatibility/cuda/**'
       - 'compatibility/opencl/**'
       - 'compatibility/gpu/**'
@@ -16,12 +18,17 @@ on:
       - 'compatibility/gpupowv1/device_memory_contract_test.go'
       - 'compatibility/gpupowv1/cuda_production_vector_cli_contract_test.go'
       - 'compatibility/gpupowv1/windows_self_contained_staging_release_contract_test.go'
+      - 'compatibility/gpupowv1/hardware_test_v0_2_0_contract_test.go'
+      - 'compatibility/gpupowv1/hardware_test_release_contract_test.go'
       - 'cmd/sudharma-gpupow-staging/**'
       - 'rpc/mining_staging*.go'
       - 'scripts/windows/test-khushi-miner.ps1'
       - 'scripts/windows/run-local-staging-gate.ps1'
+      - 'scripts/windows/Run-GPU-Test.bat'
       - 'docs/gpu-pow-v1-production-memory-vectors.json'
       - 'docs/test-mining/PUBLIC_TEST_MINING.md'
+      - 'docs/test-mining/KHUSHI_HARDWARE_TEST_README.txt'
+      - 'docs/test-mining/KHUSHI_HARDWARE_TEST_V0_2_0.md'
       - 'go.mod'
       - 'go.sum'
   workflow_dispatch:
