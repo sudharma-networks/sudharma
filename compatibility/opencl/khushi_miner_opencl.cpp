@@ -28,6 +28,7 @@ constexpr cl_uint kProductionChunkCount = 8u;
 constexpr cl_ulong kMinimumDedicatedVRAMBytes = 4ull << 30u;
 constexpr cl_ulong kProductionRequiredVRAMBytes =
     kProductionDatasetBytes + kProductionCacheBytes + kProductionRuntimeReserveBytes;
+constexpr unsigned long long kAutotuneCandidateMilliseconds = 1000ull;
 constexpr const char* kCacheHex[8] = {
     "68fae850a5cc8cddba29c7a56913c7340e69ba0d92830144aab66584e01a20e86b919e515046196e7ef9c006150fff8affc13fc252dea4490ef1bb4527adcb6b",
     "25c2c0f117e806e1a832bc4bbcc444043633f5100f9ddf3714988c1b2de377b6e9d6979803b8deca82d5267d53eccc89fa92e21984e535f4e8193881ab309741",
@@ -381,15 +382,43 @@ int benchmark(unsigned seconds) {
     }
     const auto& chosen = devices[static_cast<std::size_t>(selected_device)];
     const tuning::Profile profile = tuning::opencl_profile(chosen.vendor);
-    const unsigned max_local = chosen.max_work_group > static_cast<std::size_t>(std::numeric_limits<unsigned>::max())
-        ? std::numeric_limits<unsigned>::max()
-        : static_cast<unsigned>(chosen.max_work_group == 0u ? 1u : chosen.max_work_group);
-    const auto launch_candidates = tuning::candidates(profile, max_local);
 
     Runtime rt = make_runtime();
     cl_int rc = 0;
     cl_kernel kernel = clCreateKernel(rt.program, "khushi_search", &rc);
     check(rc, "clCreateKernel(khushi_search)");
+
+    std::size_t kernel_max_work_group = 0u;
+    check(clGetKernelWorkGroupInfo(
+              kernel,
+              chosen.device,
+              CL_KERNEL_WORK_GROUP_SIZE,
+              sizeof(kernel_max_work_group),
+              &kernel_max_work_group,
+              nullptr),
+          "CL_KERNEL_WORK_GROUP_SIZE");
+    if (chosen.max_work_group == 0u || kernel_max_work_group == 0u) {
+        std::fputs("Khushi Algorithm OpenCL kernel reported no safe work-group size\n", stderr);
+        clReleaseKernel(kernel);
+        return 6;
+    }
+    const std::size_t safe_max_local_size =
+        chosen.max_work_group < kernel_max_work_group ? chosen.max_work_group : kernel_max_work_group;
+    const unsigned safe_max_local = safe_max_local_size > static_cast<std::size_t>(std::numeric_limits<unsigned>::max())
+        ? std::numeric_limits<unsigned>::max()
+        : static_cast<unsigned>(safe_max_local_size);
+    if (safe_max_local == 0u) {
+        std::fputs("Khushi Algorithm OpenCL kernel work-group bound resolved to zero\n", stderr);
+        clReleaseKernel(kernel);
+        return 6;
+    }
+    const auto launch_candidates = tuning::candidates(profile, safe_max_local);
+    if (launch_candidates.empty()) {
+        std::fputs("Khushi Algorithm OpenCL autotune produced no kernel-safe launch candidate\n", stderr);
+        clReleaseKernel(kernel);
+        return 6;
+    }
+
     const char header_text[] = "khushi-algorithm-generic-opencl-benchmark";
     cl_uint header_len = sizeof(header_text) - 1u, cache_nodes = 8, generation = 1, found_flag = 0, hashes = 0;
     cl_ulong nonce_start = 0, found = ~(cl_ulong)0;
@@ -413,13 +442,6 @@ int benchmark(unsigned seconds) {
     cl_mem hd = clCreateBuffer(rt.context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(hashes), &hashes, &rc);
     check(rc, "bench hashes");
 
-    const unsigned long long total_milliseconds = static_cast<unsigned long long>(seconds) * 1000ull;
-    const unsigned long long candidate_milliseconds =
-        launch_candidates.empty() ? total_milliseconds :
-        (total_milliseconds / static_cast<unsigned long long>(launch_candidates.size()) < 250ull
-             ? 250ull
-             : total_milliseconds / static_cast<unsigned long long>(launch_candidates.size()));
-
     double best_rate = -1.0;
     std::size_t best_local = 0u;
     std::size_t best_global = 0u;
@@ -439,7 +461,7 @@ int benchmark(unsigned seconds) {
         const std::size_t global = tuning::work_items(candidate, chosen.compute_units);
         const cl_ulong nonce_count = static_cast<cl_ulong>(global);
         const auto start = std::chrono::steady_clock::now();
-        const auto deadline = start + std::chrono::milliseconds(candidate_milliseconds);
+        const auto deadline = start + std::chrono::milliseconds(kAutotuneCandidateMilliseconds);
         do {
             int a = 0;
             check(clSetKernelArg(kernel, a++, sizeof(h), &h), "a0");
@@ -483,8 +505,17 @@ int benchmark(unsigned seconds) {
         }
     }
 
-    if (best_local == 0u) {
+    if (best_local == 0u || best_global == 0u) {
         std::fputs("Khushi Algorithm OpenCL autotune produced no safe launch candidate\n", stderr);
+        clReleaseMemObject(hd);
+        clReleaseMemObject(f);
+        clReleaseMemObject(ff);
+        clReleaseMemObject(g);
+        clReleaseMemObject(t);
+        clReleaseMemObject(c);
+        clReleaseMemObject(s);
+        clReleaseMemObject(h);
+        clReleaseKernel(kernel);
         return 6;
     }
     std::printf(
@@ -496,8 +527,56 @@ int benchmark(unsigned seconds) {
         best_elapsed,
         static_cast<unsigned>(best_hashes),
         best_rate);
+
+    hashes = 0u;
+    found_flag = 0u;
+    found = ~(cl_ulong)0;
+    nonce_start = 0u;
+    check(clEnqueueWriteBuffer(rt.queue, hd, CL_TRUE, 0, sizeof(hashes), &hashes, 0, nullptr, nullptr), "final hash reset");
+    check(clEnqueueWriteBuffer(rt.queue, ff, CL_TRUE, 0, sizeof(found_flag), &found_flag, 0, nullptr, nullptr), "final found flag reset");
+    check(clEnqueueWriteBuffer(rt.queue, f, CL_TRUE, 0, sizeof(found), &found, 0, nullptr, nullptr), "final found nonce reset");
+
+    const std::size_t final_local = best_local;
+    const std::size_t final_global = best_global;
+    const cl_ulong final_nonce_count = static_cast<cl_ulong>(final_global);
+    const auto final_started = std::chrono::steady_clock::now();
+    const auto final_deadline = final_started + std::chrono::seconds(seconds);
+    do {
+        int a = 0;
+        check(clSetKernelArg(kernel, a++, sizeof(h), &h), "final a0");
+        check(clSetKernelArg(kernel, a++, sizeof(header_len), &header_len), "final a1");
+        check(clSetKernelArg(kernel, a++, sizeof(s), &s), "final a2");
+        check(clSetKernelArg(kernel, a++, sizeof(c), &c), "final a3");
+        check(clSetKernelArg(kernel, a++, sizeof(cache_nodes), &cache_nodes), "final a4");
+        check(clSetKernelArg(kernel, a++, sizeof(t), &t), "final a5");
+        check(clSetKernelArg(kernel, a++, sizeof(nonce_start), &nonce_start), "final a6");
+        check(clSetKernelArg(kernel, a++, sizeof(final_nonce_count), &final_nonce_count), "final a7");
+        check(clSetKernelArg(kernel, a++, sizeof(g), &g), "final a8");
+        check(clSetKernelArg(kernel, a++, sizeof(generation), &generation), "final a9");
+        check(clSetKernelArg(kernel, a++, sizeof(ff), &ff), "final a10");
+        check(clSetKernelArg(kernel, a++, sizeof(f), &f), "final a11");
+        check(clSetKernelArg(kernel, a++, sizeof(hd), &hd), "final a12");
+        check(clEnqueueNDRangeKernel(rt.queue, kernel, 1, nullptr, &final_global, &final_local, 0, nullptr, nullptr), "bench selected-profile enqueue");
+        check(clFinish(rt.queue), "bench selected-profile finish");
+        nonce_start += final_nonce_count;
+    } while (std::chrono::steady_clock::now() < final_deadline);
+
+    check(clEnqueueReadBuffer(rt.queue, hd, CL_TRUE, 0, sizeof(hashes), &hashes, 0, nullptr, nullptr), "final hashes read");
+    const auto final_ended = std::chrono::steady_clock::now();
+    const double final_elapsed = std::chrono::duration<double>(final_ended - final_started).count();
+    const double final_rate = final_elapsed > 0.0 ? static_cast<double>(hashes) / final_elapsed : 0.0;
+    std::printf(
+        "selected-profile-benchmark backend=opencl device=%d family=%s local_size=%llu work_items=%llu requested_seconds=%u seconds=%.3f hashes=%u hashrate_hps=%.6f\n",
+        selected_device,
+        tuning::family_name(profile.family),
+        static_cast<unsigned long long>(final_local),
+        static_cast<unsigned long long>(final_global),
+        seconds,
+        final_elapsed,
+        static_cast<unsigned>(hashes),
+        final_rate);
     std::printf("Khushi Algorithm benchmark backend=opencl device=%d seconds=%.3f hashes=%u hashrate_hps=%.6f\n",
-                selected_device, best_elapsed, static_cast<unsigned>(best_hashes), best_rate);
+                selected_device, final_elapsed, static_cast<unsigned>(hashes), final_rate);
 
     clReleaseMemObject(hd);
     clReleaseMemObject(f);
