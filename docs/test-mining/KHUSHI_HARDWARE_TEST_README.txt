@@ -41,3 +41,4 @@ A successful software package or local run does not by itself set the project Ph
 RELEASE PACKAGING
 -----------------
 Khushi Hardware Test v0.2.0 is published as an exact-revision prerelease package. The package records its source revision and SHA256 checksums in retained release metadata.
+The combined Windows package keeps the NVIDIA CUDA and OpenCL backends in separate verified subdirectories under one launcher.
