@@ -37,3 +37,7 @@ SAFETY BOUNDARY
 This hardware test does not activate network mining or mainnet mining, does not create a block, and does not change consensus activation. It does not contact Seed-1, Seed-2, or a public mining endpoint. The verifier is localhost-only.
 
 A successful software package or local run does not by itself set the project PhysicalGPUMiningEvidenceComplete gate. The retained physical evidence must still be reviewed. The formal cross-vendor gate also requires a real AMD or other non-NVIDIA OpenCL GPU with at least 4 GiB dedicated VRAM in addition to NVIDIA evidence.
+
+RELEASE PACKAGING
+-----------------
+Khushi Hardware Test v0.2.0 is published as an exact-revision prerelease package. The package records its source revision and SHA256 checksums in retained release metadata.
