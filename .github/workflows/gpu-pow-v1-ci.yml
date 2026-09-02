@@ -6,6 +6,7 @@ on:
       - feature/gpu-pow-v1
       - feature/gpu-pow-v1-stage-f
       - feature/gpu-pow-v1-stage-g
+      - feature/gpu-autotune-profiles
   pull_request:
     branches:
       - main
