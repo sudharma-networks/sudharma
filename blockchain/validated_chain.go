@@ -4,8 +4,9 @@ import "fmt"
 
 // ValidateAndCloneChain rebuilds a chain from its network's canonical genesis
 // and validates every non-genesis block through the normal history-aware
-// admission path. The returned chain preserves the source network identity and
-// recomputes cumulative work locally from validated blocks.
+// admission path. The returned chain preserves the source network identity,
+// immutable proof policy/verifier, and recomputes cumulative work locally from
+// validated blocks.
 func ValidateAndCloneChain(source *Chain) (*Chain, error) {
 	if source == nil {
 		return nil, fmt.Errorf("source chain cannot be nil")
@@ -19,12 +20,19 @@ func ValidateAndCloneChain(source *Chain) (*Chain, error) {
 	blocks := make([]*Block, len(source.blocks))
 	copy(blocks, source.blocks)
 	network := source.network
+	policy := source.powPolicy
+	verifier := source.proofVerifier
 	source.mu.RUnlock()
 
 	if blocks[0] == nil {
 		return nil, fmt.Errorf("source genesis block is nil")
 	}
-	validated, err := newChainFromGenesisForNetwork(network, blocks[0])
+	validated, err := newChainFromGenesisForNetworkWithConsensus(
+		network,
+		blocks[0],
+		policy,
+		verifier,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("source has wrong genesis block: %w", err)
 	}
