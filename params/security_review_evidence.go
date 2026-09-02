@@ -5,12 +5,15 @@ package params
 // every sub-gate is true.
 const (
 	// InternalSecurityAuditRemediationComplete records that IS-001 through IS-009
-	// from the 2026-09-01 internal audit have remediation merged on the candidate
-	// branch with passing regression coverage.
+	// from the 2026-09-01 maintainer-controlled internal audit have their required
+	// Critical/High/Medium remediations merged with regression coverage. Step 5
+	// reconciled #101-#104 against current main on 2026-09-02.
 	InternalSecurityAuditRemediationComplete = true
 
-	// SecurityRegressionRaceAdversarialGatePassed records that
-	// scripts/security-regression-gate.sh passed on the frozen candidate commit.
+	// SecurityRegressionRaceAdversarialGatePassed records retained passing
+	// evidence for the repository security regression/race/adversarial gate.
+	// Current-main CI #1073 re-verified this on 2026-09-02. Any later frozen
+	// mainnet candidate must rerun the gate before launch review.
 	SecurityRegressionRaceAdversarialGatePassed = true
 
 	// PhysicalGPUMiningEvidenceComplete records retained RTX 2060 localhost
@@ -38,12 +41,12 @@ func SecurityReviewEvidenceGates() []ReadinessGate {
 		{
 			Name:   "internal-audit-remediation",
 			Ready:  InternalSecurityAuditRemediationComplete,
-			Detail: "2026-09-01 internal audit Critical/High/Medium remediations merged",
+			Detail: "2026-09-01 internal audit required Critical/High/Medium remediations merged; Step 5 reconciled #101-#104",
 		},
 		{
 			Name:   "security-regression-race-adversarial",
 			Ready:  SecurityRegressionRaceAdversarialGatePassed,
-			Detail: "scripts/security-regression-gate.sh passed on frozen candidate",
+			Detail: "scripts/security-regression-gate.sh passed; current-main CI #1073 re-verified 2026-09-02",
 		},
 		{
 			Name:   "physical-gpu-mining-evidence",
