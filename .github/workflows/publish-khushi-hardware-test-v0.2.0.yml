@@ -121,8 +121,8 @@ jobs:
             test -f "backend/opencl/$file" || { echo "missing OpenCL artifact file: $file" >&2; exit 1; }
           done
 
-          grep -Fx "source_revision=${GITHUB_SHA}" backend/nvidia/build-metadata.txt
-          grep -Fx "source_revision=${GITHUB_SHA}" backend/opencl/build-metadata.txt
+          tr -d '\r' < backend/nvidia/build-metadata.txt | grep -Fx "source_revision=${GITHUB_SHA}"
+          tr -d '\r' < backend/opencl/build-metadata.txt | grep -Fx "source_revision=${GITHUB_SHA}"
           # Contract/provenance marker: source_revision=${GITHUB_SHA}
 
           (cd backend/nvidia && sha256sum -c SHA256SUMS.txt)
