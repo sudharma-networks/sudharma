@@ -1,0 +1,236 @@
+name: Publish Khushi Hardware Test v0.2.0
+
+on:
+  push:
+    branches:
+      - feature/khushi-hardware-test-v0.2.0
+    paths:
+      - '.github/workflows/publish-khushi-hardware-test-v0.2.0.yml'
+      - '.github/workflows/khushi-windows-cuda.yml'
+      - '.github/workflows/khushi-windows-opencl.yml'
+      - 'compatibility/cuda/**'
+      - 'compatibility/opencl/**'
+      - 'compatibility/gpu/**'
+      - 'compatibility/gpupowv1/**'
+      - 'cmd/sudharma-gpupow-staging/**'
+      - 'rpc/mining_staging*.go'
+      - 'scripts/windows/**'
+      - 'docs/gpu-pow-v1-production-memory-vectors.json'
+      - 'docs/test-mining/KHUSHI_HARDWARE_TEST_README.txt'
+      - 'docs/test-mining/KHUSHI_HARDWARE_TEST_V0_2_0.md'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    if: github.event.head_commit.message == 'release(gpu): publish Khushi hardware test v0.2.0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: khushi-hardware-test-v0.2.0
+      RELEASE_ZIP: khushi-hardware-test-v0.2.0-windows.zip
+    steps:
+      - name: Checkout exact source revision
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve successful exact-revision Windows builds
+        id: builds
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          resolve_run() {
+            workflow_name="$1"
+            for attempt in $(seq 1 60); do
+              run_id="$(
+                gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${GITHUB_SHA}&event=push&per_page=100" |
+                  jq -r --arg name "$workflow_name" --arg sha "$GITHUB_SHA" '
+                    [.workflow_runs[]
+                      | select(.name == $name)
+                      | select(.head_sha == $sha)
+                      | select(.event == "push")
+                      | select(.status == "completed")
+                      | select(.conclusion == "success")]
+                    | sort_by(.run_number)
+                    | last
+                    | .id // empty'
+              )"
+              if [ -n "$run_id" ]; then
+                echo "$run_id"
+                return 0
+              fi
+              echo "Waiting for successful exact-SHA workflow: $workflow_name attempt=$attempt source=$GITHUB_SHA" >&2
+              sleep 15
+            done
+            echo "No successful exact-SHA workflow found: $workflow_name source=$GITHUB_SHA" >&2
+            return 1
+          }
+
+          cuda_run="$(resolve_run 'Khushi NVIDIA Windows CUDA')"
+          opencl_run="$(resolve_run 'Khushi Windows OpenCL')"
+          echo "cuda_run_id=$cuda_run" >> "$GITHUB_OUTPUT"
+          echo "opencl_run_id=$opencl_run" >> "$GITHUB_OUTPUT"
+          echo "resolved_source_revision=$GITHUB_SHA"
+
+      - name: Download and verify exact-revision backend artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p backend/nvidia backend/opencl
+          gh run download "${{ steps.builds.outputs.cuda_run_id }}" \
+            --name khushi-miner-nvidia-windows \
+            --dir backend/nvidia
+          gh run download "${{ steps.builds.outputs.opencl_run_id }}" \
+            --name khushi-miner-opencl-windows \
+            --dir backend/opencl
+
+          required_nvidia=(
+            khushi-miner-nvidia.exe
+            khushi-production-vectors-nvidia.exe
+            sudharma-gpupow-staging.exe
+            gpu-pow-v1-production-memory-vectors.json
+            build-metadata.txt
+            SHA256SUMS.txt
+            test-khushi-miner.ps1
+            run-local-staging-gate.ps1
+          )
+          for file in "${required_nvidia[@]}"; do
+            test -f "backend/nvidia/$file" || { echo "missing NVIDIA artifact file: $file" >&2; exit 1; }
+          done
+          compgen -G 'backend/nvidia/cudart64_*.dll' >/dev/null || { echo 'missing packaged CUDA runtime DLL' >&2; exit 1; }
+
+          required_opencl=(
+            khushi-miner-opencl.exe
+            khushi-production-vectors-opencl.exe
+            sudharma-gpupow-staging.exe
+            khushi_pow.cl
+            gpupow_v1_production_vectors.cl
+            gpu-pow-v1-production-memory-vectors.json
+            build-metadata.txt
+            SHA256SUMS.txt
+            test-khushi-miner.ps1
+            run-local-staging-gate.ps1
+          )
+          for file in "${required_opencl[@]}"; do
+            test -f "backend/opencl/$file" || { echo "missing OpenCL artifact file: $file" >&2; exit 1; }
+          done
+
+          grep -Fx "source_revision=${GITHUB_SHA}" backend/nvidia/build-metadata.txt
+          grep -Fx "source_revision=${GITHUB_SHA}" backend/opencl/build-metadata.txt
+          # Contract/provenance marker: source_revision=${GITHUB_SHA}
+
+          (cd backend/nvidia && sha256sum -c SHA256SUMS.txt)
+          (cd backend/opencl && sha256sum -c SHA256SUMS.txt)
+
+          nvidia_verifier_sha="$(sha256sum backend/nvidia/sudharma-gpupow-staging.exe | awk '{print $1}')"
+          opencl_verifier_sha="$(sha256sum backend/opencl/sudharma-gpupow-staging.exe | awk '{print $1}')"
+          test "$nvidia_verifier_sha" = "$opencl_verifier_sha" || {
+            echo "same-revision staging verifier differs between backend artifacts" >&2
+            exit 1
+          }
+
+          nvidia_fixture_sha="$(sha256sum backend/nvidia/gpu-pow-v1-production-memory-vectors.json | awk '{print $1}')"
+          opencl_fixture_sha="$(sha256sum backend/opencl/gpu-pow-v1-production-memory-vectors.json | awk '{print $1}')"
+          test "$nvidia_fixture_sha" = "$opencl_fixture_sha" || {
+            echo "production vector fixture differs between backend artifacts" >&2
+            exit 1
+          }
+
+      - name: Assemble deterministic hardware-test package
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf package
+          mkdir -p package/nvidia package/opencl
+          cp -a backend/nvidia/. package/nvidia/
+          cp -a backend/opencl/. package/opencl/
+          cp scripts/windows/Run-GPU-Test.bat package/Run-GPU-Test.bat
+          cp docs/test-mining/KHUSHI_HARDWARE_TEST_README.txt package/README.txt
+
+          cat > package/PACKAGE-METADATA.txt <<EOF
+          package=Khushi Hardware Test v0.2.0
+          protocol_id=sudharma-gpupow-v1
+          source_revision=${GITHUB_SHA}
+          nvidia_artifact=khushi-miner-nvidia-windows
+          opencl_artifact=khushi-miner-opencl-windows
+          staging_endpoint=http://127.0.0.1:28646
+          localhost_only=true
+          consensus_activation=disabled
+          block_creation=none
+          network_mining=disabled
+          formal_benchmark_seconds=60
+          physical_evidence_gate=not_automatically_completed
+          EOF
+
+          (
+            cd package
+            find . -type f ! -name SHA256MANIFEST.txt -print0 |
+              sort -z |
+              xargs -0 sha256sum > SHA256MANIFEST.txt
+          )
+
+          branch_head="$(gh api "/repos/${GITHUB_REPOSITORY}/branches/feature%2Fkhushi-hardware-test-v0.2.0" --jq .commit.sha)"
+          if [ "$branch_head" != "$GITHUB_SHA" ]; then
+            echo "refusing publication because branch head moved: branch_head=$branch_head source=$GITHUB_SHA" >&2
+            exit 1
+          fi
+
+          rm -f "$RELEASE_ZIP"
+          (cd package && zip -q -r "../$RELEASE_ZIP" .)
+          printf '%s\n' "$GITHUB_SHA" > RELEASE-SOURCE-REVISION.txt
+          sha256sum "$RELEASE_ZIP" > RELEASE-SHA256SUMS.txt
+          cat RELEASE-SHA256SUMS.txt
+          echo "head_sha=${GITHUB_SHA}"
+
+      - name: Upload combined exact-revision package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: khushi-hardware-test-v0.2.0-windows
+          path: |
+            khushi-hardware-test-v0.2.0-windows.zip
+            RELEASE-SHA256SUMS.txt
+            RELEASE-SOURCE-REVISION.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Create immutable prerelease
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          existing_tag_sha="$(git ls-remote --tags origin "refs/tags/${RELEASE_TAG}^{}" | awk 'NR==1 {print $1}')"
+          if [ -z "$existing_tag_sha" ]; then
+            existing_tag_sha="$(git ls-remote --tags origin "refs/tags/${RELEASE_TAG}" | awk 'NR==1 {print $1}')"
+          fi
+          if [ -n "$existing_tag_sha" ] && [ "$existing_tag_sha" != "$GITHUB_SHA" ]; then
+            echo "refusing to move immutable tag: existing_tag_sha=$existing_tag_sha source=$GITHUB_SHA" >&2
+            exit 1
+          fi
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "immutable release already exists; refusing duplicate asset publication" >&2
+            exit 1
+          fi
+
+          gh release create "$RELEASE_TAG" \
+            "$RELEASE_ZIP" \
+            RELEASE-SHA256SUMS.txt \
+            RELEASE-SOURCE-REVISION.txt \
+            --target "$GITHUB_SHA" \
+            --title "Khushi Hardware Test v0.2.0" \
+            --prerelease \
+            --notes "Physical GPU interoperability evidence package for sudharma-gpupow-v1. Runs canonical vectors, production-memory checks, bounded autotuning, a full 60-second selected-profile benchmark, and localhost-only independent staging verification. This package does not activate network or mainnet mining and does not complete the physical-evidence gate automatically."
+
+          published_tag_sha="$(git ls-remote --tags origin "refs/tags/${RELEASE_TAG}^{}" | awk 'NR==1 {print $1}')"
+          if [ -z "$published_tag_sha" ]; then
+            published_tag_sha="$(git ls-remote --tags origin "refs/tags/${RELEASE_TAG}" | awk 'NR==1 {print $1}')"
+          fi
+          test "$published_tag_sha" = "$GITHUB_SHA" || {
+            echo "immutable tag verification failed: published=$published_tag_sha expected=$GITHUB_SHA" >&2
+            exit 1
+          }
+          echo "immutable_release_source=$published_tag_sha"
