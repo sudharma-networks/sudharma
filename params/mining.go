@@ -20,6 +20,13 @@ const (
 	// on public-testnet or mainnet.
 	ProductionMiningBackend = "gpu-only"
 
+	// GPU-PoW v1 activation remains deliberately unarmed on both networks.
+	// Any finite activation height requires a later dedicated consensus change
+	// after the physical GPU and public/community review gates are complete.
+	GPUV1ActivationDisabled      uint64 = ^uint64(0)
+	GPUV1TestnetActivationHeight uint64 = GPUV1ActivationDisabled
+	GPUV1MainnetActivationHeight uint64 = GPUV1ActivationDisabled
+
 	MiningNetworkPublicTestnet = "public-testnet"
 	MiningNetworkMainnet       = "mainnet"
 

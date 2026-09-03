@@ -28,5 +28,6 @@ func ValidateBlockAgainstChain(chain *Chain, block *Block) error {
 		)
 	}
 
-	return validateBlockCore(block, previous)
+	policy, verifier := chain.proofValidationConfig()
+	return validateBlockCoreWithProof(block, previous, policy, verifier)
 }

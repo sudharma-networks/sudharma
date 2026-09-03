@@ -10,10 +10,12 @@ import (
 )
 
 type Chain struct {
-	mu        sync.RWMutex
-	network   params.NetworkID
-	blocks    []*Block
-	totalWork *big.Int
+	mu            sync.RWMutex
+	network       params.NetworkID
+	blocks        []*Block
+	totalWork     *big.Int
+	powPolicy     PoWPolicy
+	proofVerifier ProofVerifier
 }
 
 func NewChain() *Chain {
@@ -24,24 +26,80 @@ func NewChain() *Chain {
 	return chain
 }
 
-// NewChainFor creates a chain whose immutable identity and genesis match the requested network.
+// NewChainFor creates a chain whose immutable identity, genesis, and proof
+// policy match the requested network. Both network policies remain legacy-only
+// until a later dedicated activation change.
 func NewChainFor(network params.NetworkID) (*Chain, error) {
+	policy, err := PoWPolicyForNetwork(network)
+	if err != nil {
+		return nil, err
+	}
+	return NewChainForWithConsensus(network, policy, legacyProofVerifier{})
+}
+
+// NewChainForWithConsensus creates a runtime chain using an explicit immutable
+// proof policy and verifier. It still observes the existing GenesisFor launch
+// gate, so it cannot be used to bypass unauthorized mainnet startup.
+func NewChainForWithConsensus(
+	network params.NetworkID,
+	policy PoWPolicy,
+	verifier ProofVerifier,
+) (*Chain, error) {
 	genesis, err := GenesisFor(network)
 	if err != nil {
 		return nil, err
 	}
-	return newChainFromGenesisForNetwork(network, genesis)
+	return newChainFromGenesisForNetworkWithConsensus(network, genesis, policy, verifier)
 }
 
 // newChainFromGenesisForNetwork builds a validation-only chain from the
 // canonical genesis for network. Unlike NewChainFor, it does not authorize
 // runtime mainnet launch; callers must already possess the expected genesis.
 func newChainFromGenesisForNetwork(network params.NetworkID, genesis *Block) (*Chain, error) {
+	policy, err := PoWPolicyForNetwork(network)
+	if err != nil {
+		return nil, err
+	}
+	return newChainFromGenesisForNetworkWithConsensus(
+		network,
+		genesis,
+		policy,
+		legacyProofVerifier{},
+	)
+}
+
+// newChainFromGenesisForNetworkWithConsensus reconstructs a validation-only
+// chain under explicit consensus configuration. The verifier must support every
+// block version the policy can select, otherwise construction fails closed.
+func newChainFromGenesisForNetworkWithConsensus(
+	network params.NetworkID,
+	genesis *Block,
+	policy PoWPolicy,
+	verifier ProofVerifier,
+) (*Chain, error) {
 	if genesis == nil {
 		return nil, fmt.Errorf("genesis block cannot be nil")
 	}
 	if _, err := params.MonetaryPolicyFor(network); err != nil {
 		return nil, err
+	}
+	if verifier == nil {
+		return nil, fmt.Errorf("proof verifier cannot be nil")
+	}
+	if !verifier.SupportsVersion(1) {
+		return nil, fmt.Errorf("proof verifier does not support legacy block Version 1")
+	}
+	if policy.GPUV1ActivationHeight != params.GPUV1ActivationDisabled &&
+		!verifier.SupportsVersion(2) {
+		return nil, fmt.Errorf("proof verifier does not support configured GPU-PoW Version 2 activation")
+	}
+	if !policy.VersionAllowed(genesis.Version, genesis.Height) {
+		expectedVersion, _ := policy.VersionAtHeight(genesis.Height)
+		return nil, fmt.Errorf(
+			"genesis block version %d does not match proof-of-work policy version %d",
+			genesis.Version,
+			expectedVersion,
+		)
 	}
 
 	var expected *Block
@@ -62,7 +120,9 @@ func newChainFromGenesisForNetwork(network params.NetworkID, genesis *Block) (*C
 		blocks: []*Block{
 			genesis,
 		},
-		totalWork: blockWork(genesis.Difficulty),
+		totalWork:     blockWork(genesis.Difficulty),
+		powPolicy:     policy,
+		proofVerifier: verifier,
 	}, nil
 }
 
@@ -72,6 +132,28 @@ func (c *Chain) Network() params.NetworkID {
 		return ""
 	}
 	return c.network
+}
+
+// PoWPolicy returns the immutable proof-version policy bound to this chain.
+func (c *Chain) PoWPolicy() PoWPolicy {
+	if c == nil {
+		return PoWPolicy{}
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.powPolicy
+}
+
+// proofValidationConfig returns the immutable proof configuration. The
+// interface reference is copied; verifier implementations are responsible for
+// synchronizing any internal caches they may add in later stages.
+func (c *Chain) proofValidationConfig() (PoWPolicy, ProofVerifier) {
+	if c == nil {
+		return PoWPolicy{}, nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.powPolicy, c.proofVerifier
 }
 
 // MonetaryPolicy returns the monetary policy implied by the chain's network identity.
@@ -190,7 +272,12 @@ func (c *Chain) AddBlock(block *Block) error {
 		)
 	}
 
-	if err := validateBlockCore(block, previous); err != nil {
+	if err := validateBlockCoreWithProof(
+		block,
+		previous,
+		c.powPolicy,
+		c.proofVerifier,
+	); err != nil {
 		return fmt.Errorf("block validation failed: %w", err)
 	}
 
