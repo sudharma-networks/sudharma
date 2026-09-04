@@ -13,7 +13,7 @@ import (
 	"github.com/sudharma-networks/sudharma/pow"
 )
 
-type rehearsalStatus struct {
+type blackBoxRehearsalStatus struct {
 	Mode           string `json:"mode"`
 	Network        string `json:"network"`
 	ChainHeight    uint64 `json:"chain_height"`
@@ -72,7 +72,7 @@ func waitForRehearsalChallenge(t *testing.T, endpoint string) blackBoxChallenge 
 	return blackBoxChallenge{}
 }
 
-func fetchRehearsalStatus(t *testing.T, endpoint string) rehearsalStatus {
+func fetchRehearsalStatus(t *testing.T, endpoint string) blackBoxRehearsalStatus {
 	t.Helper()
 	response, err := http.Get(endpoint + "/v1/mining/staging/status")
 	if err != nil {
@@ -82,7 +82,7 @@ func fetchRehearsalStatus(t *testing.T, endpoint string) rehearsalStatus {
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("rehearsal status code=%d", response.StatusCode)
 	}
-	var status rehearsalStatus
+	var status blackBoxRehearsalStatus
 	if err := json.NewDecoder(response.Body).Decode(&status); err != nil {
 		t.Fatalf("decode rehearsal status: %v", err)
 	}
@@ -126,9 +126,14 @@ func TestMainnetRehearsalMinesAndAcceptsAtLeast25KhushiBlocks(t *testing.T) {
 		if challenge.CacheNodes != pow.GPUV1ProductionCacheNodes {
 			t.Fatalf("challenge cache_nodes=%d want production=%d", challenge.CacheNodes, pow.GPUV1ProductionCacheNodes)
 		}
+		programSeed := pow.GPUV1ProgramSeed(height)
 		epoch := pow.GPUV1EpochForHeight(height)
+		epochSeed := pow.GPUV1EpochSeed(epoch)
+		if challenge.ProgramSeed != hex.EncodeToString(programSeed[:]) || challenge.EpochSeed != hex.EncodeToString(epochSeed[:]) {
+			t.Fatalf("challenge seed provenance mismatch at height %d", height)
+		}
 		if cache == nil || epoch != cacheEpoch {
-			cache = pow.GPUV1BuildCache(pow.GPUV1EpochSeed(epoch), pow.GPUV1ProductionCacheNodes)
+			cache = pow.GPUV1BuildCache(epochSeed, pow.GPUV1ProductionCacheNodes)
 			cacheEpoch = epoch
 		}
 		nonce := solveRehearsalChallenge(t, challenge, cache)
