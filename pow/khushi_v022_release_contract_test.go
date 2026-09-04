@@ -54,13 +54,17 @@ func TestKhushiV022MainnetRehearsalReleaseContract(t *testing.T) {
 			"GPUV1ProductionCacheNodes",
 			"/v1/mining/staging/status",
 		},
-		"compatibility/cuda/khushi_miner.cu": {
+		"compatibility/cuda/khushi_miner_v022.cu": {
 			"262144u",
 			"production-consensus-search",
+			"program-seed-hex",
+			"epoch-seed-hex",
 		},
-		"compatibility/opencl/khushi_miner_opencl.cpp": {
+		"compatibility/opencl/khushi_miner_opencl_v022.cpp": {
 			"262144u",
 			"production-consensus-search",
+			"program-seed-hex",
+			"epoch-seed-hex",
 		},
 		"scripts/windows/run-local-staging-gate.ps1": {
 			"RehearsalBlocks",
@@ -85,12 +89,12 @@ func TestKhushiV022MainnetRehearsalReleaseContract(t *testing.T) {
 	}
 
 	for _, rel := range []string{
-		"compatibility/cuda/khushi_miner.cu",
-		"compatibility/opencl/khushi_miner_opencl.cpp",
+		"compatibility/cuda/khushi_miner_v022.cu",
+		"compatibility/opencl/khushi_miner_opencl_v022.cpp",
 	} {
 		content := readV022File(t, root, rel)
 		if strings.Contains(content, "staging search only supports height=0 cache_nodes=8") {
-			t.Errorf("%s still contains compact-only staging restriction", rel)
+			t.Errorf("%s must use production search rather than the compact-only staging path", rel)
 		}
 	}
 }
