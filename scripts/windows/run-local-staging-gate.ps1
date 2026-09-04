@@ -2,11 +2,16 @@ param(
     [string]$VerifierPath = ".\sudharma-gpupow-staging.exe",
     [string]$MinerPath = "",
     [int]$Device = 0,
-    [int]$BenchmarkSeconds = 60
+    [int]$BenchmarkSeconds = 60,
+    [int]$RehearsalBlocks = 0
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+
+if ($RehearsalBlocks -ne 0 -and $RehearsalBlocks -lt 25) {
+    throw "RehearsalBlocks must be 0 (legacy compact staging) or at least 25"
+}
 
 $VerifierPath = (Resolve-Path $VerifierPath).Path
 $BundleDir = Split-Path -Parent $VerifierPath
@@ -62,14 +67,21 @@ Write-Host "selected_miner=$MinerPath"
 Write-Host "staging_endpoint=$Endpoint"
 Write-Host "staging_binding=localhost-only"
 Write-Host "seed-services=untouched"
-Write-Host "consensus-activation=disabled"
+Write-Host "public_mainnet_launch=disabled"
+Write-Host "public_mainnet_mining=disabled"
 Write-Host "evidence_directory=$EvidenceDir"
+Write-Host "rehearsal_blocks=$RehearsalBlocks"
 
 $verifier = $null
 try {
+    $verifierArguments = @("-listen", "127.0.0.1:28646")
+    if ($RehearsalBlocks -gt 0) {
+        $verifierArguments += @("-mainnet-rehearsal", "-rehearsal-blocks", [string]$RehearsalBlocks)
+    }
+
     $startProcessArgs = @{
         FilePath = $VerifierPath
-        ArgumentList = @("-listen", "127.0.0.1:28646")
+        ArgumentList = $verifierArguments
         PassThru = $true
         WindowStyle = "Hidden"
         RedirectStandardOutput = $VerifierStdout
@@ -78,7 +90,7 @@ try {
     $verifier = Start-Process @startProcessArgs
 
     $ready = $false
-    for ($attempt = 1; $attempt -le 30; $attempt++) {
+    for ($attempt = 1; $attempt -le 60; $attempt++) {
         if ($verifier.HasExited) {
             $stderrText = if (Test-Path $VerifierStderr) { Get-Content $VerifierStderr -Raw } else { "" }
             throw "Local staging verifier exited early with code $($verifier.ExitCode): $stderrText"
@@ -86,8 +98,10 @@ try {
         try {
             $challenge = Invoke-RestMethod -Method Get -Uri "$Endpoint/v1/mining/staging/challenge" -TimeoutSec 2
             if ($challenge.staging -eq $true -and $challenge.algorithm -eq "sudharma-gpupow-v1") {
-                $ready = $true
-                break
+                if ($RehearsalBlocks -eq 0 -or ([UInt64]$challenge.height -eq 1 -and [UInt32]$challenge.cache_nodes -eq 262144)) {
+                    $ready = $true
+                    break
+                }
             }
         }
         catch {
@@ -105,15 +119,28 @@ try {
         "-BenchmarkSeconds", $BenchmarkSeconds,
         "-SubmitStagingSolution",
         "-StagingEndpoint", $Endpoint,
-        "-EvidenceDirectory", $EvidenceDir
+        "-EvidenceDirectory", $EvidenceDir,
+        "-RehearsalBlocks", $RehearsalBlocks
     )
     & $HardwareScript @hardwareArgs
     if ($LASTEXITCODE -ne 0) {
         throw "Local hardware staging gate failed with exit code $LASTEXITCODE"
     }
 
-    Write-Host "local-staging-gate=accepted"
-    Write-Host "The physical GPU solution was accepted by the independent local Go verifier. No block was created."
+    if ($RehearsalBlocks -gt 0) {
+        $status = Invoke-RestMethod -Method Get -Uri "$Endpoint/v1/mining/staging/status" -TimeoutSec 15
+        $status | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $EvidenceDir "mainnet-rehearsal-status.json")
+        if ($status.completed -ne $true -or [UInt64]$status.accepted_blocks -ne [UInt64]$RehearsalBlocks) {
+            throw "Mainnet rehearsal did not complete: accepted=$($status.accepted_blocks) target=$RehearsalBlocks"
+        }
+        Write-Host "mainnet-rehearsal=accepted accepted_blocks=$($status.accepted_blocks) chain_height=$($status.chain_height)"
+        Write-Host "local-staging-gate=accepted"
+        Write-Host "All rehearsal blocks were accepted by the production Khushi verifier on an isolated mainnet-policy chain."
+        Write-Host "No public mainnet service, seed, RPC or consensus activation was changed."
+    } else {
+        Write-Host "local-staging-gate=accepted"
+        Write-Host "The physical GPU solution was accepted by the compact independent local Go verifier."
+    }
 }
 finally {
     if ($null -ne $verifier -and -not $verifier.HasExited) {
@@ -127,14 +154,19 @@ finally {
         Copy-Item $MetadataPath (Join-Path $EvidenceDir "verifier-build-metadata.txt") -Force
     }
 
+    $blockCreation = if ($RehearsalBlocks -gt 0) { "isolated-mainnet-rehearsal-only" } else { "none" }
     @(
         "gate=khushi-local-staging-interoperability",
         "protocol_id=sudharma-gpupow-v1",
         "endpoint=$Endpoint",
         "verifier_sha256=$actual",
-        "consensus_activation=disabled",
-        "block_creation=none",
-        "seed_services=untouched"
+        "rehearsal_blocks=$RehearsalBlocks",
+        "public_mainnet_launch=disabled",
+        "public_mainnet_mining=disabled",
+        "block_creation=$blockCreation",
+        "public_chain_submission=none",
+        "seed_services=untouched",
+        "physical_evidence_gate=not_automatically_completed"
     ) | Set-Content -Encoding ascii (Join-Path $EvidenceDir "gate-metadata.txt")
 
     $manifestLines = Get-ChildItem -Path $EvidenceDir -File |
