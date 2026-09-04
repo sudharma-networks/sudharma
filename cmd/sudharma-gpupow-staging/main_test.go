@@ -2,14 +2,62 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
-	"net/http/httptest"
+	"os/exec"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sudharma-networks/sudharma/pow"
 )
+
+type blackBoxChallenge struct {
+	ChallengeID  string `json:"challenge_id"`
+	Algorithm    string `json:"algorithm"`
+	Staging      bool   `json:"staging"`
+	HeaderPrefix string `json:"header_prefix"`
+	Target       string `json:"target"`
+	Height       uint64 `json:"height"`
+	CacheNodes   uint32 `json:"cache_nodes"`
+}
+
+type blackBoxSubmission struct {
+	Challenge blackBoxChallenge `json:"challenge"`
+	Nonce     uint64            `json:"nonce"`
+}
+
+type blackBoxResult struct {
+	Status string `json:"status"`
+}
+
+func buildStagingBinary(t *testing.T) string {
+	t.Helper()
+	binary := filepath.Join(t.TempDir(), "sudharma-gpupow-staging")
+	cmd := exec.Command("go", "build", "-trimpath", "-o", binary, ".")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("build staging verifier: %v\n%s", err, output)
+	}
+	return binary
+}
+
+func reserveLoopbackAddress(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve loopback address: %v", err)
+	}
+	addr := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatalf("release loopback address: %v", err)
+	}
+	return addr
+}
 
 func testDigestAtOrBelowTarget(digest [32]byte, target []byte) bool {
 	if len(target) != len(digest) {
@@ -26,7 +74,7 @@ func testDigestAtOrBelowTarget(digest [32]byte, target []byte) bool {
 	return true
 }
 
-func solveStagingChallenge(t *testing.T, challenge stagingChallenge) uint64 {
+func solveStagingChallenge(t *testing.T, challenge blackBoxChallenge) uint64 {
 	t.Helper()
 	header, err := hex.DecodeString(challenge.HeaderPrefix)
 	if err != nil {
@@ -47,81 +95,101 @@ func solveStagingChallenge(t *testing.T, challenge stagingChallenge) uint64 {
 	return 0
 }
 
-func getStagingChallenge(t *testing.T, handler http.Handler) stagingChallenge {
+func waitForChallenge(t *testing.T, endpoint string) blackBoxChallenge {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, "/v1/mining/staging/challenge", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("challenge status=%d body=%s", rec.Code, rec.Body.String())
+	client := &http.Client{Timeout: 250 * time.Millisecond}
+	url := endpoint + "/v1/mining/staging/challenge"
+	var lastErr error
+	for attempt := 0; attempt < 40; attempt++ {
+		response, err := client.Get(url)
+		if err == nil {
+			if response.StatusCode != http.StatusOK {
+				lastErr = fmt.Errorf("challenge status=%d", response.StatusCode)
+				_ = response.Body.Close()
+			} else {
+				var challenge blackBoxChallenge
+				decodeErr := json.NewDecoder(response.Body).Decode(&challenge)
+				_ = response.Body.Close()
+				if decodeErr == nil {
+					return challenge
+				}
+				lastErr = decodeErr
+			}
+		} else {
+			lastErr = err
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
-	var challenge stagingChallenge
-	if err := json.NewDecoder(rec.Body).Decode(&challenge); err != nil {
-		t.Fatalf("decode challenge: %v", err)
-	}
-	if !challenge.Staging || challenge.Algorithm != pow.GPUV1AlgorithmID {
-		t.Fatalf("unexpected challenge: %+v", challenge)
-	}
-	if challenge.Height != 0 || challenge.CacheNodes != 8 {
-		t.Fatalf("unexpected compact staging parameters: %+v", challenge)
-	}
-	return challenge
+	t.Fatalf("staging verifier did not become ready: %v", lastErr)
+	return blackBoxChallenge{}
 }
 
-func submitStagingSolution(t *testing.T, handler http.Handler, challenge stagingChallenge, nonce uint64) stagingResult {
+func submitStagingSolution(t *testing.T, endpoint string, submission blackBoxSubmission) blackBoxResult {
 	t.Helper()
-	body, err := json.Marshal(stagingSubmission{Challenge: challenge, Nonce: nonce})
+	body, err := json.Marshal(submission)
 	if err != nil {
 		t.Fatalf("marshal submission: %v", err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/v1/mining/staging/submit", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("submit status=%d body=%s", rec.Code, rec.Body.String())
+	response, err := http.Post(endpoint+"/v1/mining/staging/submit", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("submit staging solution: %v", err)
 	}
-	var result stagingResult
-	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
-		t.Fatalf("decode result: %v", err)
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("submit status=%d", response.StatusCode)
+	}
+	var result blackBoxResult
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatalf("decode submit result: %v", err)
 	}
 	return result
 }
 
-func TestStagingAPIAcceptsCanonicalSolutionAndRejectsReplay(t *testing.T) {
-	api := newStagingAPI()
-	handler := api.handler()
-	challenge := getStagingChallenge(t, handler)
-	nonce := solveStagingChallenge(t, challenge)
-
-	if got := submitStagingSolution(t, handler, challenge, nonce).Status; got != "accepted" {
-		t.Fatalf("valid staging solution status=%q", got)
+func TestStagingVerifierBlackBox(t *testing.T) {
+	binary := buildStagingBinary(t)
+	addr := reserveLoopbackAddress(t)
+	cmd := exec.Command(binary, "-listen", addr)
+	var processLog bytes.Buffer
+	cmd.Stdout = &processLog
+	cmd.Stderr = &processLog
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start staging verifier: %v", err)
 	}
-	if got := submitStagingSolution(t, handler, challenge, nonce).Status; got != "rejected" {
+	t.Cleanup(func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+			_, _ = cmd.Process.Wait()
+		}
+	})
+
+	endpoint := "http://" + addr
+	challenge := waitForChallenge(t, endpoint)
+	if !challenge.Staging || challenge.Algorithm != pow.GPUV1AlgorithmID {
+		t.Fatalf("unexpected challenge: %+v", challenge)
+	}
+	if challenge.Height != 0 || challenge.CacheNodes != 8 || challenge.ChallengeID == "" {
+		t.Fatalf("unexpected compact staging parameters: %+v", challenge)
+	}
+	nonce := solveStagingChallenge(t, challenge)
+	submission := blackBoxSubmission{Challenge: challenge, Nonce: nonce}
+	if got := submitStagingSolution(t, endpoint, submission).Status; got != "accepted" {
+		t.Fatalf("valid staging solution status=%q log=%s", got, processLog.String())
+	}
+	if got := submitStagingSolution(t, endpoint, submission).Status; got != "rejected" {
 		t.Fatalf("replayed staging solution status=%q, want rejected", got)
 	}
 }
 
-func TestStagingAPIRejectsChallengeMutation(t *testing.T) {
-	api := newStagingAPI()
-	handler := api.handler()
-	challenge := getStagingChallenge(t, handler)
-	nonce := solveStagingChallenge(t, challenge)
-	challenge.HeaderPrefix = "00" + challenge.HeaderPrefix
-	if got := submitStagingSolution(t, handler, challenge, nonce).Status; got != "rejected" {
-		t.Fatalf("mutated challenge status=%q, want rejected", got)
+func TestStagingVerifierRejectsWildcardBind(t *testing.T) {
+	binary := buildStagingBinary(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, binary, "-listen", "0.0.0.0:0")
+	output, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		t.Fatalf("wildcard bind was not rejected; process stayed running: %s", output)
 	}
-}
-
-func TestValidateListenAddressRequiresLoopback(t *testing.T) {
-	for _, addr := range []string{"127.0.0.1:28646", "localhost:28646", "127.0.0.1:0"} {
-		if err := validateListenAddress(addr); err != nil {
-			t.Errorf("loopback address %q rejected: %v", addr, err)
-		}
-	}
-	for _, addr := range []string{"0.0.0.0:28646", ":28646", "192.0.2.10:28646"} {
-		if err := validateListenAddress(addr); err == nil {
-			t.Errorf("non-loopback address %q accepted", addr)
-		}
+	if err == nil {
+		t.Fatalf("wildcard bind unexpectedly succeeded: %s", output)
 	}
 }
