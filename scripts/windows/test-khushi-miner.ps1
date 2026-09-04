@@ -5,7 +5,8 @@ param(
     [int]$BenchmarkSeconds = 60,
     [string]$StagingEndpoint = "",
     [switch]$SubmitStagingSolution,
-    [string]$EvidenceDirectory = ""
+    [string]$EvidenceDirectory = "",
+    [int]$RehearsalBlocks = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -53,6 +54,12 @@ function Write-KhushiHostEvidence {
     }
 }
 
+if ($RehearsalBlocks -ne 0 -and $RehearsalBlocks -lt 25) {
+    throw "RehearsalBlocks must be 0 or at least 25"
+}
+if ($RehearsalBlocks -gt 0 -and -not $SubmitStagingSolution) {
+    throw "RehearsalBlocks requires -SubmitStagingSolution"
+}
 if ($SubmitStagingSolution -and [string]::IsNullOrWhiteSpace($StagingEndpoint)) {
     throw "SubmitStagingSolution requires -StagingEndpoint"
 }
@@ -78,15 +85,9 @@ $MetadataPath = Join-Path $MinerDir "build-metadata.txt"
 
 if ([string]::IsNullOrWhiteSpace($ProductionVectorPath)) {
     if ($MinerName -match "opencl") {
-        $productionVectorCandidates = @(
-            "khushi-production-vectors-opencl.exe",
-            "khushi-production-vectors-nvidia.exe"
-        )
+        $productionVectorCandidates = @("khushi-production-vectors-opencl.exe", "khushi-production-vectors-nvidia.exe")
     } else {
-        $productionVectorCandidates = @(
-            "khushi-production-vectors-nvidia.exe",
-            "khushi-production-vectors-opencl.exe"
-        )
+        $productionVectorCandidates = @("khushi-production-vectors-nvidia.exe", "khushi-production-vectors-opencl.exe")
     }
     foreach ($candidate in $productionVectorCandidates) {
         $candidatePath = Join-Path $MinerDir $candidate
@@ -117,6 +118,7 @@ try {
     Write-Host "production_vector_executable=$ProductionVectorPath"
     Write-Host "device=$Device"
     Write-Host "benchmark_seconds=$BenchmarkSeconds"
+    Write-Host "rehearsal_blocks=$RehearsalBlocks"
     if (-not [string]::IsNullOrWhiteSpace($ResolvedEvidenceDirectory)) {
         Write-Host "evidence_directory=$ResolvedEvidenceDirectory"
     }
@@ -149,6 +151,7 @@ try {
             Copy-Item $MetadataPath (Join-Path $ResolvedEvidenceDirectory "miner-build-metadata.txt") -Force
         }
     }
+
     if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) { Invoke-KhushiStep "NVIDIA driver/GPU report (nvidia-smi)" { nvidia-smi } }
     Invoke-KhushiStep "GPU discovery (--list-devices)" { & $MinerPath --list-devices }
     Invoke-KhushiStep "Canonical hardware vector (--vector-self-test)" { & $MinerPath --device $Device --vector-self-test }
@@ -157,79 +160,117 @@ try {
     Invoke-KhushiStep "Production dataset boundary vectors" { & $ProductionVectorPath --device $Device }
     Write-Host "hardware-production-vectors=passed"
     Invoke-KhushiStep "GPU benchmark (--benchmark)" { & $MinerPath --device $Device --benchmark $BenchmarkSeconds }
-    if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) { Invoke-KhushiStep "GPU telemetry" { & $MinerPath --device $Device --telemetry } }
+    if ((Get-Command nvidia-smi -ErrorAction SilentlyContinue) -and $MinerName -notmatch "opencl") {
+        Invoke-KhushiStep "GPU telemetry" { & $MinerPath --device $Device --telemetry }
+    }
     Write-Host "`nhardware-vector-memory-and-benchmark=passed"
-    Write-Host "This result is evidence for the hardware interoperability gate; it does not activate network mining or consensus."
-    Write-Host "Live --mine remains gated; controlled staging uses the isolated staging challenge API instead."
 
     if ($SubmitStagingSolution) {
         $normalizedEndpoint = $StagingEndpoint.TrimEnd("/")
         $challengeUrl = "$normalizedEndpoint/v1/mining/staging/challenge"
         $submitUrl = "$normalizedEndpoint/v1/mining/staging/submit"
-        Write-Host "`n=== Controlled staging GPU solution ==="
-        Write-Host "network-submission=explicitly-requested"
+        $statusUrl = "$normalizedEndpoint/v1/mining/staging/status"
+        $iterations = if ($RehearsalBlocks -gt 0) { $RehearsalBlocks } else { 1 }
+
+        Write-Host "`n=== Controlled GPU solution flow ==="
+        Write-Host "network-submission=isolated-local-only"
         Write-Host "staging_endpoint=$normalizedEndpoint"
 
-        $challenge = Invoke-RestMethod -Method Get -Uri $challengeUrl -TimeoutSec 15
-        if ($challenge.algorithm -ne "sudharma-gpupow-v1") { throw "Unexpected staging algorithm: $($challenge.algorithm)" }
-        if ($challenge.staging -ne $true) { throw "Endpoint did not return explicit staging work" }
-        if ([UInt64]$challenge.height -ne 0) { throw "Current staging hardware gate requires height=0" }
-        if ([UInt32]$challenge.cache_nodes -ne 8) { throw "Current staging hardware gate requires cache_nodes=8" }
-        if ([string]::IsNullOrWhiteSpace([string]$challenge.challenge_id)) { throw "Staging challenge_id is missing" }
-        if ([string]::IsNullOrWhiteSpace([string]$challenge.header_prefix)) { throw "Staging header_prefix is missing" }
-        if ([string]::IsNullOrWhiteSpace([string]$challenge.target)) { throw "Staging target is missing" }
+        for ($blockIndex = 1; $blockIndex -le $iterations; $blockIndex++) {
+            $challenge = Invoke-RestMethod -Method Get -Uri $challengeUrl -TimeoutSec 30
+            if ($challenge.algorithm -ne "sudharma-gpupow-v1") { throw "Unexpected staging algorithm: $($challenge.algorithm)" }
+            if ($challenge.staging -ne $true) { throw "Endpoint did not return explicit staging work" }
+            if ([string]::IsNullOrWhiteSpace([string]$challenge.challenge_id)) { throw "Staging challenge_id is missing" }
+            if ([string]::IsNullOrWhiteSpace([string]$challenge.header_prefix)) { throw "Staging header_prefix is missing" }
+            if ([string]::IsNullOrWhiteSpace([string]$challenge.target)) { throw "Staging target is missing" }
 
-        if (-not [string]::IsNullOrWhiteSpace($ResolvedEvidenceDirectory)) {
-            $challenge | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $ResolvedEvidenceDirectory "challenge.json")
+            if ($RehearsalBlocks -gt 0) {
+                if ([UInt64]$challenge.height -ne [UInt64]$blockIndex) {
+                    throw "Mainnet rehearsal height mismatch: got $($challenge.height), expected $blockIndex"
+                }
+                if ([UInt32]$challenge.cache_nodes -ne 262144) {
+                    throw "Mainnet rehearsal requires cache_nodes=262144"
+                }
+                if ([string]::IsNullOrWhiteSpace([string]$challenge.program_seed)) { throw "Mainnet rehearsal program_seed is missing" }
+                if ([string]::IsNullOrWhiteSpace([string]$challenge.epoch_seed)) { throw "Mainnet rehearsal epoch_seed is missing" }
+            } else {
+                if ([UInt64]$challenge.height -ne 0 -or [UInt32]$challenge.cache_nodes -ne 8) {
+                    throw "Compact staging requires height=0 cache_nodes=8"
+                }
+            }
+
+            $suffix = if ($RehearsalBlocks -gt 0) { "-{0:D4}" -f $blockIndex } else { "" }
+            if (-not [string]::IsNullOrWhiteSpace($ResolvedEvidenceDirectory)) {
+                $challenge | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $ResolvedEvidenceDirectory "challenge$suffix.json")
+            }
+
+            Write-Host "challenge_id=$($challenge.challenge_id)"
+            Write-Host "staging_height=$($challenge.height)"
+            Write-Host "staging_cache_nodes=$($challenge.cache_nodes)"
+
+            $stagingArgs = @(
+                "--device", [string]$Device,
+                "--staging-search",
+                "--header-prefix-hex", [string]$challenge.header_prefix,
+                "--target-hex", [string]$challenge.target,
+                "--height", [string]$challenge.height,
+                "--cache-nodes", [string]$challenge.cache_nodes
+            )
+            if ($RehearsalBlocks -gt 0) {
+                $stagingArgs += @(
+                    "--program-seed-hex", [string]$challenge.program_seed,
+                    "--epoch-seed-hex", [string]$challenge.epoch_seed
+                )
+            }
+
+            $stagingOutput = @(& $MinerPath @stagingArgs 2>&1)
+            $stagingExitCode = $LASTEXITCODE
+            $stagingOutput | ForEach-Object { Write-Host $_ }
+            if ($stagingExitCode -ne 0) {
+                throw "GPU search failed at rehearsal block $blockIndex with exit code $stagingExitCode"
+            }
+
+            $nonceLine = $stagingOutput | Where-Object { [string]$_ -match '^staging-solution-nonce=([0-9]+)' } | Select-Object -First 1
+            if (-not $nonceLine) { throw "GPU search returned no staging-solution-nonce= at block $blockIndex" }
+            $match = [regex]::Match([string]$nonceLine, '^staging-solution-nonce=([0-9]+)')
+            if (-not $match.Success) { throw "Unable to parse staging solution nonce" }
+            $nonce = [UInt64]::Parse($match.Groups[1].Value)
+
+            $solution = [ordered]@{ challenge = $challenge; nonce = $nonce }
+            if (-not [string]::IsNullOrWhiteSpace($ResolvedEvidenceDirectory)) {
+                $solution | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $ResolvedEvidenceDirectory "solution$suffix.json")
+            }
+            $solutionJson = $solution | ConvertTo-Json -Depth 10 -Compress
+            $result = Invoke-RestMethod -Method Post -Uri $submitUrl -ContentType "application/json" -Body $solutionJson -TimeoutSec 30
+            if (-not [string]::IsNullOrWhiteSpace($ResolvedEvidenceDirectory)) {
+                $result | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $ResolvedEvidenceDirectory "submit-result$suffix.json")
+            }
+            if ($result.status -ne "accepted") {
+                throw "Independent verifier rejected GPU solution at block $blockIndex with status: $($result.status)"
+            }
+
+            if ($RehearsalBlocks -gt 0) {
+                Write-Host "rehearsal_block=$blockIndex/$RehearsalBlocks accepted nonce=$nonce"
+            } else {
+                Write-Host "staging-submit=accepted"
+            }
         }
 
-        Write-Host "challenge_id=$($challenge.challenge_id)"
-        Write-Host "staging_height=$($challenge.height)"
-        Write-Host "staging_cache_nodes=$($challenge.cache_nodes)"
-
-        $stagingArgs = @(
-            "--device", [string]$Device,
-            "--staging-search",
-            "--header-prefix-hex", [string]$challenge.header_prefix,
-            "--target-hex", [string]$challenge.target,
-            "--height", [string]$challenge.height,
-            "--cache-nodes", [string]$challenge.cache_nodes
-        )
-        $stagingOutput = @(& $MinerPath @stagingArgs 2>&1)
-        $stagingExitCode = $LASTEXITCODE
-        $stagingOutput | ForEach-Object { Write-Host $_ }
-        if ($stagingExitCode -ne 0) {
-            throw "staging GPU search failed with exit code $stagingExitCode"
+        if ($RehearsalBlocks -gt 0) {
+            $status = Invoke-RestMethod -Method Get -Uri $statusUrl -TimeoutSec 30
+            if (-not [string]::IsNullOrWhiteSpace($ResolvedEvidenceDirectory)) {
+                $status | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $ResolvedEvidenceDirectory "mainnet-rehearsal-status.json")
+            }
+            if ($status.completed -ne $true -or [UInt64]$status.accepted_blocks -ne [UInt64]$RehearsalBlocks) {
+                throw "Mainnet rehearsal incomplete: accepted=$($status.accepted_blocks) target=$RehearsalBlocks"
+            }
+            Write-Host "mainnet-rehearsal=accepted accepted_blocks=$($status.accepted_blocks) chain_height=$($status.chain_height) issued_supply=$($status.issued_supply)"
+            Write-Host "public-mainnet-submission=none"
+        } else {
+            Write-Host "network-submission=staging-accepted"
         }
-
-        $nonceLine = $stagingOutput | Where-Object { [string]$_ -match '^staging-solution-nonce=([0-9]+)' } | Select-Object -First 1
-        if (-not $nonceLine) { throw "GPU staging search returned no staging-solution-nonce=" }
-        $match = [regex]::Match([string]$nonceLine, '^staging-solution-nonce=([0-9]+)')
-        if (-not $match.Success) { throw "Unable to parse staging solution nonce" }
-        $nonce = [UInt64]::Parse($match.Groups[1].Value)
-        Write-Host "staging_solution_nonce=$nonce"
-
-        $solution = [ordered]@{
-            challenge = $challenge
-            nonce = $nonce
-        }
-        if (-not [string]::IsNullOrWhiteSpace($ResolvedEvidenceDirectory)) {
-            $solution | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $ResolvedEvidenceDirectory "solution.json")
-        }
-        $solutionJson = $solution | ConvertTo-Json -Depth 10 -Compress
-        $result = Invoke-RestMethod -Method Post -Uri $submitUrl -ContentType "application/json" -Body $solutionJson -TimeoutSec 15
-        if (-not [string]::IsNullOrWhiteSpace($ResolvedEvidenceDirectory)) {
-            $result | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $ResolvedEvidenceDirectory "submit-result.json")
-        }
-        if ($result.status -ne "accepted") {
-            throw "Independent staging verifier rejected GPU solution with status: $($result.status)"
-        }
-        Write-Host "staging-submit=accepted"
-        Write-Host "network-submission=staging-accepted"
-        Write-Host "The GPU nonce was accepted by the isolated independent Go staging verifier. No block was created and consensus was not activated."
     } else {
         Write-Host "network-submission=not-requested"
-        Write-Host "Benchmark/self-test mode is the default. Controlled submission requires both -SubmitStagingSolution and -StagingEndpoint."
     }
 }
 finally {
