@@ -30,3 +30,21 @@ func TestKhushiV022LauncherKeepsConsoleAndTranscriptOnSuccessOrFailure(t *testin
 		t.Error("launcher must not auto-close on a timeout")
 	}
 }
+
+func TestKhushiV022WindowsHarnessRunsBesidePackagedOpenCLKernels(t *testing.T) {
+	root := v022RepoRoot(t)
+	scriptPath := filepath.Join(root, filepath.FromSlash("scripts/windows/test-khushi-miner.ps1"))
+	data, err := os.ReadFile(scriptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(data)
+	for _, marker := range []string{
+		"Push-Location $MinerDir",
+		"Pop-Location",
+	} {
+		if !strings.Contains(script, marker) {
+			t.Errorf("Windows hardware harness missing packaged-kernel working-directory marker %q", marker)
+		}
+	}
+}
