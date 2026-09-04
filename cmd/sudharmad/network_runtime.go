@@ -6,10 +6,26 @@ import (
 )
 
 // loadChainForNetwork loads persisted chain data under an explicit immutable
-// network identity. Runtime callers must obtain network through the launch-gated
-// params.ParseNetwork path before calling this helper.
+// network identity and Khushi-capable verifier. Runtime callers must obtain
+// network through the launch-gated params.ParseNetwork path before calling
+// this helper.
 func loadChainForNetwork(path string, network params.NetworkID) (*blockchain.Chain, error) {
-	return blockchain.LoadChainFromFileFor(path, network)
+	policy, verifier, err := runtimeConsensusForNetwork(network)
+	if err != nil {
+		return nil, err
+	}
+	return blockchain.LoadChainFromFileForWithConsensus(path, network, policy, verifier)
+}
+
+// newChainForNetwork creates the active runtime chain with the same immutable
+// network policy and Khushi-capable verifier used for persisted-chain loads.
+// NewChainForWithConsensus still enforces the existing mainnet launch gate.
+func newChainForNetwork(network params.NetworkID) (*blockchain.Chain, error) {
+	policy, verifier, err := runtimeConsensusForNetwork(network)
+	if err != nil {
+		return nil, err
+	}
+	return blockchain.NewChainForWithConsensus(network, policy, verifier)
 }
 
 // newGenesisStateForPolicy creates empty chain state bound to the active

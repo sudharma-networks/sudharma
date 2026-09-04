@@ -212,13 +212,18 @@ func run() error {
 }
 
 func loadOrCreateChain(path string, network params.NetworkID) (*blockchain.Chain, error) {
+	policy, verifier, err := runtimeConsensusForNetwork(network)
+	if err != nil {
+		return nil, err
+	}
+
 	if _, err := os.Stat(path); err == nil {
-		return blockchain.LoadChainFromFileFor(path, network)
+		return blockchain.LoadChainFromFileForWithConsensus(path, network, policy, verifier)
 	} else if !os.IsNotExist(err) {
 		return nil, err
 	}
 
-	c, err := blockchain.NewChainFor(network)
+	c, err := blockchain.NewChainForWithConsensus(network, policy, verifier)
 	if err != nil {
 		return nil, err
 	}

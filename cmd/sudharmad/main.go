@@ -145,7 +145,7 @@ func main() {
 			"Existing blockchain loaded.",
 		)
 	} else {
-		chain, err = blockchain.NewChainFor(network)
+		chain, err = newChainForNetwork(network)
 		if err != nil {
 			fmt.Println("Failed to create genesis chain:", err)
 			return
