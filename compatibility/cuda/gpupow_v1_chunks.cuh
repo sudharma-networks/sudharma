@@ -1,0 +1,77 @@
+#pragma once
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <limits>
+
+#ifdef __CUDACC__
+#define SUDHARMA_CHUNK_HD __host__ __device__
+#else
+#define SUDHARMA_CHUNK_HD
+#endif
+
+namespace sudharma::gpupowv1 {
+
+constexpr std::uint64_t kProductionDatasetBytes = 2ull << 30u;
+constexpr std::uint64_t kProductionCacheBytes = 16ull << 20u;
+constexpr std::uint64_t kProductionRuntimeReserveBytes = 256ull << 20u;
+constexpr std::uint64_t kMinimumDedicatedVRAMBytes = 4ull << 30u;
+constexpr std::uint64_t kProductionChunkBytes = 256ull << 20u;
+constexpr std::uint64_t kProductionItemBytes = 64ull;
+constexpr std::uint32_t kProductionChunkCount = 8u;
+constexpr std::uint64_t kProductionItemCount =
+    kProductionDatasetBytes / kProductionItemBytes;
+constexpr std::uint64_t kProductionRequiredVRAMBytes =
+    kProductionDatasetBytes + kProductionCacheBytes + kProductionRuntimeReserveBytes;
+
+struct DatasetLocation {
+    std::uint32_t chunk = 0u;
+    std::uint64_t offset = 0u;
+};
+
+template <typename Releaser>
+inline void release_dataset_chunks(
+    std::array<void*, kProductionChunkCount>* chunks, Releaser&& release) {
+    if (chunks == nullptr) return;
+    for (void*& chunk : *chunks) {
+        if (chunk == nullptr) continue;
+        release(chunk);
+        chunk = nullptr;
+    }
+}
+
+template <typename Allocator, typename Releaser>
+inline bool allocate_dataset_chunks(
+    std::array<void*, kProductionChunkCount>* chunks, Allocator&& allocate,
+    Releaser&& release) {
+    if (chunks == nullptr) return false;
+    for (void*& chunk : *chunks) {
+        void* allocated = nullptr;
+        if (!allocate(&allocated, static_cast<std::size_t>(kProductionChunkBytes)) ||
+            allocated == nullptr) {
+            release_dataset_chunks(chunks, release);
+            return false;
+        }
+        chunk = allocated;
+    }
+    return true;
+}
+
+SUDHARMA_CHUNK_HD inline bool dataset_item_location(
+    std::uint64_t index, DatasetLocation* output) {
+    if (output == nullptr || index >= kProductionItemCount) return false;
+    if (index > std::numeric_limits<std::uint64_t>::max() / kProductionItemBytes) {
+        return false;
+    }
+    const std::uint64_t byte_offset = index * kProductionItemBytes;
+    const std::uint64_t chunk = byte_offset / kProductionChunkBytes;
+    if (chunk >= kProductionChunkCount) return false;
+    output->chunk = static_cast<std::uint32_t>(chunk);
+    output->offset = byte_offset % kProductionChunkBytes;
+    return true;
+}
+
+}  // namespace sudharma::gpupowv1
+
+#undef SUDHARMA_CHUNK_HD

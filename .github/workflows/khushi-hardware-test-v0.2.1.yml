@@ -1,0 +1,253 @@
+name: Khushi Hardware Test v0.2.1
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-cuda:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact source revision
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install CUDA toolkit
+        uses: Jimver/cuda-toolkit@v0.2.36
+        with:
+          cuda: '12.8.1'
+          method: network
+          sub-packages: '["nvcc", "visual_studio_integration", "cudart"]'
+
+      - name: Build NVIDIA evidence binaries
+        shell: cmd
+        run: |
+          call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          if not exist dist mkdir dist
+          nvcc -std=c++17 --expt-relaxed-constexpr -O3 -lineinfo -Xcompiler "/EHsc" -gencode=arch=compute_61,code=sm_61 -gencode=arch=compute_75,code=sm_75 -gencode=arch=compute_86,code=sm_86 -gencode=arch=compute_89,code=sm_89 -gencode=arch=compute_89,code=compute_89 -gencode=arch=compute_120,code=sm_120 -gencode=arch=compute_120,code=compute_120 compatibility\cuda\khushi_miner.cu -o dist\khushi-miner-nvidia.exe
+          nvcc -std=c++17 --expt-relaxed-constexpr -O3 -lineinfo -Xcompiler "/EHsc" -gencode=arch=compute_61,code=sm_61 -gencode=arch=compute_75,code=sm_75 -gencode=arch=compute_86,code=sm_86 -gencode=arch=compute_89,code=sm_89 -gencode=arch=compute_89,code=compute_89 -gencode=arch=compute_120,code=sm_120 -gencode=arch=compute_120,code=compute_120 compatibility\cuda\khushi_production_vectors.cu -o dist\khushi-production-vectors-nvidia.exe
+
+      - name: Build current-reference localhost staging verifier
+        shell: pwsh
+        run: |
+          $env:CGO_ENABLED = '0'
+          $env:GOOS = 'windows'
+          $env:GOARCH = 'amd64'
+          go build -trimpath -ldflags='-s -w' -o dist/sudharma-gpupow-staging.exe ./cmd/sudharma-gpupow-staging
+
+      - name: Package CUDA runtime and evidence inputs
+        shell: pwsh
+        run: |
+          $runtime = Get-ChildItem -Path "$env:CUDA_PATH\bin" -Filter "cudart64_*.dll" | Select-Object -First 1
+          if (-not $runtime) { throw "CUDA runtime DLL not found under CUDA_PATH" }
+          Copy-Item $runtime.FullName -Destination dist
+          Copy-Item docs/gpu-pow-v1-production-memory-vectors.json -Destination dist
+          Copy-Item docs/gpu-pow-v1-interoperability-vectors.json -Destination dist
+          Copy-Item scripts/windows/test-khushi-miner.ps1 -Destination dist
+          Copy-Item scripts/windows/run-local-staging-gate.ps1 -Destination dist
+
+      - name: Record NVIDIA provenance and checksums
+        shell: pwsh
+        run: |
+          @(
+            "package=Khushi Hardware Test v0.2.1",
+            "algorithm=Khushi",
+            "protocol_id=sudharma-gpupow-v1",
+            "source_revision=$env:GITHUB_SHA",
+            "staging_endpoint_default=127.0.0.1:28646",
+            "staging_reference=current_pow_package",
+            "consensus_activation=disabled",
+            "block_creation=none",
+            "network_mining=disabled",
+            "formal_benchmark_seconds=60",
+            "physical_evidence_gate=not_automatically_completed",
+            "production_dataset_bytes=2147483648",
+            "production_cache_bytes=16777216",
+            "production_runtime_reserve_bytes=268435456",
+            "minimum_dedicated_vram_bytes=4294967296"
+          ) | Set-Content -Encoding ascii dist/build-metadata.txt
+          $files = Get-ChildItem dist -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } | Sort-Object Name
+          $lines = foreach ($file in $files) {
+            $hash = (Get-FileHash -Algorithm SHA256 $file.FullName).Hash.ToLower()
+            "$hash  $($file.Name)"
+          }
+          $lines | Set-Content -Encoding ascii dist/SHA256SUMS.txt
+          Get-Content dist/build-metadata.txt
+          Get-Content dist/SHA256SUMS.txt
+          if (-not (Select-String -Path dist/build-metadata.txt -SimpleMatch "source_revision=$env:GITHUB_SHA")) { throw 'source revision missing from NVIDIA metadata' }
+
+      - name: Upload exact-revision NVIDIA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: khushi-hardware-v0.2.1-nvidia-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+  build-opencl:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact source revision
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install OpenCL development package
+        shell: pwsh
+        run: vcpkg install opencl:x64-windows
+
+      - name: Build OpenCL evidence binaries
+        shell: cmd
+        run: |
+          call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          if not exist dist mkdir dist
+          cl /nologo /std:c++17 /O2 /EHsc /DCL_TARGET_OPENCL_VERSION=120 /I"C:\vcpkg\installed\x64-windows\include" compatibility\opencl\khushi_miner_opencl.cpp /link /LIBPATH:"C:\vcpkg\installed\x64-windows\lib" OpenCL.lib /OUT:dist\khushi-miner-opencl.exe
+          cl /nologo /std:c++17 /O2 /EHsc /DCL_TARGET_OPENCL_VERSION=120 /I"C:\vcpkg\installed\x64-windows\include" compatibility\opencl\khushi_production_vectors_opencl.cpp /link /LIBPATH:"C:\vcpkg\installed\x64-windows\lib" OpenCL.lib /OUT:dist\khushi-production-vectors-opencl.exe
+          copy /Y compatibility\opencl\khushi_pow.cl dist\khushi_pow.cl
+          copy /Y compatibility\opencl\gpupow_v1_production_vectors.cl dist\gpupow_v1_production_vectors.cl
+
+      - name: Build current-reference localhost staging verifier
+        shell: pwsh
+        run: |
+          $env:CGO_ENABLED = '0'
+          $env:GOOS = 'windows'
+          $env:GOARCH = 'amd64'
+          go build -trimpath -ldflags='-s -w' -o dist/sudharma-gpupow-staging.exe ./cmd/sudharma-gpupow-staging
+
+      - name: Package OpenCL evidence inputs
+        shell: pwsh
+        run: |
+          Copy-Item docs/gpu-pow-v1-production-memory-vectors.json -Destination dist
+          Copy-Item docs/gpu-pow-v1-interoperability-vectors.json -Destination dist
+          Copy-Item scripts/windows/test-khushi-miner.ps1 -Destination dist
+          Copy-Item scripts/windows/run-local-staging-gate.ps1 -Destination dist
+
+      - name: Record OpenCL provenance and checksums
+        shell: pwsh
+        run: |
+          @(
+            "package=Khushi Hardware Test v0.2.1",
+            "algorithm=Khushi",
+            "protocol_id=sudharma-gpupow-v1",
+            "source_revision=$env:GITHUB_SHA",
+            "backend=OpenCL 1.2",
+            "gpu_policy=GPU devices only; CPU fallback prohibited",
+            "staging_endpoint_default=127.0.0.1:28646",
+            "staging_reference=current_pow_package",
+            "consensus_activation=disabled",
+            "block_creation=none",
+            "network_mining=disabled",
+            "formal_benchmark_seconds=60",
+            "physical_evidence_gate=not_automatically_completed",
+            "minimum_dedicated_vram_bytes=4294967296"
+          ) | Set-Content -Encoding ascii dist/build-metadata.txt
+          $files = Get-ChildItem dist -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } | Sort-Object Name
+          $lines = foreach ($file in $files) {
+            $hash = (Get-FileHash -Algorithm SHA256 $file.FullName).Hash.ToLower()
+            "$hash  $($file.Name)"
+          }
+          $lines | Set-Content -Encoding ascii dist/SHA256SUMS.txt
+          Get-Content dist/build-metadata.txt
+          Get-Content dist/SHA256SUMS.txt
+          if (-not (Select-String -Path dist/build-metadata.txt -SimpleMatch "source_revision=$env:GITHUB_SHA")) { throw 'source revision missing from OpenCL metadata' }
+
+      - name: Upload exact-revision OpenCL artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: khushi-hardware-v0.2.1-opencl-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+  assemble:
+    needs: [build-cuda, build-opencl]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact source revision
+        uses: actions/checkout@v4
+
+      - name: Download NVIDIA artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: khushi-hardware-v0.2.1-nvidia-${{ github.sha }}
+          path: backend/nvidia
+
+      - name: Download OpenCL artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: khushi-hardware-v0.2.1-opencl-${{ github.sha }}
+          path: backend/opencl
+
+      - name: Verify exact-revision backend provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          tr -d '\r' < backend/nvidia/build-metadata.txt | grep -Fx "source_revision=${GITHUB_SHA}"
+          tr -d '\r' < backend/opencl/build-metadata.txt | grep -Fx "source_revision=${GITHUB_SHA}"
+          # Contract/provenance marker: source_revision=${GITHUB_SHA}
+          sed -i 's/\r$//' backend/nvidia/SHA256SUMS.txt backend/opencl/SHA256SUMS.txt
+          (cd backend/nvidia && sha256sum -c SHA256SUMS.txt)
+          (cd backend/opencl && sha256sum -c SHA256SUMS.txt)
+          nvidia_verifier_sha="$(sha256sum backend/nvidia/sudharma-gpupow-staging.exe | awk '{print $1}')"
+          opencl_verifier_sha="$(sha256sum backend/opencl/sudharma-gpupow-staging.exe | awk '{print $1}')"
+          test "$nvidia_verifier_sha" = "$opencl_verifier_sha"
+          nvidia_interop_sha="$(sha256sum backend/nvidia/gpu-pow-v1-interoperability-vectors.json | awk '{print $1}')"
+          opencl_interop_sha="$(sha256sum backend/opencl/gpu-pow-v1-interoperability-vectors.json | awk '{print $1}')"
+          test "$nvidia_interop_sha" = "$opencl_interop_sha"
+
+      - name: Assemble v0.2.1 evidence package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p package/nvidia package/opencl
+          cp -a backend/nvidia/. package/nvidia/
+          cp -a backend/opencl/. package/opencl/
+          cp scripts/windows/Run-GPU-Test.bat package/Run-GPU-Test.bat
+          cp docs/test-mining/KHUSHI_HARDWARE_TEST_V0_2_1.txt package/README.txt
+          cat > package/PACKAGE-METADATA.txt <<EOF
+          package=Khushi Hardware Test v0.2.1
+          protocol_id=sudharma-gpupow-v1
+          source_revision=${GITHUB_SHA}
+          staging_endpoint=http://127.0.0.1:28646
+          localhost_only=true
+          consensus_activation=disabled
+          mainnet_launch_authorized=false
+          mainnet_mining_authorized=false
+          block_creation=none
+          network_mining=disabled
+          formal_benchmark_seconds=60
+          physical_evidence_gate=not_automatically_completed
+          EOF
+          (
+            cd package
+            find . -type f ! -name SHA256MANIFEST.txt -print0 | sort -z | xargs -0 sha256sum > SHA256MANIFEST.txt
+          )
+          (cd package && zip -q -r ../khushi-hardware-test-v0.2.1-windows.zip .)
+          sha256sum khushi-hardware-test-v0.2.1-windows.zip > khushi-hardware-test-v0.2.1-windows.zip.sha256
+          printf '%s\n' "$GITHUB_SHA" > SOURCE-REVISION.txt
+          cat khushi-hardware-test-v0.2.1-windows.zip.sha256
+
+      - name: Upload combined v0.2.1 evidence package
+        uses: actions/upload-artifact@v4
+        with:
+          name: khushi-hardware-test-v0.2.1-${{ github.sha }}
+          path: |
+            khushi-hardware-test-v0.2.1-windows.zip
+            khushi-hardware-test-v0.2.1-windows.zip.sha256
+            SOURCE-REVISION.txt
+          if-no-files-found: error
+          retention-days: 30
