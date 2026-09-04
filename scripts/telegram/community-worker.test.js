@@ -183,7 +183,7 @@ test('command replies are plain text, reply to the source message, disable previ
   assert.equal(Object.hasOwn(payload, 'parse_mode'), false);
 });
 
-test('welcome service updates receive only the generic welcome reply', async () => {
+test('welcome service updates receive only the approved generic outreach reply', async () => {
   const telegram = fakeTelegram({
     updates: [update(70, official('', 70, {
       new_chat_members: [{ id: 777888999, first_name: 'Sensitive Name' }],
@@ -193,7 +193,8 @@ test('welcome service updates receive only the generic welcome reply', async () 
   await createWorker({ telegram, github: fakeGithub(), now: fixedNow, logger: silentLogger }).poll();
 
   assert.equal(telegram.state.sent.length, 1);
-  assert.match(telegram.state.sent[0].text, /welcome/i);
+  assert.match(telegram.state.sent[0].text, /SUDHARMA NETWORK — PUBLIC TESTNET/);
+  assert.match(telegram.state.sent[0].text, /https:\/\/feature-website-foundation\.d2mqyt0bt8sl9s\.amplifyapp\.com\//);
   assert.doesNotMatch(telegram.state.sent[0].text, /777888999|Sensitive Name/);
 });
 

@@ -127,7 +127,7 @@ test('new member service update becomes a generic welcome action without identit
   const welcome = staticReply('welcome');
   assert.doesNotMatch(welcome, /111222333|Private Name|private_handle/);
   assert.match(welcome, /pre-mainnet|public-testnet/i);
-  assert.match(welcome, /\/help/);
+  assert.match(welcome, /https:\/\/feature-website-foundation\.d2mqyt0bt8sl9s\.amplifyapp\.com\//);
 });
 
 test('non-message update is ignored', () => {
