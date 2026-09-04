@@ -24,6 +24,8 @@ type blackBoxChallenge struct {
 	Target       string `json:"target"`
 	Height       uint64 `json:"height"`
 	CacheNodes   uint32 `json:"cache_nodes"`
+	ProgramSeed  string `json:"program_seed,omitempty"`
+	EpochSeed    string `json:"epoch_seed,omitempty"`
 }
 
 type blackBoxSubmission struct {
