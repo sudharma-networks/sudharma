@@ -152,17 +152,10 @@ class TestnetFaucetClient(
         @Json(name = "challenge_reward_sudh") val challengeRewardSudh: Int,
         @Json(name = "max_rounds") val maxRounds: Int,
         @Json(name = "cooldown_hours") val cooldownHours: Int,
-        @Json(name = "testnet_only") val testnetOnly: Boolean,
     )
 
     @JsonClass(generateAdapter = false)
     data class InitialRequest(val address: String)
-
-    @JsonClass(generateAdapter = false)
-    data class ChallengeRequest(
-        val address: String,
-        @Json(name = "transaction_id") val transactionId: String,
-    )
 
     @JsonClass(generateAdapter = false)
     data class InitialGrantDto(
@@ -170,6 +163,12 @@ class TestnetFaucetClient(
         @Json(name = "amount_sudh") val amountSudh: Int,
         @Json(name = "transaction_id") val transactionId: String,
         val status: String,
+    )
+
+    @JsonClass(generateAdapter = false)
+    data class ChallengeRequest(
+        val address: String,
+        @Json(name = "transaction_id") val transactionId: String,
     )
 
     @JsonClass(generateAdapter = false)

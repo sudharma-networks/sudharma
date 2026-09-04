@@ -5,14 +5,16 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,9 +24,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -48,13 +50,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
-import androidx.fragment.app.FragmentActivity
 import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import android.content.pm.PackageManager
 import android.provider.Settings
 import com.journeyapps.barcodescanner.ScanContract
@@ -64,11 +68,11 @@ import kotlinx.coroutines.launch
 import network.sudharma.wallet.chain.TransactionState
 import network.sudharma.wallet.chain.TransactionStatus
 import network.sudharma.wallet.chain.sudharma.SudharmaPaymentUri
+import network.sudharma.wallet.chain.sudharma.SudharmaRpcClient
 import network.sudharma.wallet.chain.sudharma.SudharmaTransaction
 import network.sudharma.wallet.recovery.RecoveryPhrase
 import network.sudharma.wallet.security.BiometricGate
 import network.sudharma.wallet.security.setSensitiveScreen
-import java.math.BigDecimal
 
 @Composable
 fun WalletApp(repository: SudharmaWalletRepository, activity: FragmentActivity) {
@@ -100,6 +104,10 @@ fun WalletApp(repository: SudharmaWalletRepository, activity: FragmentActivity) 
         onDispose { if (sensitive) activity.setSensitiveScreen(false) }
     }
 
+    BackHandler(enabled = SystemBackNavigation.intercepts(screen)) {
+        screen = SystemBackNavigation.previous(screen)
+    }
+
     when (screen) {
         WalletScreen.SPLASH -> SplashScreen(splashPresentation)
         WalletScreen.WELCOME -> WelcomeScreen(
@@ -125,6 +133,7 @@ fun WalletApp(repository: SudharmaWalletRepository, activity: FragmentActivity) 
             onConfirmed = {
                 repository.importWallet(generatedPhrase)
                 repository.preferences.backupAcknowledged = true
+                generatedPhrase = ""
                 screen = WalletFlow.transition(screen, WalletFlowEvent.BackupVerified)
             },
         )
@@ -159,11 +168,13 @@ fun WalletApp(repository: SudharmaWalletRepository, activity: FragmentActivity) 
             onReceive = { screen = WalletScreen.RECEIVE },
             onSend = { screen = WalletScreen.SEND },
             onActivity = { screen = WalletScreen.ACTIVITY },
+            onHistory = { screen = WalletScreen.HISTORY },
             onSettings = { screen = WalletScreen.SETTINGS },
         )
         WalletScreen.RECEIVE -> ReceiveScreen(repository, onBack = { screen = WalletScreen.HOME })
         WalletScreen.SEND -> SendScreen(repository, activity, onBack = { screen = WalletScreen.HOME })
-        WalletScreen.ACTIVITY -> ActivityScreen(repository, onBack = { screen = WalletScreen.HOME })
+        WalletScreen.ACTIVITY -> ServerActivityScreen(repository, onBack = { screen = WalletScreen.HOME })
+        WalletScreen.HISTORY -> TransactionHistoryScreen(repository, onBack = { screen = WalletScreen.HOME })
         WalletScreen.SETTINGS -> SettingsScreen(
             repository = repository,
             activity = activity,
@@ -188,12 +199,11 @@ private fun ScreenFrame(title: String, onBack: (() -> Unit)? = null, content: @C
 
 @Composable
 private fun BrandMark(modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier.size(96.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text("S", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Black)
-    }
+    Image(
+        painter = painterResource(R.drawable.sudharma_logo),
+        contentDescription = "Sudharma Network logo",
+        modifier = modifier.size(96.dp),
+    )
 }
 
 @Composable
@@ -371,35 +381,35 @@ private fun HomeScreen(
     onReceive: () -> Unit,
     onSend: () -> Unit,
     onActivity: () -> Unit,
+    onHistory: () -> Unit,
     onSettings: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val account = remember { runCatching { repository.account() }.getOrNull() }
     var balance by remember { mutableStateOf("—") }
-    var status by remember { mutableStateOf("Connecting…") }
-    var faucetMessage by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf(if (repository.preferences.rpcUrl.isBlank()) "RPC not configured" else "Connecting…") }
+    var recentActivity by remember { mutableStateOf<List<WalletActivityItem>>(emptyList()) }
     var faucetInfo by remember { mutableStateOf<TestnetFaucetClient.Info?>(null) }
+    var faucetMessage by remember { mutableStateOf("") }
     var faucetLoading by remember { mutableStateOf(false) }
 
     fun refresh() {
+        if (repository.preferences.rpcUrl.isBlank()) { status = "RPC not configured"; return }
         scope.launch {
             runCatching { repository.balance() }
                 .onSuccess { balance = it.amount.formatted(); status = "Connected" }
                 .onFailure { status = it.message ?: "Offline" }
+            runCatching { repository.activityHistory() }
+                .onSuccess { recentActivity = it.take(5) }
         }
     }
-
-    fun refreshFaucet() {
-        scope.launch {
+    LaunchedEffect(repository.preferences.rpcUrl) {
+        refresh()
+        if (repository.preferences.rpcUrl.isNotBlank()) {
             runCatching { repository.faucetInfo() }
                 .onSuccess { faucetInfo = it }
                 .onFailure { faucetInfo = null }
         }
-    }
-
-    LaunchedEffect(repository.preferences.rpcUrl) {
-        refresh()
-        refreshFaucet()
     }
 
     ScreenFrame("Sudharma Wallet") {
@@ -421,27 +431,29 @@ private fun HomeScreen(
 
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Sudharma Testnet Faucet", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text("New testers can request one initial ${faucetInfo?.initialGrantSudh ?: 100} SUDH test grant. Test SUDH has no monetary value.")
+                Text("Sudharma Testnet Tokens", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("Need test coins? Request the current testnet grant directly to this wallet. Test SUDH has no monetary value.")
                 Button(
                     enabled = faucetInfo?.enabled == true && account != null && !faucetLoading,
                     onClick = {
                         faucetLoading = true
-                        faucetMessage = "Submitting test-token request…"
+                        faucetMessage = "Requesting test SUDH…"
                         scope.launch {
                             runCatching { repository.requestInitialTestTokens() }
-                                .onSuccess {
-                                    faucetMessage = "${it.amountSudh} Test SUDH submitted. Transaction: ${it.transactionId.take(12)}…"
+                                .onSuccess { grant ->
+                                    faucetMessage = "${grant.amountSudh} Test SUDH request submitted. TX: ${grant.transactionId.take(12)}…"
                                     refresh()
                                 }
-                                .onFailure { faucetMessage = it.message ?: "Unable to request test tokens" }
+                                .onFailure { failure ->
+                                    faucetMessage = failure.message ?: "Unable to request test SUDH"
+                                }
                             faucetLoading = false
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text(if (faucetLoading) "Requesting…" else "Request ${faucetInfo?.initialGrantSudh ?: 100} Test SUDH") }
+                ) { Text(if (faucetLoading) "Requesting…" else "Request Test SUDH") }
                 if (faucetInfo?.enabled != true) {
-                    Text("Faucet is currently unavailable. The wallet will enable this automatically when the protected testnet faucet is online.", style = MaterialTheme.typography.bodySmall)
+                    Text("The protected testnet faucet is currently unavailable. This action enables automatically when the service is online.", style = MaterialTheme.typography.bodySmall)
                 }
                 if (faucetMessage.isNotEmpty()) Text(faucetMessage, style = MaterialTheme.typography.bodySmall)
             }
@@ -455,8 +467,24 @@ private fun HomeScreen(
             }
         }
         HorizontalDivider()
+        Text("Recent history", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        if (recentActivity.isEmpty()) {
+            Text("No transactions yet. Send or receive SUDH to see history here.", style = MaterialTheme.typography.bodySmall)
+        } else {
+            recentActivity.forEach { item ->
+                TransactionHistoryCard(item)
+            }
+            TextButton(onClick = onHistory) { Text("View all history") }
+        }
+        HorizontalDivider()
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(onClick = onActivity) { Text("Activity") }
+            WalletPrimaryDestinations.activityAndHistory.forEach { destination ->
+                when (destination) {
+                    WalletScreen.ACTIVITY -> TextButton(onClick = onActivity) { Text("Activity") }
+                    WalletScreen.HISTORY -> TextButton(onClick = onHistory) { Text("History") }
+                    else -> error("Unsupported primary wallet destination: $destination")
+                }
+            }
             TextButton(onClick = onSettings) { Text("Settings") }
         }
     }
@@ -493,14 +521,14 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
     var recipient by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
     var challengeMode by remember { mutableStateOf(false) }
+    var challengeInfo by remember { mutableStateOf<TestnetFaucetClient.Info?>(null) }
+    var challengeMessage by remember { mutableStateOf("") }
+    var claiming by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf(false) }
     var pin by remember { mutableStateOf("") }
     var error by remember { mutableStateOf("") }
     var result by remember { mutableStateOf<TransactionStatus?>(null) }
     var sending by remember { mutableStateOf(false) }
-    var challengeInfo by remember { mutableStateOf<TestnetFaucetClient.Info?>(null) }
-    var challengeMessage by remember { mutableStateOf("") }
-    var claiming by remember { mutableStateOf(false) }
 
     LaunchedEffect(repository.preferences.rpcUrl) {
         runCatching { repository.faucetInfo() }
@@ -531,7 +559,7 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
     fun performSend() {
         sending = true; error = ""
         scope.launch {
-            runCatching { repository.send(recipient, amount) }
+            runCatching { repository.send(recipient, amount, challengeMode = challengeMode) }
                 .onSuccess { result = it }
                 .onFailure { error = it.message ?: "Transaction failed" }
             sending = false
@@ -542,8 +570,10 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
         TestnetBadge()
         result?.let {
             Text("Transaction accepted", style = MaterialTheme.typography.titleLarge)
-            Text(it.id, style = MaterialTheme.typography.bodySmall)
-            Text("Status: ${it.state}")
+            DetailRow(label = "Amount", value = "-$amount SUDH")
+            DetailRow(label = "Sent to", value = recipient)
+            DetailRow(label = "Status", value = it.state.name)
+            TransactionReferenceActions(it.id)
             if (challengeMode) {
                 Text("Challenge payment submitted. The 50 Test SUDH reward can be claimed after this transaction is confirmed.")
                 Button(
@@ -554,7 +584,9 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
                         scope.launch {
                             runCatching {
                                 val latest = repository.transactionStatus(it.id)
-                                require(latest.state == TransactionState.CONFIRMED) { "Transaction is not confirmed yet. Try again after the next testnet block." }
+                                require(latest.state == TransactionState.CONFIRMED) {
+                                    "Transaction is not confirmed yet. Try again after the next testnet block."
+                                }
                                 repository.claimChallengeReward(it.id)
                             }.onSuccess { reward ->
                                 challengeMessage = "Round ${reward.round} complete — ${reward.rewardSudh} Test SUDH reward submitted."
@@ -565,9 +597,12 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text(if (claiming) "Checking…" else "Check Confirmation & Claim ${challengeInfo?.challengeRewardSudh ?: 50} Test SUDH") }
+                ) {
+                    Text(if (claiming) "Checking…" else "Check Confirmation & Claim ${challengeInfo?.challengeRewardSudh ?: 50} Test SUDH")
+                }
                 if (challengeMessage.isNotEmpty()) Text(challengeMessage, style = MaterialTheme.typography.bodySmall)
             }
+            Text("Saved to Activity. Refresh Home to update confirmations.", style = MaterialTheme.typography.bodySmall)
             Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Done") }
             return@ScreenFrame
         }
@@ -592,37 +627,32 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
                     Text("TESTNET ONLY — NO MONETARY VALUE", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                 }
             }
-
             if (challengeMode) {
-                Text("Challenge mode", fontWeight = FontWeight.Bold)
-                OutlinedTextField(recipient, {}, readOnly = true, label = { Text("Official challenge address") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(amount, {}, readOnly = true, label = { Text("Challenge amount (SUDH)") }, modifier = Modifier.fillMaxWidth())
-                TextButton(onClick = { challengeMode = false; recipient = ""; amount = "" }) { Text("Switch to normal Send") }
-            } else {
-                OutlinedTextField(recipient, { recipient = it.trim() }, label = { Text("Recipient address") }, modifier = Modifier.fillMaxWidth())
-                OutlinedButton(onClick = {
-                    when (
-                        ScannerPermissionState.next(
-                            ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) ==
-                                PackageManager.PERMISSION_GRANTED,
-                        )
-                    ) {
-                        ScannerAction.OPEN_SCANNER -> scanner.launch(
-                            ScanOptions().setPrompt("Scan Sudharma address")
-                                .setBeepEnabled(false)
-                                .setOrientationLocked(false),
-                        )
-                        ScannerAction.REQUEST_PERMISSION -> cameraPermission.launch(Manifest.permission.CAMERA)
-                    }
-                }, modifier = Modifier.fillMaxWidth()) { Text("Scan QR") }
-                OutlinedTextField(
-                    amount,
-                    { amount = it },
-                    label = { Text("Amount (SUDH)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                Text("Challenge mode — official address and 25 SUDH amount are prefilled.", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
             }
+            OutlinedTextField(recipient, { recipient = it.trim(); challengeMode = false }, label = { Text("Recipient address") }, modifier = Modifier.fillMaxWidth())
+            OutlinedButton(onClick = {
+                when (
+                    ScannerPermissionState.next(
+                        ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) ==
+                            PackageManager.PERMISSION_GRANTED,
+                    )
+                ) {
+                    ScannerAction.OPEN_SCANNER -> scanner.launch(
+                        ScanOptions().setPrompt("Scan Sudharma address")
+                            .setBeepEnabled(false)
+                            .setOrientationLocked(false),
+                    )
+                    ScannerAction.REQUEST_PERMISSION -> cameraPermission.launch(Manifest.permission.CAMERA)
+                }
+            }, modifier = Modifier.fillMaxWidth()) { Text("Scan QR") }
+            OutlinedTextField(
+                amount,
+                { amount = it; challengeMode = false },
+                label = { Text("Amount (SUDH)") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.fillMaxWidth(),
+            )
             if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error)
             Button(onClick = {
                 error = ""
@@ -636,7 +666,7 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
             val fee = runCatching { SudharmaTransaction.calculateFee(atomic) }.getOrDefault(0)
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (challengeMode) Text("Testnet Challenge", fontWeight = FontWeight.Bold)
+                    if (challengeMode) Text("Testnet Challenge — Send 25 / Receive 50", fontWeight = FontWeight.Bold)
                     Text("Recipient: ${recipient.take(10)}…${recipient.takeLast(8)}")
                     Text("Amount: $amount SUDH")
                     Text("Fee: ${formatAtomic(fee)} SUDH")
@@ -661,30 +691,190 @@ private fun SendScreen(repository: SudharmaWalletRepository, activity: FragmentA
 }
 
 @Composable
-private fun ActivityScreen(repository: SudharmaWalletRepository, onBack: () -> Unit) {
+private fun ServerActivityScreen(repository: SudharmaWalletRepository, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
-    var statuses by remember { mutableStateOf<List<TransactionStatus>>(emptyList()) }
-    var message by remember { mutableStateOf("") }
+    var server by remember { mutableStateOf<SudharmaRpcClient.Status?>(null) }
+    var connection by remember { mutableStateOf(if (repository.preferences.rpcUrl.isBlank()) "RPC not configured" else "Checking…") }
+    var serverLog by remember { mutableStateOf("No server check has completed yet.") }
+    var lastRefreshMs by remember { mutableStateOf<Long?>(null) }
+
     fun refresh() {
+        if (repository.preferences.rpcUrl.isBlank()) {
+            server = null
+            connection = "RPC not configured"
+            serverLog = "No RPC endpoint is configured for this wallet."
+            lastRefreshMs = System.currentTimeMillis()
+            return
+        }
+        connection = "Checking…"
         scope.launch {
-            runCatching { repository.transactionStatuses() }
-                .onSuccess { statuses = it; message = if (it.isEmpty()) "No submitted transactions yet." else "" }
-                .onFailure { message = it.message ?: "Unable to load activity" }
+            runCatching { repository.serverStatus() }
+                .onSuccess {
+                    server = it
+                    connection = "Connected"
+                    serverLog = "Connected to ${it.network} RPC. Height ${it.height}, ${it.peers} peer(s), ${it.mempool} transaction(s) in mempool."
+                    lastRefreshMs = System.currentTimeMillis()
+                }
+                .onFailure {
+                    server = null
+                    connection = "Offline / unavailable"
+                    serverLog = it.message ?: "Unable to read server status"
+                    lastRefreshMs = System.currentTimeMillis()
+                }
         }
     }
-    LaunchedEffect(Unit) { refresh() }
+
+    LaunchedEffect(repository.preferences.rpcUrl) { refresh() }
+
     ScreenFrame("Activity", onBack) {
         TestnetBadge()
-        OutlinedButton(onClick = { refresh() }) { Text("Refresh") }
-        if (message.isNotEmpty()) Text(message)
-        statuses.forEach { tx ->
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp)) {
-                    Text(tx.id.take(14) + "…" + tx.id.takeLast(8), fontWeight = FontWeight.Medium)
-                    Text(tx.state.name)
-                    if (tx.state == TransactionState.CONFIRMED) Text("Confirmations: ${tx.confirmations}")
+        Text("Server & network activity", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("Live connection details for the Sudharma Testnet RPC used by this wallet.", style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick = { refresh() }) { Text("Refresh server status") }
+        DetailRow(label = "Connection", value = connection)
+        DetailRow(label = "RPC endpoint", value = repository.preferences.rpcUrl.ifBlank { "Not configured" })
+        server?.let {
+            DetailRow(label = "Network", value = "${it.network} (${it.symbol})")
+            DetailRow(label = "Chain height", value = it.height.toString())
+            DetailRow(label = "Peers", value = it.peers.toString())
+            DetailRow(label = "Mempool", value = it.mempool.toString())
+            DetailRow(label = "Tip hash", value = it.tipHash.ifBlank { "—" })
+            DetailRow(label = "Issued supply", value = "${formatAtomic(it.issuedSupply)} SUDH")
+        }
+        lastRefreshMs?.let { DetailRow(label = "Last refresh", value = TransactionDetailFormatter.timestampLabel(it)) }
+        HorizontalDivider()
+        Text("Server log", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Card(Modifier.fillMaxWidth()) {
+            Text(serverLog, modifier = Modifier.padding(14.dp), style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun TransactionHistoryScreen(repository: SudharmaWalletRepository, onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var items by remember { mutableStateOf<List<WalletActivityItem>>(emptyList()) }
+    var selected by remember { mutableStateOf<WalletActivityItem?>(null) }
+    var message by remember { mutableStateOf("") }
+
+    fun refresh() {
+        if (repository.preferences.rpcUrl.isBlank()) {
+            message = "Configure Testnet RPC in Settings first."
+            return
+        }
+        scope.launch {
+            runCatching { repository.activityHistory() }
+                .onSuccess {
+                    items = it
+                    message = if (it.isEmpty()) "No transactions yet." else ""
                 }
+                .onFailure { message = it.message ?: "Unable to load history" }
+        }
+    }
+
+    LaunchedEffect(Unit) { refresh() }
+
+    BackHandler(enabled = selected != null) {
+        selected = null
+    }
+
+    selected?.let { item ->
+        TransactionDetailScreen(item = item, onBack = { selected = null })
+        return
+    }
+
+    ScreenFrame("History", onBack) {
+        TestnetBadge()
+        Text("Sent and received transactions are sorted newest first. Tap any record for full transaction details.", style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick = { refresh() }) { Text("Refresh history") }
+        if (message.isNotEmpty()) Text(message)
+        items.forEach { item ->
+            TransactionHistoryCard(item = item, onOpen = { selected = item })
+        }
+    }
+}
+
+@Composable
+private fun TransactionHistoryCard(item: WalletActivityItem, onOpen: () -> Unit = {}) {
+    val record = item.record
+    Card(Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(TransactionDetailFormatter.directionLabel(record.direction), fontWeight = FontWeight.Bold)
+                Text(item.state.name)
             }
+            DetailRow(
+                label = "Amount",
+                value = if (TransactionDetailFormatter.hasKnownAmount(record)) {
+                    TransactionDetailFormatter.amountLabel(record.direction, record.amountAtomic)
+                } else {
+                    "Unavailable"
+                },
+            )
+            DetailRow(label = "Date & time", value = TransactionDetailFormatter.timestampLabel(record.timestampMs))
+            Text("Tap to view full transaction details", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+@Composable
+private fun TransactionDetailScreen(item: WalletActivityItem, onBack: () -> Unit) {
+    val detail = TransactionDetailPresentation.from(item)
+    val context = LocalContext.current
+    ScreenFrame("Transaction Details", onBack) {
+        TestnetBadge()
+        DetailRow(label = "Direction", value = detail.direction)
+        DetailRow(label = "Amount", value = detail.amount)
+        DetailRow(label = detail.counterpartyLabel, value = detail.counterparty)
+        detail.networkFee?.let { DetailRow(label = "Network fee", value = it) }
+        DetailRow(label = "Network", value = "Sudharma Testnet")
+        DetailRow(label = "Status", value = detail.status)
+        DetailRow(label = "Date & time", value = detail.dateTime)
+        if (item.state == TransactionState.CONFIRMED) {
+            DetailRow(label = "Confirmations", value = detail.confirmations.toString())
+        }
+        TransactionReferenceActions(detail.transactionId)
+        OutlinedButton(
+            onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(detail.explorerUrl))) },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("View on Explorer ↗") }
+    }
+}
+
+@Composable
+private fun DetailRow(label: String, value: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+private fun TransactionReferenceActions(transactionId: String) {
+    val context = LocalContext.current
+    val explorerUrl = ExplorerLinks.transactionUrl(transactionId)
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("TX ID — tap to verify in Explorer", style = MaterialTheme.typography.labelMedium)
+        SelectionContainer {
+            Text(
+                transactionId,
+                modifier = Modifier.clickable {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(explorerUrl)))
+                },
+                style = MaterialTheme.typography.bodySmall.copy(
+                    color = MaterialTheme.colorScheme.primary,
+                    textDecoration = TextDecoration.Underline,
+                ),
+            )
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Sudharma transaction ID", transactionId))
+            }, modifier = Modifier.weight(1f)) { Text("Copy TX ID") }
+            OutlinedButton(onClick = {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(ExplorerLinks.transactionUrl(transactionId))))
+            }, modifier = Modifier.weight(1f)) { Text("Open Explorer ↗") }
         }
     }
 }
@@ -705,20 +895,13 @@ private fun SettingsScreen(
         }
         OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) { Text("Sudharma Mainnet — unavailable until launch") }
 
-        Text("Testnet connection", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Text("Automatically managed by Sudharma Wallet")
-        Text(repository.preferences.rpcUrl, style = MaterialTheme.typography.bodySmall)
-        if (BuildConfig.DEBUG) {
-            OutlinedTextField(rpc, { rpc = it }, label = { Text("Debug RPC override") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-            Button(onClick = {
-                runCatching { repository.preferences.rpcUrl = rpc }
-                    .onSuccess {
-                        rpc = repository.preferences.rpcUrl
-                        message = "Debug RPC override saved."
-                    }
-                    .onFailure { message = it.message ?: "Invalid RPC URL" }
-            }, modifier = Modifier.fillMaxWidth()) { Text("Save debug override") }
-        }
+        Text("Testnet RPC", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        OutlinedTextField(rpc, { rpc = it }, label = { Text("https://…") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        Button(onClick = {
+            runCatching { repository.preferences.rpcUrl = rpc }
+                .onSuccess { message = if (rpc.isBlank()) "RPC cleared." else "Testnet RPC saved." }
+                .onFailure { message = it.message ?: "Invalid RPC URL" }
+        }, modifier = Modifier.fillMaxWidth()) { Text("Save RPC") }
 
         Text("Security", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         OutlinedButton(onClick = onBackup, modifier = Modifier.fillMaxWidth()) { Text("Back up recovery phrase") }
@@ -769,5 +952,3 @@ private fun BackupScreen(repository: SudharmaWalletRepository, onBack: () -> Uni
         }
     }
 }
-
-private fun formatAtomic(value: Long): String = BigDecimal.valueOf(value).movePointLeft(8).setScale(8).toPlainString()

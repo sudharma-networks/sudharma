@@ -49,6 +49,21 @@ class SudharmaRpcClient(
         val blockHeight: Long?,
         val blockHash: String?,
         val confirmations: Long,
+        val transaction: RemoteTransaction? = null,
+    )
+
+    data class RemoteTransaction(
+        @Json(name = "ID") val id: String,
+        @Json(name = "From") val from: String,
+        @Json(name = "To") val to: String,
+        @Json(name = "Amount") val amount: Long,
+        @Json(name = "Fee") val fee: Long,
+        @Json(name = "Nonce") val nonce: Long,
+    )
+
+    data class Block(
+        val height: Long,
+        val transactions: List<RemoteTransaction>,
     )
 
     suspend fun status(): Status {
@@ -88,7 +103,23 @@ class SudharmaRpcClient(
         require(transactionId.matches(Regex("^[0-9a-f]{64}$"))) { "invalid transaction ID" }
         val url = root.newBuilder().addPathSegments("v1/transactions").addPathSegment(transactionId).build()
         val dto = execute(Request.Builder().url(url).get().build(), TransactionStatusDto::class.java)
-        return RemoteTransactionStatus(dto.status, dto.blockHeight, dto.blockHash, dto.confirmations)
+        return RemoteTransactionStatus(
+            status = dto.status,
+            blockHeight = dto.blockHeight,
+            blockHash = dto.blockHash,
+            confirmations = dto.confirmations,
+            transaction = dto.transaction?.toRemote(),
+        )
+    }
+
+    suspend fun block(height: Long): Block {
+        require(height >= 0L) { "invalid block height" }
+        val url = root.newBuilder().addPathSegments("v1/blocks").addPathSegment(height.toString()).build()
+        val dto = execute(Request.Builder().url(url).get().build(), BlockDto::class.java)
+        return Block(
+            height = dto.height,
+            transactions = dto.transactions.orEmpty().map { it.toRemote() },
+        )
     }
 
     private suspend fun <T> get(path: String, type: Class<T>): T {
@@ -194,6 +225,13 @@ class SudharmaRpcClient(
         @Json(name = "block_height") val blockHeight: Long? = null,
         @Json(name = "block_hash") val blockHash: String? = null,
         val confirmations: Long = 0,
+        val transaction: TransactionWire? = null,
+    )
+
+    @JsonClass(generateAdapter = false)
+    data class BlockDto(
+        val height: Long,
+        val transactions: List<TransactionWire>? = null,
     )
 
     @JsonClass(generateAdapter = false)
@@ -207,7 +245,9 @@ class SudharmaRpcClient(
         @Json(name = "Amount") val amount: Long,
         @Json(name = "Fee") val fee: Long,
         @Json(name = "Nonce") val nonce: Long,
-        @Json(name = "PublicKey") val publicKey: String,
-        @Json(name = "Signature") val signature: String,
-    )
+        @Json(name = "PublicKey") val publicKey: String? = null,
+        @Json(name = "Signature") val signature: String? = null,
+    ) {
+        fun toRemote(): RemoteTransaction = RemoteTransaction(id, from, to, amount, fee, nonce)
+    }
 }

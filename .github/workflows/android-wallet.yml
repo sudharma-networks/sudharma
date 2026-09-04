@@ -7,6 +7,7 @@ on:
     paths:
       - 'mobile/android/**'
       - '.github/workflows/android-wallet.yml'
+      - '.github/workflows/android-wallet-publish.yml'
       - 'docs/superpowers/specs/2026-08-25-android-wallet-v0.1.md'
       - 'docs/superpowers/plans/2026-08-25-android-wallet-v0.1.md'
   pull_request:
@@ -15,6 +16,7 @@ on:
     paths:
       - 'mobile/android/**'
       - '.github/workflows/android-wallet.yml'
+      - '.github/workflows/android-wallet-publish.yml'
   workflow_dispatch:
 
 permissions:
