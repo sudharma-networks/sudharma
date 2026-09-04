@@ -167,7 +167,7 @@ func (a *rehearsalAPI) issueChallengeLocked() (stagingChallenge, *blockchain.Blo
 	target := pow.TargetFromDifficulty(difficulty)
 	var targetBytes [32]byte
 	target.FillBytes(targetBytes[:])
-	programSeed := pow.GPUV1ProgramSeed(height)
+	programSeed := pow.GPUV1ProgramSeed(pow.GPUV1ProgramForHeight(height))
 	epochSeed := pow.GPUV1EpochSeed(pow.GPUV1EpochForHeight(height))
 
 	challenge := stagingChallenge{
