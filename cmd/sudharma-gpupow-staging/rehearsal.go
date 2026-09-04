@@ -51,7 +51,11 @@ func newMainnetRehearsalAPI(targetBlocks uint64) (*rehearsalAPI, error) {
 	}
 
 	policy := blockchain.PoWPolicy{GPUV1ActivationHeight: 1}
-	chain, err := newValidationOnlyMainnetChain(policy, pow.NewChainProofVerifier(policy))
+	verifier, err := pow.NewChainProofVerifier(policy)
+	if err != nil {
+		return nil, fmt.Errorf("construct mainnet rehearsal proof verifier: %w", err)
+	}
+	chain, err := newValidationOnlyMainnetChain(policy, verifier)
 	if err != nil {
 		return nil, err
 	}
