@@ -126,7 +126,7 @@ func TestMainnetRehearsalMinesAndAcceptsAtLeast25KhushiBlocks(t *testing.T) {
 		if challenge.CacheNodes != pow.GPUV1ProductionCacheNodes {
 			t.Fatalf("challenge cache_nodes=%d want production=%d", challenge.CacheNodes, pow.GPUV1ProductionCacheNodes)
 		}
-		programSeed := pow.GPUV1ProgramSeed(height)
+		programSeed := pow.GPUV1ProgramSeed(pow.GPUV1ProgramForHeight(height))
 		epoch := pow.GPUV1EpochForHeight(height)
 		epochSeed := pow.GPUV1EpochSeed(epoch)
 		if challenge.ProgramSeed != hex.EncodeToString(programSeed[:]) || challenge.EpochSeed != hex.EncodeToString(epochSeed[:]) {
