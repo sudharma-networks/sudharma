@@ -1,0 +1,42 @@
+KHUSHI HARDWARE TEST v0.2.1
+============================
+
+Purpose
+-------
+This package collects exact-revision physical GPU interoperability evidence for
+Sudharma's Khushi / sudharma-gpupow-v1 algorithm after consensus reconciliation.
+It does not activate GPU-PoW on any network, does not create blocks, and does not
+connect to Sudharma seed nodes.
+
+Safety boundary
+---------------
+The bundled staging verifier binds only to 127.0.0.1:28646. The verifier issues
+small deterministic-contract challenges and checks GPU-produced nonces with the
+current Go reference verifier. Mainnet/testnet activation policy is unchanged.
+Completing this package does NOT automatically complete the physical evidence gate.
+
+How to run on Windows
+---------------------
+1. Extract the entire ZIP to a normal folder.
+2. Double-click Run-GPU-Test.bat.
+3. Choose NVIDIA CUDA or OpenCL and the GPU device index.
+4. The runner performs canonical vector checks, production-memory checks,
+   autotuning, a 60-second selected-profile benchmark, and localhost staging
+   verification.
+5. Keep the generated khushi-staging-evidence-* directory and the root
+   khushi-hardware-test-launcher.log for review.
+
+A successful transcript must contain:
+  local-staging-gate=accepted
+
+Required physical evidence before the project gate can be considered complete:
+- NVIDIA RTX 2060 (or the specifically requested NVIDIA evidence device) with the
+  full localhost staging gate accepted on this exact package revision.
+- A physical AMD/non-NVIDIA OpenCL GPU with at least 4 GiB dedicated VRAM, passing
+  vector, production-memory, benchmark, and localhost staging acceptance.
+
+Provenance
+----------
+Check PACKAGE-METADATA.txt and SHA256MANIFEST.txt in the package root. Each backend
+also contains build-metadata.txt and SHA256SUMS.txt. The source_revision values must
+match the exact GitHub revision used to build the package.
