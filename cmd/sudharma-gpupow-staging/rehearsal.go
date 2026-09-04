@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"sync"
 
@@ -50,8 +51,7 @@ func newMainnetRehearsalAPI(targetBlocks uint64) (*rehearsalAPI, error) {
 	}
 
 	policy := blockchain.PoWPolicy{GPUV1ActivationHeight: 1}
-	verifier := pow.NewChainProofVerifier(policy)
-	chain, err := newValidationOnlyMainnetChain(policy, verifier)
+	chain, err := newValidationOnlyMainnetChain(policy, pow.NewChainProofVerifier(policy))
 	if err != nil {
 		return nil, err
 	}
@@ -64,8 +64,7 @@ func newMainnetRehearsalAPI(targetBlocks uint64) (*rehearsalAPI, error) {
 }
 
 func newValidationOnlyMainnetChain(policy blockchain.PoWPolicy, verifier blockchain.ProofVerifier) (*blockchain.Chain, error) {
-	genesis := blockchain.NewMainnetGenesisBlock()
-	encoded, err := json.Marshal([]*blockchain.Block{genesis})
+	encoded, err := json.Marshal([]*blockchain.Block{blockchain.NewMainnetGenesisBlock()})
 	if err != nil {
 		return nil, fmt.Errorf("encode mainnet rehearsal genesis: %w", err)
 	}
@@ -96,33 +95,13 @@ func newValidationOnlyMainnetChain(policy blockchain.PoWPolicy, verifier blockch
 	return chain, nil
 }
 
-func (a *rehearsalAPI) handler() httpHandler {
-	mux := newHTTPServeMux()
+func (a *rehearsalAPI) handler() http.Handler {
+	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/mining/staging/challenge", a.handleChallenge)
 	mux.HandleFunc("/v1/mining/staging/submit", a.handleSubmit)
 	mux.HandleFunc("/v1/mining/staging/status", a.handleStatus)
 	return mux
 }
-
-// Small aliases keep the rehearsal implementation testable without changing the
-// legacy staging endpoint surface.
-type httpHandler interface {
-	ServeHTTP(responseWriter, *request)
-}
-
-type responseWriter interface {
-	Header() header
-	Write([]byte) (int, error)
-	WriteHeader(statusCode int)
-}
-
-type header interface {
-	Set(key, value string)
-}
-
-type request = http.Request
-
-func newHTTPServeMux() *http.ServeMux { return http.NewServeMux() }
 
 func (a *rehearsalAPI) handleChallenge(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -175,7 +154,6 @@ func (a *rehearsalAPI) issueChallengeLocked() (stagingChallenge, *blockchain.Blo
 	if len(header) < 8 {
 		return stagingChallenge{}, nil, fmt.Errorf("candidate header is too short")
 	}
-	headerPrefix := header[:len(header)-8]
 
 	var idBytes [16]byte
 	if _, err := rand.Read(idBytes[:]); err != nil {
@@ -192,7 +170,7 @@ func (a *rehearsalAPI) issueChallengeLocked() (stagingChallenge, *blockchain.Blo
 		ChallengeID:  hex.EncodeToString(idBytes[:]),
 		Algorithm:    pow.GPUV1AlgorithmID,
 		Staging:      true,
-		HeaderPrefix: hex.EncodeToString(headerPrefix),
+		HeaderPrefix: hex.EncodeToString(header[:len(header)-8]),
 		Target:       hex.EncodeToString(targetBytes[:]),
 		Height:       height,
 		CacheNodes:   pow.GPUV1ProductionCacheNodes,
