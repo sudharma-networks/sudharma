@@ -4,6 +4,7 @@ cd /d "%~dp0"
 set "LOG=%~dp0khushi-hardware-test-launcher.log"
 set "CONSOLE_LOG=%~dp0khushi-hardware-test-console.log"
 >"%LOG%" echo Khushi Hardware Test v0.2.2 launcher
+>>"%LOG%" echo Compatibility lineage: Khushi Hardware Test v0.2.1
 >>"%LOG%" echo Protocol: sudharma-gpupow-v1
 >>"%LOG%" echo Local verifier: 127.0.0.1:28646 only
 >>"%LOG%" echo Mainnet rehearsal blocks: 50
@@ -11,6 +12,7 @@ set "CONSOLE_LOG=%~dp0khushi-hardware-test-console.log"
 
 echo ============================================================
 echo Khushi Hardware Test v0.2.2
+echo Compatibility lineage: Khushi Hardware Test v0.2.1
 echo Protocol: sudharma-gpupow-v1
 echo 50-block isolated mainnet-policy mining rehearsal
 echo Public mainnet launch and mining remain OFF.
