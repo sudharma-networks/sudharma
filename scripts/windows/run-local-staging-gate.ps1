@@ -33,6 +33,7 @@ if ([string]::IsNullOrWhiteSpace($MinerPath)) {
 }
 
 $MinerPath = (Resolve-Path $MinerPath).Path
+$MinerDir = Split-Path -Parent $MinerPath
 $VerifierName = Split-Path -Leaf $VerifierPath
 $ChecksumPath = Join-Path $BundleDir "SHA256SUMS.txt"
 $MetadataPath = Join-Path $BundleDir "build-metadata.txt"
@@ -69,6 +70,7 @@ Write-Host "staging_binding=localhost-only"
 Write-Host "seed-services=untouched"
 Write-Host "public_mainnet_launch=disabled"
 Write-Host "public_mainnet_mining=disabled"
+Write-Host "consensus_activation=disabled"
 Write-Host "evidence_directory=$EvidenceDir"
 Write-Host "rehearsal_blocks=$RehearsalBlocks"
 
@@ -122,7 +124,13 @@ try {
         "-EvidenceDirectory", $EvidenceDir,
         "-RehearsalBlocks", $RehearsalBlocks
     )
-    & $HardwareScript @hardwareArgs
+    Push-Location $MinerDir
+    try {
+        & $HardwareScript @hardwareArgs
+    }
+    finally {
+        Pop-Location
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "Local hardware staging gate failed with exit code $LASTEXITCODE"
     }
@@ -163,6 +171,7 @@ finally {
         "rehearsal_blocks=$RehearsalBlocks",
         "public_mainnet_launch=disabled",
         "public_mainnet_mining=disabled",
+        "consensus_activation=disabled",
         "block_creation=$blockCreation",
         "public_chain_submission=none",
         "seed_services=untouched",
