@@ -1,0 +1,65 @@
+KHUSHI HARDWARE TEST v0.2.2
+============================
+
+Purpose
+-------
+This package validates the Sudharma Khushi / sudharma-gpupow-v1 miner on a
+physical Windows GPU and then runs a 50-block isolated mainnet-policy mining
+rehearsal against the same-revision Go consensus verifier.
+
+Safety boundary
+---------------
+- The verifier binds only to 127.0.0.1:28646.
+- MainnetLaunchAuthorized remains false.
+- MainnetMiningAuthorized remains false.
+- Public mainnet GPU activation remains disabled.
+- Seed-1/Seed-2, AWS, DNS, keys and public RPC are not modified.
+- The 50 blocks exist only in the in-memory/local validation rehearsal.
+- No block is submitted to a public chain.
+- A successful run does not automatically set PhysicalGPUMiningEvidenceComplete.
+
+How to run
+----------
+Double-click Run-GPU-Test.bat.
+
+Choose:
+  1 = NVIDIA CUDA
+  2 = OpenCL (AMD / compatible non-NVIDIA GPU)
+
+Select the GPU device index. The launcher performs:
+1. packaged SHA-256 verification
+2. GPU discovery
+3. canonical Khushi hardware vector
+4. production 4 GiB+ memory/chunk allocation gate
+5. production dataset boundary vectors
+6. 60-second benchmark
+7. 50 sequential production-consensus Khushi nonce searches
+8. same-revision Go node validation/acceptance of every rehearsal block
+
+Success marker
+--------------
+The transcript must contain:
+
+  mainnet-rehearsal=accepted accepted_blocks=50
+
+and the final status must report completed=true and chain_height=50.
+
+Debugging / window behavior
+---------------------------
+The launcher never closes itself after success or failure. It waits for a key
+press. Copy the visible error text or send these files for diagnosis:
+
+  khushi-hardware-test-launcher.log
+  khushi-hardware-test-console.log
+
+Keep the generated khushi-staging-evidence-* directory. It contains the full
+hardware transcript, verifier logs, checksums, build metadata, each challenge,
+GPU nonce solution, submit result, final rehearsal status and SHA-256 manifest.
+
+Physical evidence gate
+----------------------
+For the project gate, retain genuine results from:
+- NVIDIA RTX 2060 (or the required NVIDIA reference device), and
+- physical AMD/non-NVIDIA OpenCL GPU with at least 4 GiB dedicated VRAM.
+
+CI compilation or an Actions artifact is not physical GPU evidence.

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sudharma-networks/sudharma/params"
 	"github.com/sudharma-networks/sudharma/pow"
 )
 
@@ -24,6 +25,7 @@ const (
 	stagingCacheNodes    = uint32(8)
 )
 
+// Mainnet rehearsal mode also exposes GET /v1/mining/staging/status via rehearsalAPI.
 var stagingTarget = [32]byte{
 	0x0f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -39,6 +41,8 @@ type stagingChallenge struct {
 	Target       string `json:"target"`
 	Height       uint64 `json:"height"`
 	CacheNodes   uint32 `json:"cache_nodes"`
+	ProgramSeed  string `json:"program_seed,omitempty"`
+	EpochSeed    string `json:"epoch_seed,omitempty"`
 }
 
 type stagingSubmission struct {
@@ -184,10 +188,29 @@ func validateListenAddress(address string) error {
 
 func main() {
 	listenAddress := flag.String("listen", defaultListenAddress, "localhost-only staging verifier listen address")
+	mainnetRehearsal := flag.Bool("mainnet-rehearsal", false, "run isolated production-consensus mainnet mining rehearsal; public mainnet remains off")
+	rehearsalBlocks := flag.Uint64("rehearsal-blocks", 50, "number of isolated mainnet rehearsal blocks (minimum 25)")
 	flag.Parse()
 
 	if err := validateListenAddress(*listenAddress); err != nil {
 		log.Fatal(err)
+	}
+
+	var handler http.Handler
+	if *mainnetRehearsal {
+		api, err := newMainnetRehearsalAPI(*rehearsalBlocks)
+		if err != nil {
+			log.Fatal(err)
+		}
+		handler = api.handler()
+		log.Printf(
+			"Khushi mainnet rehearsal armed locally only: network=%s blocks=%d cache_nodes=%d; public mainnet launch/mining remain disabled",
+			params.NetworkMainnet,
+			*rehearsalBlocks,
+			pow.GPUV1ProductionCacheNodes,
+		)
+	} else {
+		handler = newStagingAPI().handler()
 	}
 
 	listener, err := net.Listen("tcp", *listenAddress)
@@ -197,14 +220,14 @@ func main() {
 	defer listener.Close()
 
 	server := &http.Server{
-		Handler:           newStagingAPI().handler(),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       30 * time.Second,
 	}
 
-	log.Printf("Khushi localhost staging verifier listening on %s; consensus activation disabled; block creation none", listener.Addr().String())
+	log.Printf("Khushi localhost staging verifier listening on %s; consensus activation disabled on public networks", listener.Addr().String())
 	if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
