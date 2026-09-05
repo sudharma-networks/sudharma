@@ -112,6 +112,7 @@ if (-not [string]::IsNullOrWhiteSpace($EvidenceDirectory)) {
 }
 
 Start-Transcript -Path $LogPath | Out-Null
+Push-Location $MinerDir
 try {
     Write-Host "Khushi Algorithm hardware interoperability test"
     Write-Host "miner=$MinerPath"
@@ -274,6 +275,7 @@ try {
     }
 }
 finally {
+    Pop-Location
     Stop-Transcript | Out-Null
     Write-Host "hardware_test_log=$LogPath"
 }
